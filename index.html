@@ -3,13 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Projects:</title>
+    <meta name="description" content="Discover Ken's creative projects portfolio: artistic photography at Flickers of Majesty, cruise planning tips at Cruising in the Wake, and a welcoming Florida church community at Lakeview Fellowship Church. Explore inspiration, voyages, and faith.">
+    <meta name="keywords" content="creative projects portfolio, artistic photography, cruise planning resources, Florida church community, personal projects hub">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://ken-baker.com/">
+    <!-- Open Graph for Social Sharing -->
+    <meta property="og:title" content="Ken's Creative Projects: Photography, Cruise Insights & Faith Community">
+    <meta property="og:description" content="A hub for evocative art, seafaring wisdom, and spiritual fellowship. Dive into timeless voyages of the spirit and sea.">
+    <meta property="og:image" content="https://ken-baker.com/frenchpolynesia-1.jpeg">
+    <meta property="og:url" content="https://ken-baker.com/">
+    <title>Ken's Creative Projects Portfolio: Artistic Photography, Cruise Planning & Florida Church Community</title>
     <style>
         body {
             margin: 0;
             padding: 0;
             font-family: 'Georgia', serif;
-            background-image: url('https://jsschrstrcks1.github.io/ken/frenchpolynesia-1.jpeg');
+            background-image: url('https://frenchpolynesia-1.jpeg');
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -75,6 +84,7 @@
             border-radius: 5px;
             font-weight: bold;
             transition: background 0.3s ease;
+            margin: 5px;
         }
         .card a:hover {
             background: #5a9fd4;
@@ -115,41 +125,72 @@
             }
         }
     </style>
+    <!-- Schema Markup for CreativeWork Collection -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CreativeWork",
+      "name": "Ken's Creative Projects Portfolio",
+      "description": "A curated collection of personal projects blending art, travel, and faith: artistic photography, cruise planning resources, and a welcoming church community.",
+      "author": {
+        "@type": "Person",
+        "name": "Ken"
+      },
+      "hasPart": [
+        {
+          "@type": "CreativeWork",
+          "name": "Flickers of Majesty",
+          "url": "https://flickersofmajesty.com",
+          "description": "Evocative artistic photography capturing divine light and everyday wonders."
+        },
+        {
+          "@type": "CreativeWork",
+          "name": "Cruising in the Wake",
+          "url": "https://cruisinginthewake.com",
+          "description": "Practical cruise planning tips, ship reviews, and voyage insights for seamless seafaring."
+        },
+        {
+          "@type": "CreativeWork",
+          "name": "Lakeview Fellowship Church",
+          "url": "https://lakeviewfellowshipchurch.com",
+          "description": "A welcoming Florida church community focused on faith, fellowship, and service."
+        }
+      ]
+    }
+    </script>
     <script defer src="https://cloud.umami.is/script.js" data-website-id="79826319-9c8a-48bb-9a09-4256f99c1a83"></script>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-5HXKXD7P2Q"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-5HXKXD7P2Q');
-</script>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-5HXKXD7P2Q"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-5HXKXD7P2Q');
+    </script>
 </head>
-
 <body>
     <div class="overlay">
-        <h1>My Projects:</h1>
+        <h1>Ken's Creative Projects: A Portfolio of Art, Adventure, and Faith</h1>
         <div class="container">
             <div class="card">
-                <h2>Flickers of Majesty</h2>
-                <p>Evocative glimpses of majesty, where light dances upon the canvas of creation, inviting contemplation of the divine in the everyday wonders of our world.</p>
-                <a href="https://flickersofmajesty.com">Explore the Light on our Website. </a> <br><br>
-                <a href="https://www.instagram.com/flickersofmajesty/">Join us on Social Media. </a>
+                <h2>Flickers of Majesty: Artistic Photography</h2>
+                <p>Evocative glimpses of majesty in artistic photography, where light dances upon the canvas of creation, inviting contemplation of the divine in everyday wonders.</p>
+                <a href="https://flickersofmajesty.com">Explore Artistic Photography</a><br><br>
+                <a href="https://www.instagram.com/flickersofmajesty/">Follow on Instagram</a>
             </div>
             <div class="card">
-                <h2>Cruising in the Wake</h2>
-                <p>In the tranquil wake of seasoned voyages, discover a haven of curated insights for your seafaring journey. Let the waves of uncertainty subside as practical wisdom charts a course to effortless horizons.</p>
-                <a href="https://cruisinginthewake.com">Set Sail</a>
+                <h2>Cruising in the Wake: Cruise Planning Resources</h2>
+                <p>In the tranquil wake of seasoned voyages, discover curated cruise planning resources, ship reviews, dining tips, port guides, and accessibility advice for effortless seafaring adventures.</p>
+                <a href="https://cruisinginthewake.com">Access Cruise Planning Tips</a>
             </div>
             <div class="card">
-                <h2>Lakeview Fellowship Church</h2>
-                <p>A welcoming community of faith in Hudson, Florida, where we seek to take strangers and make family. </p>
-                <a href="https://lakeviewfellowshipchurch.com">Join the Fellowship</a><br><br>
-                <a href="https://www.facebook.com/LakeviewFellowshipChurch/">Join our community online</a>
+                <h2>Lakeview Fellowship Church: Florida Faith Community</h2>
+                <p>A welcoming Florida church community in Hudson, where we seek to take strangers and make family through worship, events, and heartfelt service.</p>
+                <a href="https://lakeviewfellowshipchurch.com">Join Our Church Fellowship</a><br><br>
+                <a href="https://www.facebook.com/LakeviewFellowshipChurch/">Connect on Facebook</a>
             </div>
             <div class="card contact">
-                <h2>Contact Us</h2>
+                <h2>Contact Ken for Project Inquiries</h2>
                 <form action="mailto:ken@flickersofmajesty.com" method="post" enctype="text/plain">
                     <div class="form-group">
                         <input type="text" name="name" placeholder="Your Name" required>
