@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Projects: A Nautical Journey of Discovery</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Georgia', serif;
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/2/2b/Blue_Ocean_water.jpg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+        .overlay {
+            background: rgba(255, 255, 255, 0.1);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #ffffff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            font-size: 2.5em;
+            margin-bottom: 40px;
+            font-style: italic;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+            max-width: 1200px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #4682b4;
+            border-radius: 15px;
+            padding: 25px;
+            width: 280px;
+            text-align: center;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 24px rgba(70, 130, 180, 0.3);
+        }
+        .card h2 {
+            color: #4682b4;
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #b0c4de;
+            padding-bottom: 10px;
+        }
+        .card p {
+            font-size: 1em;
+            margin-bottom: 20px;
+            color: #34495e;
+        }
+        .card a {
+            display: inline-block;
+            background: #4682b4;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background 0.3s ease;
+        }
+        .card a:hover {
+            background: #5a9fd4;
+        }
+        .contact .form-group {
+            margin-bottom: 15px;
+        }
+        .contact input, .contact textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #b0c4de;
+            border-radius: 5px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        .contact button {
+            width: 100%;
+            background: #4682b4;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 5px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+        .contact button:hover {
+            background: #5a9fd4;
+        }
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay">
+        <h1>Embark on Timeless Voyages of the Spirit and Sea</h1>
+        <div class="container">
+            <div class="card">
+                <h2>Flickers of Majesty</h2>
+                <p>Evocative glimpses of majesty, where light dances upon the canvas of creation, inviting contemplation of the divine in the everyday wonders of our world.</p>
+                <a href="https://flickersofmajesty.com">Explore the Light</a>
+            </div>
+            <div class="card">
+                <h2>Cruising in the Wake</h2>
+                <p>In the tranquil wake of seasoned voyages, discover a haven of curated insights for your seafaring journey. Let the waves of uncertainty subside as practical wisdom charts a course to effortless horizons.</p>
+                <a href="https://cruisinginthewake.com">Set Sail</a>
+            </div>
+            <div class="card">
+                <h2>Lakeview Fellowship Church</h2>
+                <p>A welcoming community of faith in Hudson, Florida, where worship, events, and heartfelt service unite us in pursuing Christ, loving others, and giving back with grace.</p>
+                <a href="https://lakeviewfellowshipchurch.com">Join the Fellowship</a>
+            </div>
+            <div class="card contact">
+                <h2>Contact Us</h2>
+                <form action="mailto:ken@flickersofmajesty.com" method="post" enctype="text/plain">
+                    <div class="form-group">
+                        <input type="text" name="name" placeholder="Your Name" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="email" name="email" placeholder="Your Email" required>
+                    </div>
+                    <div class="form-group">
+                        <textarea name="message" placeholder="Your Message" rows="4" required></textarea>
+                    </div>
+                    <button type="submit">Send Message</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
