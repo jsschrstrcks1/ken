@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /https://jsschrstrcks.github.io/ken/index.html
+
+Sitemap: https://jsschrstrcks.github.io/ken/sitemap.xml
