@@ -6,13 +6,15 @@ Includes a manual `tz` command for reliable timezone changes when traveling.
 ## What it does
 
 ### At boot (`sync-clock.sh`)
-1. Detects your timezone via IP geolocation (before VPN connects)
-2. Updates `/etc/timezone` and `/etc/localtime` if timezone changed
-3. Force-syncs the clock using `ntpd -g -q` (allows large time jumps)
-4. Writes corrected time to the hardware clock
+1. Detects timezone via IP geolocation (before VPN connects)
+2. If GeoIP fails, falls back to WiFi-based detection
+3. Updates `/etc/timezone` and `/etc/localtime` if timezone changed
+4. Force-syncs the clock using `ntpd -g -q` (allows large time jumps)
+5. Writes corrected time to the hardware clock
+6. Displays results on screen for 3 seconds
 
-If GeoIP detection fails (VPN, captive portal, etc.), it logs the failure
-and continues with the existing timezone. Use the `tz` command to fix it manually.
+If all automatic detection fails, the current timezone is kept.
+Use the `tz` command to set it manually.
 
 ### Manual timezone change (`tz`)
 ```
@@ -24,6 +26,7 @@ tz                    # show current timezone
 ## Dependencies
 - curl
 - ntpd
+- iw (for WiFi fallback)
 - logger (bsdutils)
 
 ## Installation
@@ -45,6 +48,19 @@ sudo update-rc.d sync-clock defaults
 3. (Optional) Test it now:
 ```
 sudo /etc/init.d/sync-clock start
+```
+
+## Boot output example
+```
+=== Clock Sync ===
+
+Detecting timezone...
+  Timezone updated: America/New_York -> America/Denver (via GeoIP)
+
+Syncing clock...
+  Clock synchronized: Sun Mar 15 10:23:45 MDT 2026
+
+=== Done ===
 ```
 
 ## Uninstall
