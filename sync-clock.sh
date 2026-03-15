@@ -2,13 +2,13 @@
 set -euo pipefail
 
 GEO_URL="https://worldtimeapi.org/api/ip"
-WIFI_IFACE="wlan0"
+GEO_FALLBACK_URL="https://ipapi.co/timezone"
 
 # --- Timezone Detection Functions ---
 
 detect_tz_schedule() {
     # Method 0: Check pre-loaded schedule (e.g. cruise itinerary)
-    /usr/local/bin/tz schedule check 2>/dev/null
+    /usr/local/bin/tz schedule check --query 2>/dev/null
 }
 
 detect_tz_geoip() {
@@ -16,23 +16,9 @@ detect_tz_geoip() {
     curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+'
 }
 
-detect_tz_wifi() {
-    # Method 2: WiFi BSSID scan -> alternate IP geolocation provider
-    local wifi_json
-
-    # Get BSSIDs and signal levels from nearby WiFi networks
-    wifi_json=$(iw dev "$WIFI_IFACE" scan 2>/dev/null | awk '
-        /^BSS / { mac = $2; sub(/:?$/, "", mac) }
-        /signal:/ { signal = $2; printf "{\"macAddress\":\"%s\",\"signalStrength\":%s}\n", mac, signal }
-    ' | head -5)
-
-    if [ -z "$wifi_json" ]; then
-        return 1
-    fi
-
-    # WiFi-based services (Mozilla Location) are discontinued,
-    # so we use a different IP geolocation provider as second opinion
-    curl -s --max-time 5 "https://ipapi.co/timezone"
+detect_tz_geoip_fallback() {
+    # Method 2: Alternate GeoIP provider as second opinion
+    curl -s --max-time 5 "$GEO_FALLBACK_URL"
 }
 
 set_timezone() {
@@ -83,12 +69,12 @@ if [ "$TZ_SET" = false ]; then
     fi
 fi
 
-# Priority 3: WiFi-based fallback
+# Priority 3: GeoIP fallback (alternate provider)
 if [ "$TZ_SET" = false ]; then
-    logger "sync-clock: GeoIP failed, trying WiFi detection"
-    echo "  GeoIP failed, trying WiFi scan..."
-    if TZ=$(detect_tz_wifi) && [ -n "$TZ" ]; then
-        if set_timezone "$TZ" "WiFi"; then
+    logger "sync-clock: primary GeoIP failed, trying fallback"
+    echo "  Primary GeoIP failed, trying fallback..."
+    if TZ=$(detect_tz_geoip_fallback) && [ -n "$TZ" ]; then
+        if set_timezone "$TZ" "GeoIP-fallback"; then
             TZ_SET=true
         fi
     fi
