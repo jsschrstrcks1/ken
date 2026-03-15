@@ -1,67 +1,73 @@
 # Clock Sync + Timezone Detection (Devuan/SysVinit)
 
 Automatically syncs the system clock and detects timezone at boot and wake.
-Includes a `tz` command with 1200+ cruise port lookup and itinerary scheduling.
+Includes a `tz` command with 1200+ cruise port lookup, fuzzy matching, and trip scheduling.
 
 ## What it does
 
 ### At boot and wake (`sync-clock.sh`)
-1. Checks timezone schedule (cruise itinerary) — no network needed
-2. Falls back to IP geolocation (before VPN connects)
+1. Checks timezone schedule (trip itinerary) — no network needed
+2. Falls back to IP geolocation (with caching and confidence check)
 3. Falls back to alternate GeoIP provider
 4. Force-syncs the clock using `ntpd -g -q` (with retry)
-5. Displays results on screen for 3 seconds
 
 ### The `tz` command
 
-**Set timezone by city name (1200+ ports):**
+**Check status:**
+```
+tz
+```
+```
+14:32  America/New_York  (UTC-05:00)
+
+Trip:  tokyo -> los angeles
+Source: schedule
+Next:  May 28 -> America/Los_Angeles (los angeles)
+```
+
+**Set timezone by city name:**
 ```
 tz tampa
 tz cabo san lucas
 tz barcelona
-tz santorini
 ```
 
-**Detect timezone from network (no reboot needed):**
+Fuzzy matching suggests corrections:
+```
+$ tz tamapa
+'tamapa' not recognized.
+Did you mean:
+  tz tampa                     (America/New_York)
+```
+
+**Detect timezone from network:**
 ```
 tz here
 ```
 
-**Show current timezone state and diagnostics:**
+**Plan a trip:**
 ```
-tz explain
+tz trip start 2027-05-12 tokyo
+tz shimizu
+tz nagoya
+tz osaka
+tz +kobe                       # same day as osaka
+tz sea
+tz sea
+tz los angeles
 ```
 
-**Search for timezones:**
-```
-tz list caribbean
-tz list mediterranean
-tz list alaska
-```
-
-**Build a cruise itinerary:**
-```
-tz cruise start 2027-05-12
-tz cruise tokyo
-tz cruise shimizu
-tz cruise nagoya
-tz cruise osaka
-tz cruise osaka
-tz cruise +kobe              # same day as osaka
-tz cruise sea
-tz cruise sea
-tz cruise sea
-tz cruise los angeles
-tz cruise end
-```
+When a trip is active, `tz <city>` adds to the itinerary instead of
+changing the timezone immediately. The schedule auto-compiles on every
+change. No `end` command needed (though `tz trip end` is available).
 
 Auto-SEA inference inserts sea days when the timezone changes between ports.
 Use `+port` for same-day ports (e.g. Osaka and Kobe on the same calendar day).
-Use explicit `tz cruise sea` for multi-day ocean crossings.
+Use `tz sea` for explicit sea days.
 
 **Load itinerary from a file:**
 ```
-tz cruise load ~/cruises/japan-2027.txt
+tz trip load ~/cruises/japan-2027.txt
 ```
 
 File format (first line = start date, then one port per line):
@@ -71,44 +77,31 @@ tokyo
 shimizu
 nagoya
 osaka
-osaka
 +kobe
-sea
 sea
 sea
 los angeles
 ```
 
-This produces a schedule that auto-applies the correct timezone each morning:
+**Search for cities:**
 ```
-DATE         TIMEZONE                     NOTE
-----         --------                     ----
-2027-05-12   Asia/Tokyo                   tokyo
-2027-05-13   Asia/Tokyo                   shimizu
-2027-05-14   Asia/Tokyo                   nagoya
-2027-05-15   Asia/Tokyo                   osaka
-2027-05-16   Asia/Tokyo                   osaka
-2027-05-16   Asia/Tokyo                   kobe (same day)
-2027-05-17   Asia/Tokyo                   SEA
-2027-05-18   Asia/Tokyo                   SEA
-2027-05-19   Asia/Tokyo                   SEA
-...
-2027-05-28   America/Los_Angeles          los angeles
+tz list caribbean
+tz list mediterranean
+```
+
+**Remove a mistake:**
+```
+tz undo
 ```
 
 **Other schedule commands:**
 ```
-tz schedule                  # show schedule
+tz schedule                    # show schedule
 tz schedule add <date> <city>  # add single entry
-tz schedule clear            # remove all entries
-tz undo                      # remove last entry
+tz schedule clear              # remove all entries
 ```
 
-**Manual timezone change:**
-```
-tz America/Denver
-tz                           # show current timezone
-```
+Old schedule entries are automatically pruned.
 
 ## Dependencies
 - curl
