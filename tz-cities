@@ -1,215 +1,1593 @@
-# City-to-timezone mapping for the tz command
-# Format: city_name|timezone
-# City names are lowercase for matching. Multiple names can map to the same timezone.
-# Add your own entries at the bottom.
+# City-to-timezone mapping for cruise port timezone tool
+# Format: portname|IANA_timezone
+# Port names are lowercase for fuzzy matching. Multiple entries per port.
 
-# --- US Cities ---
+# ============================================================
+# UNITED STATES - East Coast
+# ============================================================
 new york|America/New_York
+new-york|America/New_York
 nyc|America/New_York
 miami|America/New_York
-tampa|America/New_York
 fort lauderdale|America/New_York
+fort-lauderdale|America/New_York
+ft lauderdale|America/New_York
 port canaveral|America/New_York
+port-canaveral|America/New_York
+canaveral|America/New_York
 key west|America/New_York
+key-west|America/New_York
 boston|America/New_York
 charleston|America/New_York
+charleston sc|America/New_York
+charleston-sc|America/New_York
 savannah|America/New_York
-philadelphia|America/New_York
-washington dc|America/New_York
 baltimore|America/New_York
 jacksonville|America/New_York
-atlanta|America/New_York
-detroit|America/New_York
-chicago|America/Chicago
+jacksonville florida|America/New_York
+jacksonville-florida|America/New_York
+norfolk|America/New_York
+norfolk va|America/New_York
+norfolk-va|America/New_York
+palm beach|America/New_York
+palm-beach|America/New_York
+newport|America/New_York
+newport rhode island|America/New_York
+newport-rhode-island|America/New_York
+rockland|America/New_York
+portland maine|America/New_York
+portland-maine|America/New_York
+provincetown|America/New_York
+bar harbour|America/New_York
+bar-harbour|America/New_York
+bar harbor|America/New_York
+bar-harbor|America/New_York
+wilmington|America/New_York
+wilmington delaware|America/New_York
+wilmington-delaware|America/New_York
+
+# US - Gulf Coast
 new orleans|America/Chicago
+new-orleans|America/Chicago
 galveston|America/Chicago
-houston|America/Chicago
-dallas|America/Chicago
-minneapolis|America/Chicago
-nashville|America/Chicago
-denver|America/Denver
-phoenix|America/Phoenix
-salt lake city|America/Denver
+galveston texas|America/Chicago
+galveston-texas|America/Chicago
+tampa|America/New_York
+
+# US - West Coast
 los angeles|America/Los_Angeles
+los-angeles|America/Los_Angeles
 la|America/Los_Angeles
 san francisco|America/Los_Angeles
+san-francisco|America/Los_Angeles
+sf|America/Los_Angeles
 san diego|America/Los_Angeles
+san-diego|America/Los_Angeles
 seattle|America/Los_Angeles
-portland|America/Los_Angeles
-las vegas|America/Los_Angeles
+monterey|America/Los_Angeles
+monterey california|America/Los_Angeles
+monterey-california|America/Los_Angeles
+santa barbara|America/Los_Angeles
+santa-barbara|America/Los_Angeles
+santa barbara ca|America/Los_Angeles
+santa-barbara-ca|America/Los_Angeles
+astoria|America/Los_Angeles
+astoria oregon|America/Los_Angeles
+astoria-oregon|America/Los_Angeles
+
+# US - Alaska
 anchorage|America/Anchorage
+anchorage whittier|America/Anchorage
+anchorage-whittier-ak|America/Anchorage
+whittier|America/Anchorage
+juneau|America/Anchorage
+juneau ak|America/Anchorage
+juneau-ak|America/Anchorage
+ketchikan|America/Anchorage
+ketchikan ak|America/Anchorage
+ketchikan-ak|America/Anchorage
+skagway|America/Anchorage
+skagway ak|America/Anchorage
+skagway-ak|America/Anchorage
+sitka|America/Anchorage
+sitka ak|America/Anchorage
+sitka-ak|America/Anchorage
+icy strait point|America/Anchorage
+icy-strait-point|America/Anchorage
+icy-strait-point-ak|America/Anchorage
+haines|America/Anchorage
+haines ak|America/Anchorage
+haines-ak|America/Anchorage
+seward|America/Anchorage
+seward ak|America/Anchorage
+seward-ak|America/Anchorage
+kodiak|America/Anchorage
+kodiak ak|America/Anchorage
+kodiak-ak|America/Anchorage
+nome|America/Nome
+nome ak|America/Nome
+nome-ak|America/Nome
+wrangell|America/Anchorage
+
+# US - Hawaii
 honolulu|Pacific/Honolulu
 hawaii|Pacific/Honolulu
-juneau|America/Anchorage
+hilo|Pacific/Honolulu
+hilo hawaii|Pacific/Honolulu
+hilo-hawaii|Pacific/Honolulu
+kahului|Pacific/Honolulu
+kahului maui|Pacific/Honolulu
+kahului-maui-hawaii|Pacific/Honolulu
+maui|Pacific/Honolulu
+nawiliwili|Pacific/Honolulu
+nawiliwili kauai|Pacific/Honolulu
+nawiliwili-kauai-hawaii|Pacific/Honolulu
+kauai|Pacific/Honolulu
+kona|Pacific/Honolulu
+kona hawaii|Pacific/Honolulu
+kona-hawaii|Pacific/Honolulu
+lahaina|Pacific/Honolulu
+lahaina maui|Pacific/Honolulu
+lahaina-maui-hawaii|Pacific/Honolulu
 
-# --- Mexico ---
-ensenada|America/Tijuana
+# US - Pacific Territories
+guam|Pacific/Guam
+pago pago|Pacific/Pago_Pago
+pago-pago|Pacific/Pago_Pago
+saipan|Pacific/Guam
+
+# ============================================================
+# CANADA
+# ============================================================
+vancouver|America/Vancouver
+vancouver canada|America/Vancouver
+vancouver-canada|America/Vancouver
+victoria bc|America/Vancouver
+victoria-bc|America/Vancouver
+nanaimo|America/Vancouver
+prince rupert|America/Vancouver
+prince-rupert|America/Vancouver
+prince-rupert-bc|America/Vancouver
+alert bay|America/Vancouver
+alert-bay|America/Vancouver
+alert-bay-bc|America/Vancouver
+montreal|America/Toronto
+quebec|America/Toronto
+quebec city|America/Toronto
+halifax|America/Halifax
+sydney cape breton|America/Halifax
+sydney-cape-breton|America/Halifax
+cape breton|America/Halifax
+baddeck|America/Halifax
+baddeck cape breton|America/Halifax
+baddeck-cape-breton|America/Halifax
+charlottetown|America/Halifax
+charlottetown pei|America/Halifax
+charlottetown-pei|America/Halifax
+saint john new brunswick|America/Halifax
+saint-john-new-brunswick|America/Halifax
+saint johns newfoundland|America/St_Johns
+saint-johns-newfoundland|America/St_Johns
+st johns newfoundland|America/St_Johns
+corner brook|America/St_Johns
+corner-brook|America/St_Johns
+corner-brook-newfoundland|America/St_Johns
+baie comeau|America/Toronto
+baie-comeau|America/Toronto
+gaspe|America/Toronto
+saint pierre miquelon|America/Miquelon
+saint-pierre-miquelon|America/Miquelon
+st pierre|America/Miquelon
+bonne bay|America/St_Johns
+bonne-bay|America/St_Johns
+
+# ============================================================
+# MEXICO
+# ============================================================
 cabo san lucas|America/Mazatlan
+cabo-san-lucas|America/Mazatlan
 cabo|America/Mazatlan
+ensenada|America/Tijuana
 mazatlan|America/Mazatlan
 puerto vallarta|America/Bahia_Banderas
+puerto-vallarta|America/Bahia_Banderas
+vallarta|America/Bahia_Banderas
 cozumel|America/Cancun
-cancun|America/Cancun
-playa del carmen|America/Cancun
-progreso|America/Merida
 costa maya|America/Cancun
+costa-maya|America/Cancun
+playa del carmen|America/Cancun
+playa-del-carmen|America/Cancun
+progreso|America/Merida
+acapulco|America/Mexico_City
+huatulco|America/Mexico_City
+zihuatanejo|America/Mexico_City
+manzanillo|America/Mexico_City
+calica|America/Cancun
+loreto|America/Mazatlan
+la paz|America/Mazatlan
+la-paz|America/Mazatlan
+puerto chiapas|America/Mexico_City
+puerto-chiapas|America/Mexico_City
 
-# --- Caribbean ---
+# ============================================================
+# CARIBBEAN
+# ============================================================
 nassau|America/Nassau
 bahamas|America/Nassau
-cococay|America/Nassau
 freeport|America/Nassau
+half moon cay|America/Nassau
+half-moon-cay|America/Nassau
+cococay|America/Nassau
+coco cay|America/Nassau
+coco-cay|America/Nassau
+great stirrup cay|America/Nassau
+great-stirrup-cay|America/Nassau
+castaway cay|America/Nassau
+castaway-cay|America/Nassau
+ocean cay|America/Nassau
+ocean-cay|America/Nassau
+celebrationkey|America/Nassau
+celebration key|America/Nassau
+princess cay|America/Nassau
+princess-cay|America/Nassau
+eleuthera|America/Nassau
+bimini|America/Nassau
 san juan|America/Puerto_Rico
+san-juan|America/Puerto_Rico
+san juan pr|America/Puerto_Rico
+san-juan-pr|America/Puerto_Rico
 puerto rico|America/Puerto_Rico
+ponce|America/Puerto_Rico
+saint thomas|America/Virgin
+saint-thomas|America/Virgin
+saint thomas usvi|America/Virgin
+saint-thomas-usvi|America/Virgin
 st thomas|America/Virgin
+saint john usvi|America/Virgin
+saint-john|America/Virgin
+saint-john-usvi|America/Virgin
+st john usvi|America/Virgin
+frederiksted|America/Virgin
+frederiksted saint croix|America/Virgin
+frederiksted-saint-croix|America/Virgin
 st croix|America/Virgin
+philipsburg|America/Lower_Princes
+philipsburg sint maarten|America/Lower_Princes
+philipsburg-sint-maarten|America/Lower_Princes
 st maarten|America/Lower_Princes
-st martin|America/Marigot
+sint maarten|America/Lower_Princes
 aruba|America/Aruba
+oranjestad|America/Aruba
 curacao|America/Curacao
 bonaire|America/Kralendijk
+bridgetown|America/Barbados
 barbados|America/Barbados
-jamaica|America/Jamaica
 montego bay|America/Jamaica
+montego-bay|America/Jamaica
 ocho rios|America/Jamaica
-falmouth|America/Jamaica
+ocho-rios|America/Jamaica
+falmouth jamaica|America/Jamaica
+falmouth-jamaica|America/Jamaica
+jamaica|America/Jamaica
 grand cayman|America/Cayman
-cayman islands|America/Cayman
+georgetown grand cayman|America/Cayman
+georgetown-grand-cayman|America/Cayman
+cayman brac|America/Cayman
+cayman-brac|America/Cayman
 antigua|America/Antigua
+saint johns antigua|America/Antigua
+saint-johns-antigua|America/Antigua
+saint johns|America/Antigua
+saint-johns|America/Antigua
+st johns antigua|America/Antigua
+saint lucia|America/St_Lucia
+saint-lucia|America/St_Lucia
 st lucia|America/St_Lucia
+castries|America/St_Lucia
+saint lucia castries|America/St_Lucia
+saint-lucia/castries|America/St_Lucia
+saint george grenada|America/Grenada
+saint-george|America/Grenada
+saint-george-grenada|America/Grenada
 grenada|America/Grenada
+roseau|America/Dominica
 dominica|America/Dominica
+fort de france|America/Martinique
+fort-de-france|America/Martinique
 martinique|America/Martinique
+pointe a pitre|America/Guadeloupe
+pointe-a-pitre|America/Guadeloupe
 guadeloupe|America/Guadeloupe
-trinidad|America/Port_of_Spain
-tobago|America/Port_of_Spain
+deshaies|America/Guadeloupe
+grand turk|America/Grand_Turk
+grand-turk|America/Grand_Turk
 turks and caicos|America/Grand_Turk
 bermuda|Atlantic/Bermuda
+hamilton bermuda|Atlantic/Bermuda
+hamilton-bermuda|Atlantic/Bermuda
 tortola|America/Tortola
+roadtown|America/Tortola
+roadtown tortola|America/Tortola
+roadtown-tortola|America/Tortola
+tortola roadtown|America/Tortola
+tortola/roadtown|America/Tortola
 bvi|America/Tortola
-usvi|America/Virgin
-virgin islands|America/Virgin
+anegada|America/Tortola
 santo domingo|America/Santo_Domingo
+santo-domingo|America/Santo_Domingo
 dominican republic|America/Santo_Domingo
+la romana|America/Santo_Domingo
+la-romana|America/Santo_Domingo
+amber cove|America/Santo_Domingo
+amber-cove|America/Santo_Domingo
+samana bay|America/Santo_Domingo
+samana-bay|America/Santo_Domingo
+samana|America/Santo_Domingo
+punta cana|America/Santo_Domingo
+punta-cana|America/Santo_Domingo
 labadee|America/Port-au-Prince
 haiti|America/Port-au-Prince
+havana|America/Havana
+cuba|America/Havana
+santiago de cuba|America/Havana
+santiago-de-cuba|America/Havana
+cienfuegos|America/Havana
+cayo coco|America/Havana
+cayo-coco|America/Havana
 roatan|America/Tegucigalpa
+harvest cay|America/Belize
+harvest-cay|America/Belize
 harvest caye|America/Belize
 belize|America/Belize
+basseterre|America/St_Kitts
+st kitts|America/St_Kitts
+kingstown|America/St_Vincent
+st vincent|America/St_Vincent
+bequia|America/St_Vincent
+canouan|America/St_Vincent
+carriacou|America/Grenada
+montserrat|America/Montserrat
+gustavia|America/St_Barthelemy
+st barts|America/St_Barthelemy
+saba|America/Lower_Princes
+barbuda|America/Antigua
+port of spain|America/Port_of_Spain
+port-of-spain|America/Port_of_Spain
+trinidad|America/Port_of_Spain
+tobago|America/Port_of_Spain
+cabo rojo|America/Santo_Domingo
+cabo-rojo|America/Santo_Domingo
+boqueron|America/Puerto_Rico
+san andres|America/Bogota
+san-andres|America/Bogota
+andros island|America/Nassau
+andros-island|America/Nassau
 
-# --- Central America ---
-costa rica|America/Costa_Rica
+# ============================================================
+# CENTRAL AMERICA
+# ============================================================
+panama canal|America/Panama
+panama-canal|America/Panama
 panama|America/Panama
 colon|America/Panama
+fuerte amador|America/Panama
+fuerte-amador|America/Panama
+costa rica|America/Costa_Rica
+puntarenas|America/Costa_Rica
+puerto caldera|America/Costa_Rica
+puerto-caldera|America/Costa_Rica
+golfito|America/Costa_Rica
+bahia culebra|America/Costa_Rica
+bahia-culebra|America/Costa_Rica
+puerto limon|America/Costa_Rica
+puerto-limon|America/Costa_Rica
+bocas del toro|America/Panama
+bocas-del-toro|America/Panama
 guatemala|America/Guatemala
+puerto quetzal|America/Guatemala
+puerto-quetzal|America/Guatemala
 honduras|America/Tegucigalpa
+corinto|America/Managua
+san juan del sur|America/Managua
+san-juan-del-sur|America/Managua
+acajutla|America/El_Salvador
 
-# --- South America ---
+# ============================================================
+# SOUTH AMERICA - East Coast
+# ============================================================
+cartagena de indias|America/Bogota
+cartagena-de-indias|America/Bogota
+cartagena colombia|America/Bogota
+cartagena-de-indias-colombia|America/Bogota
 cartagena|America/Bogota
 colombia|America/Bogota
+santa marta|America/Bogota
+santa-marta|America/Bogota
 buenos aires|America/Argentina/Buenos_Aires
+buenos-aires|America/Argentina/Buenos_Aires
 rio de janeiro|America/Sao_Paulo
+rio-de-janeiro|America/Sao_Paulo
 rio|America/Sao_Paulo
+santos|America/Sao_Paulo
 sao paulo|America/Sao_Paulo
-santiago|America/Santiago
-lima|America/Lima
-valparaiso|America/Santiago
+salvador de bahia|America/Bahia
+salvador-de-bahia|America/Bahia
+salvador|America/Bahia
+recife|America/Recife
+fortaleza|America/Fortaleza
+natal|America/Recife
+belem|America/Belem
+manaus|America/Manaus
+macapa|America/Belem
+santarem|America/Santarem
+alter do chao|America/Santarem
+alter-do-chao|America/Santarem
+boca do valeria|America/Manaus
+boca-do-valeria|America/Manaus
+angra dos reis|America/Sao_Paulo
+angra-dos-reis|America/Sao_Paulo
+armacao dos buzios|America/Sao_Paulo
+armacao-dos-buzios|America/Sao_Paulo
+buzios|America/Sao_Paulo
+arraial do cabo|America/Sao_Paulo
+arraial-do-cabo|America/Sao_Paulo
+cabo frio|America/Sao_Paulo
+cabo-frio|America/Sao_Paulo
+camboriu|America/Sao_Paulo
+florianopolis|America/Sao_Paulo
+maceio|America/Maceio
+paranagua|America/Sao_Paulo
+parati|America/Sao_Paulo
+sao tome|Africa/Sao_Tome
+montevideo|America/Montevideo
+punta del este|America/Montevideo
+punta-del-este|America/Montevideo
+mar del plata|America/Argentina/Buenos_Aires
+mar-del-plata|America/Argentina/Buenos_Aires
+paramaribo|America/Paramaribo
+port stanley|Atlantic/Stanley
+port-stanley|Atlantic/Stanley
+port stanley falklands|Atlantic/Stanley
+port-stanley-falklands|Atlantic/Stanley
+falklands|Atlantic/Stanley
+puerto madryn|America/Argentina/Buenos_Aires
+puerto-madryn|America/Argentina/Buenos_Aires
 
-# --- Mediterranean ---
+# South America - West Coast
+lima|America/Lima
+callao|America/Lima
+callao lima|America/Lima
+callao-lima|America/Lima
+santiago|America/Santiago
+valparaiso|America/Santiago
+san antonio chile|America/Santiago
+san-antonio-chile|America/Santiago
+san-antonio|America/Santiago
+coquimbo|America/Santiago
+punta arenas|America/Punta_Arenas
+punta-arenas|America/Punta_Arenas
+puerto montt|America/Santiago
+puerto-montt|America/Santiago
+castro chiloe|America/Santiago
+castro-chiloe|America/Santiago
+castro|America/Santiago
+ancud|America/Santiago
+ushuaia|America/Argentina/Ushuaia
+puerto williams|America/Punta_Arenas
+puerto-williams|America/Punta_Arenas
+cape horn|America/Punta_Arenas
+cape-horn|America/Punta_Arenas
+arica|America/Lima
+antofagasta|America/Santiago
+iquique|America/Santiago
+pisco|America/Lima
+guayaquil|America/Guayaquil
+manta|America/Guayaquil
+iquitos|America/Lima
+
+# South America - Other
+mormugao goa|Asia/Kolkata
+mormugao-goa|Asia/Kolkata
+
+# ============================================================
+# WESTERN EUROPE - Iberian Peninsula
+# ============================================================
 barcelona|Europe/Madrid
 spain|Europe/Madrid
 malaga|Europe/Madrid
+palma de majorca|Europe/Madrid
+palma-de-majorca|Europe/Madrid
 palma|Europe/Madrid
+majorca|Europe/Madrid
+mallorca|Europe/Madrid
 ibiza|Europe/Madrid
+alicante|Europe/Madrid
+almeria|Europe/Madrid
+cadiz|Europe/Madrid
+cartagena spain|Europe/Madrid
+cartagena-spain|Europe/Madrid
+la coruna|Europe/Madrid
+la-coruna|Europe/Madrid
+bilbao|Europe/Madrid
+vigo|Europe/Madrid
+aviles|Europe/Madrid
+santander|Europe/Madrid
+tarragona|Europe/Madrid
+san sebastian|Europe/Madrid
+san-sebastian|Europe/Madrid
+palamos|Europe/Madrid
+alcudia|Europe/Madrid
+mahon|Europe/Madrid
+mahon menorca|Europe/Madrid
+mahon-menorca|Europe/Madrid
+menorca|Europe/Madrid
+lisbon|Europe/Lisbon
+portugal|Europe/Lisbon
+portimao|Europe/Lisbon
+funchal|Atlantic/Madeira
+funchal madeira|Atlantic/Madeira
+funchal-madeira|Atlantic/Madeira
+madeira|Atlantic/Madeira
+azores|Atlantic/Azores
+ponta delgada|Atlantic/Azores
+ponta-delgada|Atlantic/Azores
+horta|Atlantic/Azores
+horta faial|Atlantic/Azores
+horta-faial|Atlantic/Azores
+gibraltar|Europe/Gibraltar
+
+# ============================================================
+# WESTERN EUROPE - France
+# ============================================================
 marseille|Europe/Paris
+marseilles|Europe/Paris
 nice|Europe/Paris
+villefranche|Europe/Paris
+villefranche nice|Europe/Paris
+villefranche-nice|Europe/Paris
+cannes|Europe/Paris
+antibes|Europe/Paris
+saint tropez|Europe/Paris
+saint-tropez|Europe/Paris
+st tropez|Europe/Paris
+bordeaux|Europe/Paris
+le havre|Europe/Paris
+le-havre|Europe/Paris
+cherbourg|Europe/Paris
+rouen|Europe/Paris
+saint nazaire|Europe/Paris
+saint-nazaire|Europe/Paris
+saint malo|Europe/Paris
+saint-malo|Europe/Paris
+st malo|Europe/Paris
+sete|Europe/Paris
+toulon|Europe/Paris
+brest|Europe/Paris
 paris|Europe/Paris
 france|Europe/Paris
+
+# Corsica
+ajaccio|Europe/Paris
+ajaccio corsica|Europe/Paris
+ajaccio-corsica|Europe/Paris
+bastia|Europe/Paris
+bastia corsica|Europe/Paris
+bastia-corsica|Europe/Paris
+calvi|Europe/Paris
+calvi corsica|Europe/Paris
+calvi-corsica|Europe/Paris
+bonifacio|Europe/Paris
+bonifacio corsica|Europe/Paris
+bonifacio-corsica|Europe/Paris
+corsica|Europe/Paris
+
+# ============================================================
+# WESTERN EUROPE - Italy
+# ============================================================
 rome|Europe/Rome
+civitavecchia|Europe/Rome
+civitavecchia rome|Europe/Rome
+civitavecchia-rome|Europe/Rome
 naples|Europe/Rome
 venice|Europe/Rome
-civitavecchia|Europe/Rome
-florence|Europe/Rome
 genoa|Europe/Rome
+livorno|Europe/Rome
+florence|Europe/Rome
+la spezia|Europe/Rome
+la-spezia|Europe/Rome
+savona|Europe/Rome
+ravenna|Europe/Rome
+ancona|Europe/Rome
+bari|Europe/Rome
+brindisi|Europe/Rome
+otranto|Europe/Rome
+taranto|Europe/Rome
+amalfi|Europe/Rome
+positano|Europe/Rome
+sorrento|Europe/Rome
+capri|Europe/Rome
+portofino|Europe/Rome
+chioggia|Europe/Rome
 italy|Europe/Rome
+trieste|Europe/Rome
+triest|Europe/Rome
+
+# Sardinia
+cagliari|Europe/Rome
+cagliari sardinia|Europe/Rome
+cagliari-sardinia|Europe/Rome
+sardinia|Europe/Rome
+olbia|Europe/Rome
+olbia sardinia|Europe/Rome
+olbia-sardinia|Europe/Rome
+alghero|Europe/Rome
+alghero sardinia|Europe/Rome
+alghero-sardinia|Europe/Rome
+porto cervo|Europe/Rome
+porto-cervo|Europe/Rome
+carloforte|Europe/Rome
+
+# Sicily
+palermo|Europe/Rome
+palermo sicily|Europe/Rome
+palermo-sicily|Europe/Rome
+catania|Europe/Rome
+catania sicily|Europe/Rome
+catania-sicily|Europe/Rome
+messina|Europe/Rome
+messina sicily|Europe/Rome
+messina-sicily|Europe/Rome
+trapani|Europe/Rome
+trapani sicily|Europe/Rome
+trapani-sicily|Europe/Rome
+syracuse sicily|Europe/Rome
+syracuse-sicily|Europe/Rome
+sicily|Europe/Rome
+lipari|Europe/Rome
+
+# Monaco
+monaco|Europe/Monaco
+monte carlo|Europe/Monaco
+monte-carlo|Europe/Monaco
+monaco monte carlo|Europe/Monaco
+monaco/monte-carlo|Europe/Monaco
+
+# ============================================================
+# WESTERN EUROPE - Benelux & Germany
+# ============================================================
+amsterdam|Europe/Amsterdam
+rotterdam|Europe/Amsterdam
+vlissingen|Europe/Amsterdam
+zeebrugge|Europe/Brussels
+antwerp|Europe/Brussels
+bruges|Europe/Brussels
+hamburg|Europe/Berlin
+bremerhaven|Europe/Berlin
+warnemunde|Europe/Berlin
+kiel|Europe/Berlin
+flensburg|Europe/Berlin
+binz|Europe/Berlin
+binz rugen|Europe/Berlin
+binz-rugen|Europe/Berlin
+
+# ============================================================
+# WESTERN EUROPE - British Isles
+# ============================================================
+london|Europe/London
+london city|Europe/London
+london-city|Europe/London
+southampton|Europe/London
+dover|Europe/London
+harwich|Europe/London
+liverpool|Europe/London
+bristol|Europe/London
+portsmouth|Europe/London
+plymouth|Europe/London
+plymouth uk|Europe/London
+plymouth-uk|Europe/London
+falmouth|Europe/London
+falmouth uk|Europe/London
+falmouth-uk|Europe/London
+cardiff|Europe/London
+newcastle|Europe/London
+newcastle uk|Europe/London
+newcastle-uk|Europe/London
+edinburgh|Europe/London
+greenock|Europe/London
+greenock scotland|Europe/London
+greenock-scotland|Europe/London
+invergordon|Europe/London
+invergordon scotland|Europe/London
+invergordon-scotland|Europe/London
+dundee|Europe/London
+oban|Europe/London
+oban scotland|Europe/London
+oban-scotland|Europe/London
+stornoway|Europe/London
+stornoway scotland|Europe/London
+stornoway-scotland|Europe/London
+kirkwall|Europe/London
+kirkwall orkney|Europe/London
+kirkwall-orkney|Europe/London
+orkney|Europe/London
+lerwick|Europe/London
+lerwick shetland|Europe/London
+lerwick-shetland|Europe/London
+shetland|Europe/London
+ullapool|Europe/London
+ullapool scotland|Europe/London
+ullapool-scotland|Europe/London
+ayr|Europe/London
+ayr scotland|Europe/London
+ayr-scotland|Europe/London
+aberdeen|Europe/London
+aberdeen scotland|Europe/London
+aberdeen-scotland|Europe/London
+scotland|Europe/London
+england|Europe/London
+dublin|Europe/Dublin
+ireland|Europe/Dublin
+cobh|Europe/Dublin
+cobh cork|Europe/Dublin
+cobh-cork|Europe/Dublin
+cork|Europe/Dublin
+waterford|Europe/Dublin
+dingle|Europe/Dublin
+galway|Europe/Dublin
+belfast|Europe/London
+saint helier|Europe/Jersey
+saint-helier|Europe/Jersey
+saint helier jersey|Europe/Jersey
+saint-helier-jersey|Europe/Jersey
+jersey|Europe/Jersey
+saint peter port|Europe/Guernsey
+saint-peter-port|Europe/Guernsey
+saint peter port guernsey|Europe/Guernsey
+saint-peter-port-guernsey|Europe/Guernsey
+guernsey|Europe/Guernsey
+
+# ============================================================
+# NORTHERN EUROPE - Scandinavia
+# ============================================================
+copenhagen|Europe/Copenhagen
+denmark|Europe/Copenhagen
+arhus|Europe/Copenhagen
+aalborg|Europe/Copenhagen
+aeroskobing|Europe/Copenhagen
+skagen|Europe/Copenhagen
+stockholm|Europe/Stockholm
+sweden|Europe/Stockholm
+gothenburg|Europe/Stockholm
+visby|Europe/Stockholm
+visby gotland|Europe/Stockholm
+visby-gotland|Europe/Stockholm
+gotland|Europe/Stockholm
+helsingborg|Europe/Stockholm
+malmo|Europe/Stockholm
+borgholm|Europe/Stockholm
+oslo|Europe/Oslo
+norway|Europe/Oslo
+bergen|Europe/Oslo
+alesund|Europe/Oslo
+geiranger|Europe/Oslo
+flam|Europe/Oslo
+stavanger|Europe/Oslo
+kristiansand|Europe/Oslo
+tromso|Europe/Oslo
+trondheim|Europe/Oslo
+bodo|Europe/Oslo
+narvik|Europe/Oslo
+honningsvag|Europe/Oslo
+hammerfest|Europe/Oslo
+kirkenes|Europe/Oslo
+svolvaer|Europe/Oslo
+lofoten|Europe/Oslo
+haugesund|Europe/Oslo
+eidfjord|Europe/Oslo
+andalsnes|Europe/Oslo
+balestrand|Europe/Oslo
+harstad|Europe/Oslo
+bronnoysund|Europe/Oslo
+alta|Europe/Oslo
+arendal|Europe/Oslo
+akrafjord|Europe/Oslo
+helsinki|Europe/Helsinki
+finland|Europe/Helsinki
+turku|Europe/Helsinki
+
+# ============================================================
+# NORTHERN EUROPE - Baltic & Eastern
+# ============================================================
+tallinn|Europe/Tallinn
+estonia|Europe/Tallinn
+riga|Europe/Riga
+latvia|Europe/Riga
+klaipeda|Europe/Vilnius
+lithuania|Europe/Vilnius
+gdynia|Europe/Warsaw
+gdynia gdansk|Europe/Warsaw
+gdynia-gdansk|Europe/Warsaw
+gdansk|Europe/Warsaw
+liepaja|Europe/Riga
+
+# ============================================================
+# ICELAND & GREENLAND & ARCTIC
+# ============================================================
+reykjavik|Atlantic/Reykjavik
+iceland|Atlantic/Reykjavik
+akureyri|Atlantic/Reykjavik
+isafjordur|Atlantic/Reykjavik
+husavik|Atlantic/Reykjavik
+heimaey|Atlantic/Reykjavik
+seydisfjordur|Atlantic/Reykjavik
+djupivogur|Atlantic/Reykjavik
+grundarfjordur|Atlantic/Reykjavik
+nuuk|America/Nuuk
+greenland|America/Nuuk
+ilulissat|America/Nuuk
+qaqortoq|America/Nuuk
+qaanaq|America/Nuuk
+ammassalik|America/Nuuk
+longyearbyen|Arctic/Longyearbyen
+svalbard|Arctic/Longyearbyen
+barentsburg|Arctic/Longyearbyen
+amsterdamoya|Arctic/Longyearbyen
+bear island|Arctic/Longyearbyen
+bear-island|Arctic/Longyearbyen
+thorshavn|Atlantic/Faroe
+thorshavn faroe|Atlantic/Faroe
+thorshavn-faroe|Atlantic/Faroe
+faroe|Atlantic/Faroe
+faroe islands|Atlantic/Faroe
+akpatok island|America/Iqaluit
+akpatok-island|America/Iqaluit
+
+# ============================================================
+# EASTERN MEDITERRANEAN & GREECE
+# ============================================================
 athens|Europe/Athens
+piraeus|Europe/Athens
+piraeus athens|Europe/Athens
+piraeus-athens|Europe/Athens
 santorini|Europe/Athens
 mykonos|Europe/Athens
 corfu|Europe/Athens
-crete|Europe/Athens
 rhodes|Europe/Athens
+crete|Europe/Athens
+heraklion|Europe/Athens
+heraklion crete|Europe/Athens
+heraklion-crete|Europe/Athens
+chania|Europe/Athens
+chania crete|Europe/Athens
+chania-crete|Europe/Athens
+agios nikolaos|Europe/Athens
+agios-nikolaos|Europe/Athens
+agios nikolaos crete|Europe/Athens
+agios-nikolaos-crete|Europe/Athens
+kos|Europe/Athens
+patmos|Europe/Athens
+hydra|Europe/Athens
+naxos|Europe/Athens
+amorgos|Europe/Athens
+argostoli|Europe/Athens
+argostoli kefalonia|Europe/Athens
+argostoli-kefalonia|Europe/Athens
+kefalonia|Europe/Athens
+katakolon|Europe/Athens
+kalamata|Europe/Athens
+volos|Europe/Athens
+thessaloniki|Europe/Athens
+skiathos|Europe/Athens
+delos|Europe/Athens
+delos island|Europe/Athens
+delos-island|Europe/Athens
+chios|Europe/Athens
+chios island|Europe/Athens
+chios-island|Europe/Athens
+zakinthos|Europe/Athens
 greece|Europe/Athens
-dubrovnik|Europe/Zagreb
-split|Europe/Zagreb
-croatia|Europe/Zagreb
-kotor|Europe/Podgorica
-montenegro|Europe/Podgorica
+igoumenitsa|Europe/Athens
+
+# ============================================================
+# TURKEY
+# ============================================================
 istanbul|Europe/Istanbul
 turkey|Europe/Istanbul
 kusadasi|Europe/Istanbul
 ephesus|Europe/Istanbul
-lisbon|Europe/Lisbon
-portugal|Europe/Lisbon
-malta|Europe/Malta
-valletta|Europe/Malta
-monaco|Europe/Monaco
-monte carlo|Europe/Monaco
+bodrum|Europe/Istanbul
+marmaris|Europe/Istanbul
+antalya|Europe/Istanbul
+alanya|Europe/Istanbul
+fethiye|Europe/Istanbul
+canakkale|Europe/Istanbul
+cesme|Europe/Istanbul
+bozcaada|Europe/Istanbul
+trabzon|Europe/Istanbul
+amasra|Europe/Istanbul
+anzac cove|Europe/Istanbul
+anzac-cove|Europe/Istanbul
+izmir|Europe/Istanbul
 
-# --- Northern Europe ---
-london|Europe/London
-southampton|Europe/London
-england|Europe/London
-edinburgh|Europe/London
-scotland|Europe/London
-dublin|Europe/Dublin
-ireland|Europe/Dublin
-amsterdam|Europe/Amsterdam
-copenhagen|Europe/Copenhagen
-stockholm|Europe/Stockholm
-oslo|Europe/Oslo
-bergen|Europe/Oslo
-helsinki|Europe/Helsinki
-tallinn|Europe/Tallinn
-st petersburg|Europe/Moscow
-reykjavik|Atlantic/Reykjavik
-iceland|Atlantic/Reykjavik
+# ============================================================
+# ADRIATIC & CROATIA/MONTENEGRO/ALBANIA
+# ============================================================
+dubrovnik|Europe/Zagreb
+split|Europe/Zagreb
+croatia|Europe/Zagreb
+hvar|Europe/Zagreb
+korcula|Europe/Zagreb
+zadar|Europe/Zagreb
+rovinj|Europe/Zagreb
+sibenik|Europe/Zagreb
+trogir|Europe/Zagreb
+rijeka|Europe/Zagreb
+pula|Europe/Zagreb
+kotor|Europe/Podgorica
+montenegro|Europe/Podgorica
+bar|Europe/Podgorica
+durres|Europe/Tirane
+albania|Europe/Tirane
+koper|Europe/Ljubljana
+slovenia|Europe/Ljubljana
 
-# --- Asia ---
+# ============================================================
+# BLACK SEA
+# ============================================================
+batumi|Asia/Tbilisi
+varna|Europe/Sofia
+burgas|Europe/Sofia
+bulgaria|Europe/Sofia
+
+# ============================================================
+# NORTH AFRICA
+# ============================================================
+casablanca|Africa/Casablanca
+morocco|Africa/Casablanca
+tanger|Africa/Casablanca
+tangier|Africa/Casablanca
+agadir|Africa/Casablanca
+alexandria|Africa/Cairo
+port said|Africa/Cairo
+port-said|Africa/Cairo
+ain soukhna|Africa/Cairo
+ain-soukhna|Africa/Cairo
+suez|Africa/Cairo
+egypt|Africa/Cairo
+algiers|Africa/Algiers
+algeria|Africa/Algiers
+oran|Africa/Algiers
+tunis|Africa/Tunis
+tunisia|Africa/Tunis
+ceuta|Africa/Ceuta
+al khoms|Africa/Tripoli
+al-khoms|Africa/Tripoli
+
+# ============================================================
+# CANARY ISLANDS
+# ============================================================
+canary islands|Atlantic/Canary
+arrecife|Atlantic/Canary
+arrecife lanzarote|Atlantic/Canary
+arrecife-lanzarote|Atlantic/Canary
+lanzarote|Atlantic/Canary
+las palmas|Atlantic/Canary
+las-palmas|Atlantic/Canary
+las palmas gran canaria|Atlantic/Canary
+las-palmas-gran-canaria|Atlantic/Canary
+gran canaria|Atlantic/Canary
+santa cruz tenerife|Atlantic/Canary
+santa-cruz-tenerife|Atlantic/Canary
+tenerife|Atlantic/Canary
+
+# ============================================================
+# WEST AFRICA
+# ============================================================
+dakar|Africa/Dakar
+senegal|Africa/Dakar
+banjul|Africa/Banjul
+gambia|Africa/Banjul
+abidjan|Africa/Abidjan
+conakry|Africa/Conakry
+bissau|Africa/Bissau
+cotonou|Africa/Porto-Novo
+tema|Africa/Accra
+luanda|Africa/Luanda
+mindelo|Atlantic/Cape_Verde
+cape verde|Atlantic/Cape_Verde
+boa vista|Atlantic/Cape_Verde
+boa-vista|Atlantic/Cape_Verde
+
+# ============================================================
+# EAST AFRICA
+# ============================================================
+mombasa|Africa/Nairobi
+kenya|Africa/Nairobi
+zanzibar|Africa/Dar_es_Salaam
+zanzibar sansibar|Africa/Dar_es_Salaam
+zanzibar/sansibar|Africa/Dar_es_Salaam
+sansibar|Africa/Dar_es_Salaam
+dar es salaam|Africa/Dar_es_Salaam
+dar-es-salaam|Africa/Dar_es_Salaam
+dar|Africa/Dar_es_Salaam
+maputo|Africa/Maputo
+mozambique|Africa/Maputo
+
+# ============================================================
+# SOUTHERN AFRICA
+# ============================================================
+cape town|Africa/Johannesburg
+cape-town|Africa/Johannesburg
+south africa|Africa/Johannesburg
+durban|Africa/Johannesburg
+port elizabeth|Africa/Johannesburg
+port-elizabeth|Africa/Johannesburg
+east london|Africa/Johannesburg
+east-london|Africa/Johannesburg
+richards bay|Africa/Johannesburg
+richards-bay|Africa/Johannesburg
+mossel bay|Africa/Johannesburg
+mossel-bay|Africa/Johannesburg
+walvis bay|Africa/Windhoek
+walvis-bay|Africa/Windhoek
+namibia|Africa/Windhoek
+luderitz|Africa/Windhoek
+
+# ============================================================
+# INDIAN OCEAN ISLANDS
+# ============================================================
+madagascar|Indian/Antananarivo
+diego suarez|Indian/Antananarivo
+diego-suarez|Indian/Antananarivo
+mauritius|Indian/Mauritius
+port louis|Indian/Mauritius
+port-louis|Indian/Mauritius
+reunion|Indian/Reunion
+mahe|Indian/Mahe
+mahe seychelles|Indian/Mahe
+mahe-seychelles|Indian/Mahe
+seychelles|Indian/Mahe
+victoria mahe|Indian/Mahe
+victoria-mahe|Indian/Mahe
+victoria mahe seychelles|Indian/Mahe
+victoria-mahe-seychelles|Indian/Mahe
+la digue|Indian/Mahe
+la-digue|Indian/Mahe
+male|Indian/Maldives
+male maldives|Indian/Maldives
+male-maldives|Indian/Maldives
+maldives|Indian/Maldives
+
+# ============================================================
+# MIDDLE EAST - Gulf
+# ============================================================
 dubai|Asia/Dubai
 abu dhabi|Asia/Dubai
-singapore|Asia/Singapore
-hong kong|Asia/Hong_Kong
-tokyo|Asia/Tokyo
-japan|Asia/Tokyo
-bangkok|Asia/Bangkok
-thailand|Asia/Bangkok
-bali|Asia/Makassar
+abu-dhabi|Asia/Dubai
+uae|Asia/Dubai
+fujairah|Asia/Dubai
+ras al khaimah|Asia/Dubai
+ras-al-khaimah|Asia/Dubai
+muscat|Asia/Muscat
+oman|Asia/Muscat
+salalah|Asia/Muscat
+khasab|Asia/Muscat
+doha|Asia/Qatar
+qatar|Asia/Qatar
+bahrain|Asia/Bahrain
+dammam|Asia/Riyadh
+kuwait city|Asia/Kuwait
+kuwait-city|Asia/Kuwait
+kuwait|Asia/Kuwait
+al wajh|Asia/Riyadh
+al-wajh|Asia/Riyadh
+yanbu|Asia/Riyadh
+
+# Middle East - Levant & Red Sea
+haifa|Asia/Jerusalem
+israel|Asia/Jerusalem
+ashdod|Asia/Jerusalem
+aqaba|Asia/Aqaba
+jordan|Asia/Aqaba
+eilat|Asia/Jerusalem
+beirut|Asia/Beirut
+lebanon|Asia/Beirut
+safaga|Africa/Cairo
+sharm el sheikh|Africa/Cairo
+sharm-el-sheikh|Africa/Cairo
+ayia napa|Asia/Nicosia
+ayia-napa|Asia/Nicosia
+larnaca|Asia/Nicosia
+limassol|Asia/Nicosia
+paphos|Asia/Nicosia
+cyprus|Asia/Nicosia
+
+# Iran
+bandar abbas|Asia/Tehran
+bandar-abbas|Asia/Tehran
+
+# ============================================================
+# SOUTH ASIA
+# ============================================================
 mumbai|Asia/Kolkata
 india|Asia/Kolkata
+mangalore|Asia/Kolkata
+kochi india|Asia/Kolkata
+kochi-india|Asia/Kolkata
+cochin|Asia/Kolkata
+chennai|Asia/Kolkata
+madras|Asia/Kolkata
+madras chennai|Asia/Kolkata
+madras/chennai|Asia/Kolkata
+goa|Asia/Kolkata
+colombo|Asia/Colombo
+sri lanka|Asia/Colombo
+trincomalee|Asia/Colombo
+dili|Asia/Dili
+east timor|Asia/Dili
+
+# ============================================================
+# SOUTHEAST ASIA
+# ============================================================
+singapore|Asia/Singapore
+bangkok|Asia/Bangkok
+laem chabang|Asia/Bangkok
+laem-chabang|Asia/Bangkok
+thailand|Asia/Bangkok
+ko samui|Asia/Bangkok
+ko-samui|Asia/Bangkok
+koh samui|Asia/Bangkok
+phuket|Asia/Bangkok
+ho chi minh city|Asia/Ho_Chi_Minh
+ho-chi-minh-city|Asia/Ho_Chi_Minh
+saigon|Asia/Ho_Chi_Minh
+nha trang|Asia/Ho_Chi_Minh
+nha-trang|Asia/Ho_Chi_Minh
+da nang|Asia/Ho_Chi_Minh
+da-nang|Asia/Ho_Chi_Minh
+chan may|Asia/Ho_Chi_Minh
+chan-may|Asia/Ho_Chi_Minh
+halong bay|Asia/Ho_Chi_Minh
+halong-bay|Asia/Ho_Chi_Minh
+hai phong|Asia/Ho_Chi_Minh
+hai-phong|Asia/Ho_Chi_Minh
+vietnam|Asia/Ho_Chi_Minh
+manila|Asia/Manila
+philippines|Asia/Manila
+cebu|Asia/Manila
+bohol|Asia/Manila
+boracay|Asia/Manila
+coron|Asia/Manila
+puerto princesa|Asia/Manila
+puerto-princesa|Asia/Manila
+bali|Asia/Makassar
+indonesia|Asia/Jakarta
+semarang|Asia/Jakarta
+surabaya|Asia/Jakarta
+belawan|Asia/Jakarta
+belawan sumatra|Asia/Jakarta
+belawan-sumatra|Asia/Jakarta
+sumatra|Asia/Jakarta
+lombok|Asia/Makassar
+komodo|Asia/Makassar
+ambon|Asia/Jayapura
+bitung|Asia/Makassar
+bitung sulawesi|Asia/Makassar
+bitung-sulawesi|Asia/Makassar
+sulawesi|Asia/Makassar
+penang|Asia/Kuala_Lumpur
+langkawi|Asia/Kuala_Lumpur
+malacca|Asia/Kuala_Lumpur
+port kelang|Asia/Kuala_Lumpur
+port-kelang|Asia/Kuala_Lumpur
+kuching|Asia/Kuching
+kota kinabalu|Asia/Kuching
+kota-kinabalu|Asia/Kuching
+bintulu|Asia/Kuching
+malaysia|Asia/Kuala_Lumpur
+yangon|Asia/Yangon
+myanmar|Asia/Yangon
+sihanoukville|Asia/Phnom_Penh
+cambodia|Asia/Phnom_Penh
+brunei|Asia/Brunei
+
+# ============================================================
+# EAST ASIA - Japan
+# ============================================================
+tokyo|Asia/Tokyo
+yokohama|Asia/Tokyo
+japan|Asia/Tokyo
+kobe|Asia/Tokyo
+kobe osaka|Asia/Tokyo
+kobe-osaka|Asia/Tokyo
+osaka|Asia/Tokyo
+nagasaki|Asia/Tokyo
+fukuoka|Asia/Tokyo
+hiroshima|Asia/Tokyo
+hakodate|Asia/Tokyo
+aomori|Asia/Tokyo
+akita|Asia/Tokyo
+sendai|Asia/Tokyo
+shimizu|Asia/Tokyo
+naha|Asia/Tokyo
+naha okinawa|Asia/Tokyo
+naha-okinawa|Asia/Tokyo
+okinawa|Asia/Tokyo
+beppu|Asia/Tokyo
+kagoshima|Asia/Tokyo
+kanazawa|Asia/Tokyo
+nagoya|Asia/Tokyo
+niigata|Asia/Tokyo
+otaru|Asia/Tokyo
+muroran|Asia/Tokyo
+kushiro|Asia/Tokyo
+abashiri|Asia/Tokyo
+aburatsu|Asia/Tokyo
+amami|Asia/Tokyo
+ishigaki|Asia/Tokyo
+matsuyama|Asia/Tokyo
+sasebo|Asia/Tokyo
+toba|Asia/Tokyo
+hualien|Asia/Taipei
+kochi japan|Asia/Tokyo
+kochi-japan|Asia/Tokyo
+
+# East Asia - China
 beijing|Asia/Shanghai
 shanghai|Asia/Shanghai
 china|Asia/Shanghai
-seoul|Asia/Seoul
+hong kong|Asia/Hong_Kong
+hong-kong|Asia/Hong_Kong
+hk|Asia/Hong_Kong
+guangzhou|Asia/Shanghai
+xiamen|Asia/Shanghai
+dalian|Asia/Shanghai
+qingdao|Asia/Shanghai
+tianjin|Asia/Shanghai
+haikou|Asia/Shanghai
+sanya|Asia/Shanghai
+shenzhen|Asia/Shanghai
+zhoushan|Asia/Shanghai
 
-# --- Pacific ---
+# East Asia - Taiwan
+taipei|Asia/Taipei
+taiwan|Asia/Taipei
+keelung|Asia/Taipei
+kaohsiung|Asia/Taipei
+taichung|Asia/Taipei
+
+# East Asia - Korea
+seoul|Asia/Seoul
+korea|Asia/Seoul
+busan|Asia/Seoul
+inchon|Asia/Seoul
+jeju|Asia/Seoul
+sokcho|Asia/Seoul
+
+# ============================================================
+# AUSTRALIA
+# ============================================================
 sydney|Australia/Sydney
+sydney australia|Australia/Sydney
+sydney-australia|Australia/Sydney
 australia|Australia/Sydney
 melbourne|Australia/Melbourne
+brisbane|Australia/Brisbane
+cairns|Australia/Brisbane
+darwin|Australia/Darwin
+adelaide|Australia/Adelaide
+fremantle|Australia/Perth
+perth|Australia/Perth
+hobart|Australia/Hobart
+hobart tasmania|Australia/Hobart
+hobart-tasmania|Australia/Hobart
+tasmania|Australia/Hobart
+burnie|Australia/Hobart
+burnie tasmania|Australia/Hobart
+burnie-tasmania|Australia/Hobart
+broome|Australia/Perth
+bunbury|Australia/Perth
+busselton|Australia/Perth
+esperance|Australia/Perth
+albany|Australia/Perth
+gladstone|Australia/Brisbane
+townsville|Australia/Brisbane
+airlie beach|Australia/Brisbane
+airlie-beach|Australia/Brisbane
+whitsunday|Australia/Brisbane
+whitsunday island|Australia/Brisbane
+whitsunday-island|Australia/Brisbane
+hamilton island|Australia/Brisbane
+hamilton-island|Australia/Brisbane
+port douglas|Australia/Brisbane
+port-douglas|Australia/Brisbane
+kangaroo island|Australia/Adelaide
+kangaroo-island|Australia/Adelaide
+newcastle australia|Australia/Sydney
+newcastle-australia|Australia/Sydney
+port hedland|Australia/Perth
+port-hedland|Australia/Perth
+thursday island|Australia/Brisbane
+thursday-island|Australia/Brisbane
+geraldton|Australia/Perth
+
+# ============================================================
+# NEW ZEALAND
+# ============================================================
 auckland|Pacific/Auckland
 new zealand|Pacific/Auckland
+wellington|Pacific/Auckland
+dunedin|Pacific/Auckland
+christchurch|Pacific/Auckland
+napier|Pacific/Auckland
+tauranga|Pacific/Auckland
+bay of islands|Pacific/Auckland
+bay-of-islands|Pacific/Auckland
+gisborne|Pacific/Auckland
+new plymouth|Pacific/Auckland
+new-plymouth|Pacific/Auckland
+nelson|Pacific/Auckland
+akaroa|Pacific/Auckland
+port chalmers|Pacific/Auckland
+port-chalmers|Pacific/Auckland
+milford sound|Pacific/Auckland
+milford-sound|Pacific/Auckland
+bluff|Pacific/Auckland
+timaru|Pacific/Auckland
+
+# ============================================================
+# PACIFIC ISLANDS
+# ============================================================
 fiji|Pacific/Fiji
+suva|Pacific/Fiji
+suva fiji|Pacific/Fiji
+suva-fiji|Pacific/Fiji
+lautoka|Pacific/Fiji
 tahiti|Pacific/Tahiti
+papeete|Pacific/Tahiti
+papeete tahiti|Pacific/Tahiti
+papeete-tahiti|Pacific/Tahiti
+tahiti papeete|Pacific/Tahiti
+tahiti/papeete|Pacific/Tahiti
 bora bora|Pacific/Tahiti
+bora-bora|Pacific/Tahiti
+moorea|Pacific/Tahiti
+huahine|Pacific/Tahiti
+raiatea|Pacific/Tahiti
+rangiroa|Pacific/Tahiti
+fakarava|Pacific/Tahiti
+atuona|Pacific/Marquesas
+atuona hiva oa|Pacific/Marquesas
+atuona-hiva-oa|Pacific/Marquesas
+hiva oa|Pacific/Marquesas
+marquesas|Pacific/Marquesas
+noumea|Pacific/Noumea
+new caledonia|Pacific/Noumea
+ile des pins|Pacific/Noumea
+ile-des-pins|Pacific/Noumea
+lifou|Pacific/Noumea
+port vila|Pacific/Efate
+port-vila|Pacific/Efate
+vanuatu|Pacific/Efate
+apia|Pacific/Apia
+apia samoa|Pacific/Apia
+apia-samoa|Pacific/Apia
+samoa|Pacific/Apia
+rarotonga|Pacific/Rarotonga
+cook islands|Pacific/Rarotonga
+aitutaki|Pacific/Rarotonga
+nukualofa|Pacific/Tongatapu
+tonga|Pacific/Tongatapu
+port moresby|Pacific/Port_Moresby
+port-moresby|Pacific/Port_Moresby
+papua new guinea|Pacific/Port_Moresby
+rabaul|Pacific/Port_Moresby
+madang|Pacific/Port_Moresby
+alotau|Pacific/Port_Moresby
+alotau papoea|Pacific/Port_Moresby
+alotau-papoea|Pacific/Port_Moresby
+alofi|Pacific/Niue
+niue|Pacific/Niue
+palau|Pacific/Palau
+koror|Pacific/Palau
+yap|Pacific/Chuuk
 
-# --- Africa ---
-cape town|Africa/Johannesburg
-south africa|Africa/Johannesburg
+# ============================================================
+# ANTARCTICA & SUB-ANTARCTIC
+# ============================================================
+aitcho islands|Antarctica/Palmer
+aitcho-islands|Antarctica/Palmer
+amalia glacier|America/Punta_Arenas
+amalia-glacier|America/Punta_Arenas
+amalia glacier passage|America/Punta_Arenas
+amalia-glacier-passage|America/Punta_Arenas
+grytviken|Atlantic/South_Georgia
+south georgia|Atlantic/South_Georgia
+
+# ============================================================
+# RIVER CRUISE PORTS - Danube
+# ============================================================
+# Germany (Danube)
+passau|Europe/Berlin
+regensburg|Europe/Berlin
+nuremberg|Europe/Berlin
+# Austria (Danube)
+vienna|Europe/Vienna
+linz|Europe/Vienna
+melk|Europe/Vienna
+krems|Europe/Vienna
+durnstein|Europe/Vienna
+grein|Europe/Vienna
+# Slovakia (Danube)
+bratislava|Europe/Bratislava
+# Hungary (Danube)
+budapest|Europe/Budapest
+esztergom|Europe/Budapest
+visegrad|Europe/Budapest
+kalocsa|Europe/Budapest
+mohacs|Europe/Budapest
+# Serbia (Danube)
+belgrade|Europe/Belgrade
+novi sad|Europe/Belgrade
+# Romania (Danube)
+bucharest|Europe/Bucharest
+giurgiu|Europe/Bucharest
+rousse|Europe/Sofia
+# Bulgaria (Danube)
+vidin|Europe/Sofia
+
+# ============================================================
+# RIVER CRUISE PORTS - Rhine & Moselle
+# ============================================================
+# Netherlands (Rhine)
+amsterdam|Europe/Amsterdam
+kinderdijk|Europe/Amsterdam
+# Germany (Rhine)
+cologne|Europe/Berlin
+koblenz|Europe/Berlin
+rudesheim|Europe/Berlin
+heidelberg|Europe/Berlin
+mannheim|Europe/Berlin
+speyer|Europe/Berlin
+mainz|Europe/Berlin
+bonn|Europe/Berlin
+dusseldorf|Europe/Berlin
+breisach|Europe/Berlin
+# Germany (Moselle)
+cochem|Europe/Berlin
+bernkastel|Europe/Berlin
+trier|Europe/Berlin
+# France (Rhine)
+strasbourg|Europe/Paris
+colmar|Europe/Paris
+# Switzerland (Rhine)
+basel|Europe/Zurich
+
+# ============================================================
+# RIVER CRUISE PORTS - Seine
+# ============================================================
+paris|Europe/Paris
+vernon|Europe/Paris
+rouen|Europe/Paris
+les andelys|Europe/Paris
+honfleur|Europe/Paris
+caudebec|Europe/Paris
+conflans|Europe/Paris
+
+# ============================================================
+# RIVER CRUISE PORTS - Rhone & Saone
+# ============================================================
+lyon|Europe/Paris
+arles|Europe/Paris
+avignon|Europe/Paris
+viviers|Europe/Paris
+tournon|Europe/Paris
+vienne|Europe/Paris
+chalon sur saone|Europe/Paris
+macon|Europe/Paris
+tain lhermitage|Europe/Paris
+
+# ============================================================
+# RIVER CRUISE PORTS - Douro
+# ============================================================
+porto|Europe/Lisbon
+pinhao|Europe/Lisbon
+regua|Europe/Lisbon
+salamanca|Europe/Madrid
+barca dalva|Europe/Lisbon
+vega de terron|Europe/Madrid
+
+# ============================================================
+# RIVER CRUISE PORTS - Elbe
+# ============================================================
+berlin|Europe/Berlin
+dresden|Europe/Berlin
+meissen|Europe/Berlin
+wittenberg|Europe/Berlin
+magdeburg|Europe/Berlin
+prague|Europe/Prague
+
+# ============================================================
+# RIVER CRUISE PORTS - Mekong
+# ============================================================
+phnom penh|Asia/Phnom_Penh
+phnom-penh|Asia/Phnom_Penh
+siem reap|Asia/Phnom_Penh
+my tho|Asia/Ho_Chi_Minh
+cai be|Asia/Ho_Chi_Minh
+sa dec|Asia/Ho_Chi_Minh
+chau doc|Asia/Ho_Chi_Minh
+tan chau|Asia/Ho_Chi_Minh
+
+# ============================================================
+# RIVER CRUISE PORTS - Mississippi
+# ============================================================
+memphis|America/Chicago
+st louis|America/Chicago
+natchez|America/Chicago
+vicksburg|America/Chicago
+baton rouge|America/Chicago
+oak alley|America/Chicago
+nottoway|America/Chicago
+
+# ============================================================
+# RIVER CRUISE PORTS - Columbia/Snake (US)
+# ============================================================
+portland oregon|America/Los_Angeles
+the dalles|America/Los_Angeles
+astoria|America/Los_Angeles
+clarkston|America/Los_Angeles
+
+# ============================================================
+# RIVER CRUISE PORTS - Hudson (US)
+# ============================================================
+west point|America/New_York
+hyde park|America/New_York
+
+# ============================================================
+# RIVER CRUISE PORTS - Yangtze
+# ============================================================
+chongqing|Asia/Shanghai
+yichang|Asia/Shanghai
+wuhan|Asia/Shanghai
+three gorges|Asia/Shanghai
+
+# ============================================================
+# RIVER CRUISE PORTS - Nile
+# ============================================================
+luxor|Africa/Cairo
+aswan|Africa/Cairo
+edfu|Africa/Cairo
+kom ombo|Africa/Cairo
+esna|Africa/Cairo
 cairo|Africa/Cairo
-egypt|Africa/Cairo
-casablanca|Africa/Casablanca
-morocco|Africa/Casablanca
 
-# --- Atlantic ---
-azores|Atlantic/Azores
-canary islands|Atlantic/Canary
-madeira|Atlantic/Madeira
+# ============================================================
+# RIVER CRUISE PORTS - Garonne/Gironde (Bordeaux region)
+# ============================================================
+bordeaux|Europe/Paris
+libourne|Europe/Paris
+blaye|Europe/Paris
+pauillac|Europe/Paris
+
+# ============================================================
+# RIVER CRUISE PORTS - Volga (Russia)
+# ============================================================
+moscow|Europe/Moscow
+st petersburg|Europe/Moscow
+uglich|Europe/Moscow
+yaroslavl|Europe/Moscow
+nizhny novgorod|Europe/Moscow
+
+# ============================================================
+# RIVER CRUISE PORTS - Irrawaddy (Myanmar)
+# ============================================================
+mandalay|Asia/Yangon
+bagan|Asia/Yangon
+
+# ============================================================
+# RIVER CRUISE PORTS - Chobe/Zambezi (Africa)
+# ============================================================
+kasane|Africa/Gaborone
+livingstone|Africa/Lusaka
+victoria falls|Africa/Harare
