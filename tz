@@ -1,43 +1,125 @@
 #!/bin/bash
 
-# Timezone helper for travelers
-# Usage: tz                              show current timezone
-#        tz <city or timezone>           set timezone
-#        tz list <keyword>              search cities/timezones
-#        tz schedule                    show scheduled timezone changes
-#        tz schedule add <date> <city>  add scheduled change
-#        tz schedule clear              remove all scheduled entries
-#        tz schedule check              apply today's timezone (used by boot script)
-#        tz cruise start <date>         start building a cruise itinerary
-#        tz cruise <city>               add next port (auto-increments date)
-#        tz cruise sea                  add a sea day
-#        tz cruise end                  finish cruise itinerary
-#        tz cruise show                 show cruise being built
-#        tz undo                        remove last schedule entry
+# tz - timezone helper for travelers
+#
+# User-facing commands:
+#   tz                          dashboard (status, time, schedule)
+#   tz <city>                   set timezone (or add to trip if active)
+#   tz here                    detect from network
+#   tz sea                     add sea day (trip mode)
+#   tz +<city>                 same-day port (trip mode)
+#   tz undo                    remove last schedule entry
+#   tz list <keyword>          search cities
+#   tz trip start <date> <city>  start a trip
+#   tz trip end                 end a trip
+#   tz trip load <file>         load itinerary from file
+#   tz schedule [show|add|clear|check]  manage schedule directly
 
 CITIES_FILE="/usr/local/share/tz-cities"
 SCHEDULE_FILE="/etc/tz-schedule"
-CRUISE_STATE="/tmp/tz-cruise-state"
+TRIP_STATE="/var/lib/tz/trip-state"
 
 # --- Helper Functions ---
 
+normalize_input() {
+    # Normalize city input: lowercase, collapse whitespace, hyphens to spaces
+    echo "$*" | tr '[:upper:]' '[:lower:]' | tr '-' ' ' | sed 's/  */ /g; s/^ *//; s/ *$//'
+}
+
 lookup_city() {
     local query
-    query=$(echo "$*" | tr '[:upper:]' '[:lower:]')
+    query=$(normalize_input "$@")
+    [ -z "$query" ] && return 1
 
     if [ -f "$CITIES_FILE" ]; then
-        grep -i "^${query}|" "$CITIES_FILE" 2>/dev/null | head -1 | cut -d'|' -f2
+        # Exact match first (with normalized comparison)
+        local result
+        result=$(awk -F'|' -v q="$query" '
+            !/^#/ && !/^$/ {
+                city = $1
+                gsub(/-/, " ", city)
+                gsub(/  +/, " ", city)
+                gsub(/^ +| +$/, "", city)
+                if (tolower(city) == q) { print $2; exit }
+            }
+        ' "$CITIES_FILE")
+        if [ -n "$result" ]; then
+            echo "$result"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+fuzzy_suggest() {
+    # Find close matches for a failed city lookup
+    local query
+    query=$(normalize_input "$@")
+    [ -z "$query" ] || [ ! -f "$CITIES_FILE" ] && return
+
+    # Prefix match: cities that start with the query
+    local suggestions
+    suggestions=$(awk -F'|' -v q="$query" '
+        !/^#/ && !/^$/ {
+            city = tolower($1)
+            gsub(/-/, " ", city)
+            if (index(city, q) == 1) print $1 "|" $2
+        }
+    ' "$CITIES_FILE" | head -5)
+
+    # If no prefix matches, try substring match
+    if [ -z "$suggestions" ]; then
+        suggestions=$(awk -F'|' -v q="$query" '
+            !/^#/ && !/^$/ {
+                city = tolower($1)
+                gsub(/-/, " ", city)
+                if (index(city, q) > 0) print $1 "|" $2
+            }
+        ' "$CITIES_FILE" | head -5)
+    fi
+
+    # If still nothing, try character-level similarity (dropped characters)
+    if [ -z "$suggestions" ] && [ ${#query} -ge 3 ]; then
+        # Build a regex that allows one missing/wrong character
+        local pattern=""
+        local i
+        for ((i=0; i<${#query}; i++)); do
+            local c="${query:$i:1}"
+            # Escape regex special chars
+            case "$c" in
+                '.'|'*'|'['|']'|'('|')'|'+'|'?'|'{'|'}'|'|'|'\\'|'^'|'$')
+                    pattern="${pattern}[${c}\\${c}]?"
+                    ;;
+                *)
+                    pattern="${pattern}${c}?"
+                    ;;
+            esac
+        done
+        suggestions=$(awk -F'|' -v pat="$pattern" '
+            !/^#/ && !/^$/ {
+                city = tolower($1)
+                gsub(/-/, " ", city)
+                if (match(city, pat) && RLENGTH >= length(city)-2) print $1 "|" $2
+            }
+        ' "$CITIES_FILE" | head -5)
+    fi
+
+    if [ -n "$suggestions" ]; then
+        echo "Did you mean:"
+        echo "$suggestions" | while IFS='|' read -r city tz; do
+            printf "  tz %-25s (%s)\n" "$city" "$tz"
+        done
     fi
 }
 
 resolve_timezone() {
-    # Try as a timezone name first (e.g. America/Denver)
+    # Try as IANA timezone name first (e.g. America/Denver)
     if [ -f "/usr/share/zoneinfo/$1" ]; then
         echo "$1"
         return 0
     fi
 
-    # Try as a city name
+    # Try as city name
     local tz
     tz=$(lookup_city "$@")
     if [ -n "$tz" ]; then
@@ -52,45 +134,125 @@ apply_timezone() {
     local tz="$1"
     echo "$tz" > /etc/timezone
     ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+    export TZ="$tz"
 }
 
 next_date() {
-    # Given a date YYYY-MM-DD, return the next day
     date -d "$1 + 1 day" +%Y-%m-%d 2>/dev/null || \
     date -j -v+1d -f "%Y-%m-%d" "$1" +%Y-%m-%d 2>/dev/null
 }
 
-# --- Commands ---
+trip_active() {
+    [ -f "$TRIP_STATE" ]
+}
 
-cmd_show() {
-    echo "Current timezone: $(cat /etc/timezone 2>/dev/null || echo 'unknown')"
-    echo "Current time:     $(date)"
-
-    # Show next scheduled change if any
-    if [ -f "$SCHEDULE_FILE" ]; then
-        local today next
-        today=$(date +%Y-%m-%d)
-        next=$(grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep -v '^$' | awk -v today="$today" '$1 > today { print; exit }')
-        if [ -n "$next" ]; then
-            echo ""
-            echo "Next scheduled: $next"
-        fi
-    fi
-
-    # Show if cruise is being built
-    if [ -f "$CRUISE_STATE" ]; then
-        echo ""
-        echo "(Cruise itinerary in progress - use 'tz cruise <port>' to add ports)"
+ensure_schedule_file() {
+    if [ ! -f "$SCHEDULE_FILE" ]; then
+        echo "# Timezone schedule - managed by tz command" > "$SCHEDULE_FILE"
+        echo "# Format: YYYY-MM-DD timezone/name optional note" >> "$SCHEDULE_FILE"
     fi
 }
 
-cmd_set() {
+prune_schedule() {
+    # Remove entries before today
+    [ -f "$SCHEDULE_FILE" ] || return
+    local today
+    today=$(date +%Y-%m-%d)
+    local tmp="${SCHEDULE_FILE}.tmp"
+    {
+        grep '^#' "$SCHEDULE_FILE" 2>/dev/null
+        grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep -v '^$' | awk -v today="$today" '$1 >= today'
+    } > "$tmp" && mv "$tmp" "$SCHEDULE_FILE"
+}
+
+schedule_entries() {
+    # Return non-comment, non-empty schedule lines
+    grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep -v '^$'
+}
+
+last_schedule_entry() {
+    schedule_entries | tail -1
+}
+
+# --- Commands ---
+
+cmd_dashboard() {
+    local tz offset
+    tz=$(cat /etc/timezone 2>/dev/null || echo "unknown")
+    offset=$(date +%z)
+
+    echo "$(date '+%H:%M')  $tz  (UTC${offset:0:3}:${offset:3:2})"
+
+    # Source info
+    local source="manual"
+    if trip_active; then
+        local today today_entry
+        today=$(date +%Y-%m-%d)
+        today_entry=$(schedule_entries | grep "^$today " | tail -1)
+        if [ -n "$today_entry" ]; then
+            source="schedule"
+        fi
+    fi
+
+    # Trip info
+    if trip_active; then
+        local today first_entry last_entry first_note last_note
+        today=$(date +%Y-%m-%d)
+        first_entry=$(schedule_entries | head -1)
+        last_entry=$(schedule_entries | grep -v 'SEA$' | tail -1)
+        first_note=$(echo "$first_entry" | awk '{$1=""; $2=""; print}' | sed 's/^ *//')
+        last_note=$(echo "$last_entry" | awk '{$1=""; $2=""; print}' | sed 's/^ *//')
+
+        echo ""
+        echo "Trip:  $first_note -> $last_note"
+        echo "Source: $source"
+
+        # Next change
+        local next_entry
+        next_entry=$(schedule_entries | awk -v today="$today" -v tz="$tz" '$1 > today && $2 != tz { print; exit }')
+        if [ -n "$next_entry" ]; then
+            local next_date next_tz next_note
+            next_date=$(echo "$next_entry" | awk '{print $1}')
+            next_tz=$(echo "$next_entry" | awk '{print $2}')
+            next_note=$(echo "$next_entry" | awk '{$1=""; $2=""; print}' | sed 's/^ *//')
+            # Format date nicely
+            local nice_date
+            nice_date=$(date -d "$next_date" '+%b %-d' 2>/dev/null || echo "$next_date")
+            echo "Next:  $nice_date -> $next_tz ($next_note)"
+        fi
+    elif [ -f "$SCHEDULE_FILE" ] && [ -s "$SCHEDULE_FILE" ]; then
+        local today next_entry
+        today=$(date +%Y-%m-%d)
+        next_entry=$(schedule_entries | awk -v today="$today" '$1 > today { print; exit }')
+        if [ -n "$next_entry" ]; then
+            local next_date next_tz
+            next_date=$(echo "$next_entry" | awk '{print $1}')
+            next_tz=$(echo "$next_entry" | awk '{print $2}')
+            local nice_date
+            nice_date=$(date -d "$next_date" '+%b %-d' 2>/dev/null || echo "$next_date")
+            echo ""
+            echo "Next:  $nice_date -> $next_tz"
+        fi
+    fi
+}
+
+cmd_set_or_add() {
+    local input
+    input=$(normalize_input "$@")
+
+    # If trip is active, add to itinerary instead of changing timezone
+    if trip_active; then
+        trip_add_port "$@"
+        return
+    fi
+
+    # Normal mode: resolve and set timezone
     local tz
     tz=$(resolve_timezone "$@")
 
     if [ -z "$tz" ]; then
-        echo "Error: '$*' not recognized as a timezone or city."
-        echo "Try: tz list $1"
+        echo "'$*' not recognized."
+        fuzzy_suggest "$@"
         exit 1
     fi
 
@@ -99,9 +261,32 @@ cmd_set() {
     date
 }
 
+cmd_sea() {
+    if ! trip_active; then
+        echo "No trip active."
+        echo "Start one with: tz trip start <date> <city>"
+        exit 1
+    fi
+    trip_add_sea
+}
+
+cmd_same_day() {
+    local port="${1#+}"  # strip leading +
+    shift 2>/dev/null || true
+    local full_name="$port $*"
+    full_name=$(echo "$full_name" | sed 's/ *$//')
+
+    if ! trip_active; then
+        echo "No trip active."
+        echo "Start one with: tz trip start <date> <city>"
+        exit 1
+    fi
+    trip_add_port_same_day "$full_name"
+}
+
 cmd_list() {
     local keyword
-    keyword=$(echo "$*" | tr '[:upper:]' '[:lower:]')
+    keyword=$(normalize_input "$@")
 
     if [ -z "$keyword" ]; then
         echo "Usage: tz list <keyword>"
@@ -109,7 +294,7 @@ cmd_list() {
         exit 1
     fi
 
-    echo "Matching cities/regions for '$keyword':"
+    echo "Matching cities for '$keyword':"
     echo ""
 
     if [ -f "$CITIES_FILE" ]; then
@@ -118,7 +303,6 @@ cmd_list() {
         done
     fi
 
-    # Also search zoneinfo
     echo ""
     echo "Matching timezone names:"
     echo ""
@@ -127,36 +311,165 @@ cmd_list() {
     done
 }
 
-cmd_undo() {
-    if [ ! -f "$SCHEDULE_FILE" ]; then
-        echo "No schedule to undo."
+cmd_here() {
+    local tz=""
+
+    echo "Detecting timezone..."
+
+    tz=$(curl -s --max-time 5 "https://worldtimeapi.org/api/ip" 2>/dev/null | grep -oP '"timezone"\s*:\s*"\K[^"]+')
+
+    if [ -z "$tz" ]; then
+        tz=$(curl -s --max-time 5 "https://ipapi.co/timezone" 2>/dev/null)
+    fi
+
+    if [ -z "$tz" ] || [ ! -f "/usr/share/zoneinfo/$tz" ]; then
+        echo "Could not detect timezone from network."
         exit 1
     fi
 
-    # Get the last non-comment, non-empty line
-    local last_entry
-    last_entry=$(grep -v '^#' "$SCHEDULE_FILE" | grep -v '^$' | tail -1)
-
-    if [ -z "$last_entry" ]; then
-        echo "No entries to undo."
-        exit 1
+    local current
+    current=$(cat /etc/timezone 2>/dev/null || echo "unknown")
+    apply_timezone "$tz"
+    if [ "$tz" = "$current" ]; then
+        echo "$tz (no change)"
+    else
+        echo "$tz (was $current)"
     fi
-
-    # Remove the last line that matches
-    sed -i "\|^${last_entry}$|d" "$SCHEDULE_FILE"
-    echo "Removed: $last_entry"
+    date
 }
 
-cmd_cruise() {
+cmd_undo() {
+    if [ ! -f "$SCHEDULE_FILE" ]; then
+        echo "Nothing to undo."
+        exit 1
+    fi
+
+    local last_entry
+    last_entry=$(last_schedule_entry)
+
+    if [ -z "$last_entry" ]; then
+        echo "Nothing to undo."
+        exit 1
+    fi
+
+    sed -i "\|^${last_entry}$|d" "$SCHEDULE_FILE"
+    echo "Removed: $last_entry"
+
+    # If trip active, rewind the trip date
+    if trip_active; then
+        local new_last_date next_d
+        new_last_date=$(last_schedule_entry | awk '{print $1}')
+        if [ -n "$new_last_date" ]; then
+            next_d=$(next_date "$new_last_date")
+            echo "$next_d" > "$TRIP_STATE"
+        fi
+    fi
+}
+
+# --- Trip Functions ---
+
+trip_add_port() {
+    local port_name
+    port_name=$(echo "$*" | sed 's/ *$//')
+
+    local resolved
+    resolved=$(resolve_timezone "$port_name")
+    if [ -z "$resolved" ]; then
+        # Try first word only
+        resolved=$(resolve_timezone "$1")
+        if [ -z "$resolved" ]; then
+            echo "'$port_name' not recognized."
+            fuzzy_suggest "$port_name"
+            exit 1
+        fi
+    fi
+
+    local current_date
+    current_date=$(cat "$TRIP_STATE")
+
+    ensure_schedule_file
+
+    # Auto-SEA: if timezone changes, insert a transition sea day
+    local last_tz last_note
+    last_tz=$(last_schedule_entry | awk '{print $2}')
+    last_note=$(last_schedule_entry | awk '{$1=""; $2=""; print}' | sed 's/^ *//')
+    if [ -n "$last_tz" ] && [ "$resolved" != "$last_tz" ] && [ "$last_note" != "SEA" ]; then
+        echo "$current_date $last_tz SEA" >> "$SCHEDULE_FILE"
+        echo "  $current_date  $last_tz  (sea day - auto)"
+        current_date=$(next_date "$current_date")
+    fi
+
+    echo "$current_date $resolved $port_name" >> "$SCHEDULE_FILE"
+    echo "  $current_date  $resolved  ($port_name)"
+
+    # Advance date
+    local next_d
+    next_d=$(next_date "$current_date")
+    echo "$next_d" > "$TRIP_STATE"
+
+    prune_schedule
+}
+
+trip_add_port_same_day() {
+    local port_name
+    port_name=$(echo "$*" | sed 's/ *$//')
+
+    local resolved
+    resolved=$(resolve_timezone "$port_name")
+    if [ -z "$resolved" ]; then
+        resolved=$(resolve_timezone "$(echo "$port_name" | awk '{print $1}')")
+        if [ -z "$resolved" ]; then
+            echo "'$port_name' not recognized."
+            fuzzy_suggest "$port_name"
+            exit 1
+        fi
+    fi
+
+    ensure_schedule_file
+
+    local prev_date
+    prev_date=$(last_schedule_entry | awk '{print $1}')
+    [ -z "$prev_date" ] && prev_date=$(cat "$TRIP_STATE")
+
+    echo "$prev_date $resolved $port_name" >> "$SCHEDULE_FILE"
+    echo "  $prev_date  $resolved  ($port_name) (same day)"
+
+    prune_schedule
+}
+
+trip_add_sea() {
+    local current_date
+    current_date=$(cat "$TRIP_STATE")
+
+    local last_tz
+    last_tz=$(last_schedule_entry | awk '{print $2}')
+    [ -z "$last_tz" ] && last_tz=$(cat /etc/timezone 2>/dev/null || echo "UTC")
+
+    ensure_schedule_file
+
+    echo "$current_date $last_tz SEA" >> "$SCHEDULE_FILE"
+    echo "  $current_date  $last_tz  (sea day)"
+
+    local next_d
+    next_d=$(next_date "$current_date")
+    echo "$next_d" > "$TRIP_STATE"
+
+    prune_schedule
+}
+
+cmd_trip() {
     local subcmd="${1:-}"
     shift 2>/dev/null || true
 
     case "$subcmd" in
         start)
-            local start_date="$1"
+            local start_date="${1:-}"
+            shift 2>/dev/null || true
+            local first_port="$*"
+
             if [ -z "$start_date" ]; then
-                echo "Usage: tz cruise start <YYYY-MM-DD>"
-                echo "Example: tz cruise start 2026-02-24"
+                echo "Usage: tz trip start <date> <city>"
+                echo "Example: tz trip start 2027-05-12 tokyo"
                 exit 1
             fi
 
@@ -165,121 +478,93 @@ cmd_cruise() {
                 exit 1
             fi
 
-            echo "$start_date" > "$CRUISE_STATE"
-            echo "Cruise itinerary started from $start_date"
-            echo "Now add ports:  tz cruise <port name>"
-            echo "Add sea days:   tz cruise sea"
-            echo "When done:      tz cruise end"
+            mkdir -p "$(dirname "$TRIP_STATE")"
+
+            # Clear old schedule
+            rm -f "$SCHEDULE_FILE"
+            ensure_schedule_file
+
+            echo "$start_date" > "$TRIP_STATE"
+            echo "Trip started from $start_date"
+
+            # If first port provided, add it
+            if [ -n "$first_port" ]; then
+                trip_add_port $first_port
+            else
+                echo "Add ports with: tz <city>"
+            fi
             ;;
         end)
-            if [ ! -f "$CRUISE_STATE" ]; then
-                echo "No cruise in progress."
+            if ! trip_active; then
+                echo "No trip active."
                 exit 1
             fi
-            rm -f "$CRUISE_STATE"
-            echo "Cruise itinerary complete."
+            rm -f "$TRIP_STATE"
+            prune_schedule
+            echo "Trip complete."
+            echo ""
+            cmd_schedule show
+            ;;
+        load)
+            local file="$1"
+            if [ -z "$file" ] || [ ! -f "$file" ]; then
+                echo "Usage: tz trip load <file>"
+                echo ""
+                echo "File format (first line = start date, then one port per line):"
+                echo "  2027-05-12"
+                echo "  tokyo"
+                echo "  shimizu"
+                echo "  sea"
+                echo "  +kobe          (+ = same day as previous)"
+                echo "  los angeles"
+                exit 1
+            fi
+
+            local line_num=0
+            while IFS= read -r line || [ -n "$line" ]; do
+                line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                [ -z "$line" ] && continue
+                echo "$line" | grep -q '^#' && continue
+
+                line_num=$((line_num + 1))
+
+                if [ "$line_num" -eq 1 ]; then
+                    cmd_trip start "$line"
+                elif echo "$line" | grep -qi '^sea$'; then
+                    trip_add_sea
+                elif echo "$line" | grep -q '^+'; then
+                    local port="${line#+}"
+                    trip_add_port_same_day "$port"
+                else
+                    trip_add_port $line
+                fi
+            done < "$file"
+
+            echo ""
+            echo "Trip loaded. Schedule:"
             echo ""
             cmd_schedule show
             ;;
         show)
-            if [ ! -f "$CRUISE_STATE" ]; then
-                echo "No cruise in progress."
-                echo "Start one with: tz cruise start <YYYY-MM-DD>"
-                exit 1
+            if ! trip_active; then
+                echo "No trip active."
+                exit 0
             fi
-            local next_d
-            next_d=$(cat "$CRUISE_STATE")
-            echo "Cruise in progress. Next date: $next_d"
+            echo "Trip active. Next date: $(cat "$TRIP_STATE")"
             echo ""
             cmd_schedule show
             ;;
-        sea|SEA)
-            if [ ! -f "$CRUISE_STATE" ]; then
-                echo "No cruise in progress. Start one with: tz cruise start <date>"
-                exit 1
-            fi
-
-            local current_date
-            current_date=$(cat "$CRUISE_STATE")
-
-            # For sea days, keep the previous timezone (or mark as SEA)
-            # Get the last timezone from the schedule
-            local last_tz
-            last_tz=$(grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep -v '^$' | tail -1 | awk '{print $2}')
-
-            if [ -z "$last_tz" ]; then
-                last_tz=$(cat /etc/timezone 2>/dev/null || echo "UTC")
-            fi
-
-            # Create schedule file if needed
-            if [ ! -f "$SCHEDULE_FILE" ]; then
-                echo "# Timezone schedule - managed by tz command" > "$SCHEDULE_FILE"
-                echo "# Format: YYYY-MM-DD timezone/name optional note" >> "$SCHEDULE_FILE"
-            fi
-
-            echo "$current_date $last_tz SEA" >> "$SCHEDULE_FILE"
-            echo "Added: $current_date  $last_tz  (sea day)"
-
-            # Advance date
-            local next_d
-            next_d=$(next_date "$current_date")
-            echo "$next_d" > "$CRUISE_STATE"
-            ;;
         "")
-            echo "Usage: tz cruise <command>"
-            echo ""
-            echo "Commands:"
-            echo "  tz cruise start <date>    Start building an itinerary"
-            echo "  tz cruise <port>          Add next port (auto-increments date)"
-            echo "  tz cruise sea             Add a sea day"
-            echo "  tz cruise end             Finish itinerary"
-            echo "  tz cruise show            Show itinerary in progress"
-            echo ""
-            echo "Example:"
-            echo "  tz cruise start 2026-02-24"
-            echo "  tz cruise ensenada"
-            echo "  tz cruise sea"
-            echo "  tz cruise cabo san lucas"
-            echo "  tz cruise sea"
-            echo "  tz cruise tampa"
-            echo "  tz cruise end"
+            if trip_active; then
+                cmd_trip show
+            else
+                echo "Usage: tz trip start <date> <city>"
+                echo "Example: tz trip start 2027-05-12 tokyo"
+            fi
             ;;
         *)
-            # This is a port name - add it to the cruise schedule
-            if [ ! -f "$CRUISE_STATE" ]; then
-                echo "No cruise in progress. Start one with: tz cruise start <date>"
-                exit 1
-            fi
-
-            local current_date port_name resolved
-            current_date=$(cat "$CRUISE_STATE")
-            port_name="$subcmd $*"
-            port_name=$(echo "$port_name" | sed 's/ *$//')
-
-            resolved=$(resolve_timezone "$port_name")
-            if [ -z "$resolved" ]; then
-                # Try just the subcmd without extra args
-                resolved=$(resolve_timezone "$subcmd")
-                if [ -z "$resolved" ]; then
-                    echo "Error: could not resolve timezone for '$port_name'"
-                    echo "Try: tz list $subcmd"
-                    exit 1
-                fi
-            fi
-
-            # Create schedule file if needed
-            if [ ! -f "$SCHEDULE_FILE" ]; then
-                echo "# Timezone schedule - managed by tz command" > "$SCHEDULE_FILE"
-                echo "# Format: YYYY-MM-DD timezone/name optional note" >> "$SCHEDULE_FILE"
-            fi
-
-            echo "$current_date $resolved $port_name" >> "$SCHEDULE_FILE"
-            echo "Added: $current_date  $resolved  ($port_name)"
-
-            # Advance date
-            local next_d
-            next_d=$(next_date "$current_date")
-            echo "$next_d" > "$CRUISE_STATE"
+            echo "Usage: tz trip [start|end|load|show]"
+            exit 1
             ;;
     esac
 }
@@ -290,32 +575,26 @@ cmd_schedule() {
 
     case "$subcmd" in
         ""|show)
-            if [ ! -f "$SCHEDULE_FILE" ] || [ ! -s "$SCHEDULE_FILE" ]; then
-                echo "No timezone schedule set."
-                echo "Use: tz schedule add <date> <city> [note]"
-                echo "Or:  tz cruise start <date>"
+            prune_schedule
+            if [ ! -f "$SCHEDULE_FILE" ] || ! schedule_entries | grep -q .; then
+                echo "No timezone schedule."
                 exit 0
             fi
-            echo "Timezone schedule:"
-            echo ""
             local today
             today=$(date +%Y-%m-%d)
             printf "  %-12s %-28s %s\n" "DATE" "TIMEZONE" "NOTE"
             printf "  %-12s %-28s %s\n" "----" "--------" "----"
-            grep -v '^#' "$SCHEDULE_FILE" | grep -v '^$' | while read -r date tz note; do
+            schedule_entries | while read -r sdate tz note; do
                 local marker=""
-                if [ "$date" = "$today" ]; then
-                    marker=" <-- today"
-                fi
-                printf "  %-12s %-28s %s%s\n" "$date" "$tz" "$note" "$marker"
+                [ "$sdate" = "$today" ] && marker=" <--"
+                printf "  %-12s %-28s %s%s\n" "$sdate" "$tz" "$note" "$marker"
             done
             ;;
         add)
-            local date="$1"
+            local sdate="$1"
             shift
             local resolved="" note=""
             local words=("$@")
-            local i
 
             for i in $(seq ${#words[@]} -1 1); do
                 local try="${words[*]:0:$i}"
@@ -327,43 +606,45 @@ cmd_schedule() {
             done
 
             if [ -z "$resolved" ]; then
-                echo "Error: could not resolve timezone from '$*'"
-                echo "Try: tz list <keyword> to find the right name"
+                echo "'$*' not recognized."
+                fuzzy_suggest "$@"
                 exit 1
             fi
 
-            if ! echo "$date" | grep -qP '^\d{4}-\d{2}-\d{2}$'; then
+            if ! echo "$sdate" | grep -qP '^\d{4}-\d{2}-\d{2}$'; then
                 echo "Error: date must be YYYY-MM-DD format"
                 exit 1
             fi
 
-            if [ ! -f "$SCHEDULE_FILE" ]; then
-                echo "# Timezone schedule - managed by tz command" > "$SCHEDULE_FILE"
-                echo "# Format: YYYY-MM-DD timezone/name optional note" >> "$SCHEDULE_FILE"
-            fi
+            ensure_schedule_file
+            echo "$sdate $resolved $note" >> "$SCHEDULE_FILE"
 
-            echo "$date $resolved $note" >> "$SCHEDULE_FILE"
-
+            # Sort by date
             {
                 grep '^#' "$SCHEDULE_FILE"
-                grep -v '^#' "$SCHEDULE_FILE" | grep -v '^$' | sort
+                schedule_entries | sort
             } > "${SCHEDULE_FILE}.tmp" && mv "${SCHEDULE_FILE}.tmp" "$SCHEDULE_FILE"
 
-            echo "Added: $date  $resolved  $note"
+            prune_schedule
+            echo "Added: $sdate  $resolved  $note"
             ;;
         clear)
             rm -f "$SCHEDULE_FILE"
             echo "Schedule cleared."
             ;;
         check)
-            if [ ! -f "$SCHEDULE_FILE" ]; then
-                return 1 2>/dev/null || exit 1
-            fi
+            local query_only=false
+            [ "${1:-}" = "--query" ] && query_only=true
+
+            [ -f "$SCHEDULE_FILE" ] || { return 1 2>/dev/null || exit 1; }
+
+            prune_schedule
+
             local today tz
             today=$(date +%Y-%m-%d)
-            tz=$(grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep "^$today " | tail -1 | awk '{print $2}')
+            tz=$(schedule_entries | grep "^$today " | tail -1 | awk '{print $2}')
             if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
-                apply_timezone "$tz"
+                [ "$query_only" = false ] && apply_timezone "$tz"
                 echo "$tz"
                 return 0 2>/dev/null || exit 0
             fi
@@ -380,54 +661,68 @@ cmd_schedule() {
 
 case "${1:-}" in
     "")
-        cmd_show
+        cmd_dashboard
+        ;;
+    here)
+        cmd_here
+        ;;
+    sea|SEA)
+        cmd_sea
         ;;
     list)
         shift
         cmd_list "$@"
         ;;
+    trip)
+        shift
+        cmd_trip "$@"
+        ;;
+    cruise)
+        # Hidden alias for backwards compatibility
+        shift
+        cmd_trip "$@"
+        ;;
     schedule)
         shift
         cmd_schedule "$@"
         ;;
-    cruise)
-        shift
-        cmd_cruise "$@"
-        ;;
     undo)
         cmd_undo
+        ;;
+    explain)
+        cmd_dashboard
         ;;
     help|-h|--help)
         echo "tz - timezone helper for travelers"
         echo ""
-        echo "Usage:"
-        echo "  tz                              Show current timezone"
-        echo "  tz <city or timezone>           Set timezone"
-        echo "  tz list <keyword>               Search cities/timezones"
-        echo "  tz undo                         Remove last schedule entry"
+        echo "  tz                     status"
+        echo "  tz <city>              set timezone (or add to trip)"
+        echo "  tz here                detect from network"
+        echo "  tz sea                 add sea day"
+        echo "  tz +<city>             same-day port"
+        echo "  tz undo                remove last entry"
+        echo "  tz list <keyword>      search cities"
         echo ""
-        echo "Schedule:"
-        echo "  tz schedule                     Show scheduled changes"
-        echo "  tz schedule add <date> <city>   Add scheduled change"
-        echo "  tz schedule clear               Clear all scheduled changes"
+        echo "Trip:"
+        echo "  tz trip start <date> <city>"
+        echo "  tz trip end"
+        echo "  tz trip load <file>"
         echo ""
-        echo "Cruise mode:"
-        echo "  tz cruise start <date>          Start cruise itinerary"
-        echo "  tz cruise <port>                Add next port day"
-        echo "  tz cruise sea                   Add a sea day"
-        echo "  tz cruise end                   Finish itinerary"
-        echo "  tz cruise show                  Show itinerary in progress"
-        echo ""
-        echo "Examples:"
-        echo "  tz tampa"
-        echo "  tz list caribbean"
-        echo "  tz cruise start 2026-02-24"
-        echo "  tz cruise ensenada"
-        echo "  tz cruise sea"
-        echo "  tz cruise cabo san lucas"
-        echo "  tz cruise end"
+        echo "Example:"
+        echo "  tz trip start 2027-05-12 tokyo"
+        echo "  tz shimizu"
+        echo "  tz nagoya"
+        echo "  tz osaka"
+        echo "  tz +kobe"
+        echo "  tz sea"
+        echo "  tz sea"
+        echo "  tz los angeles"
+        echo "  tz trip end"
+        ;;
+    +*)
+        cmd_same_day "$@"
         ;;
     *)
-        cmd_set "$@"
+        cmd_set_or_add "$@"
         ;;
 esac

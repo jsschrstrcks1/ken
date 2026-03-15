@@ -1,38 +1,105 @@
 #!/bin/bash
 set -euo pipefail
 
+# Prevent concurrent runs (boot + wake can race)
+exec 9>/var/run/tz.lock
+flock -n 9 || { logger "sync-clock: already running, skipping"; exit 0; }
+
 GEO_URL="https://worldtimeapi.org/api/ip"
-WIFI_IFACE="wlan0"
+GEO_FALLBACK_URL="https://ipapi.co/timezone"
+GEO_CACHE="/var/cache/tz/geoip"
+GEO_CACHE_TTL=21600  # 6 hours in seconds
 
 # --- Timezone Detection Functions ---
 
 detect_tz_schedule() {
     # Method 0: Check pre-loaded schedule (e.g. cruise itinerary)
-    /usr/local/bin/tz schedule check 2>/dev/null
+    /usr/local/bin/tz schedule check --query 2>/dev/null
+}
+
+check_geoip_cache() {
+    if [ -f "$GEO_CACHE" ]; then
+        local cached_time cached_tz now elapsed
+        cached_time=$(head -1 "$GEO_CACHE")
+        cached_tz=$(tail -1 "$GEO_CACHE")
+        now=$(date +%s)
+        elapsed=$((now - cached_time))
+        if [ "$elapsed" -lt "$GEO_CACHE_TTL" ] && [ -f "/usr/share/zoneinfo/$cached_tz" ]; then
+            echo "$cached_tz"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+save_geoip_cache() {
+    mkdir -p "$(dirname "$GEO_CACHE")"
+    printf '%s\n%s\n' "$(date +%s)" "$1" > "$GEO_CACHE"
 }
 
 detect_tz_geoip() {
+    # Check cache first
+    local cached
+    if cached=$(check_geoip_cache); then
+        echo "$cached"
+        return 0
+    fi
     # Method 1: IP-based geolocation (fast, works before VPN)
-    curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+'
+    local result
+    result=$(curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+')
+    if [ -n "$result" ]; then
+        save_geoip_cache "$result"
+        echo "$result"
+        return 0
+    fi
+    return 1
 }
 
-detect_tz_wifi() {
-    # Method 2: WiFi BSSID scan -> alternate IP geolocation provider
-    local wifi_json
+detect_tz_geoip_fallback() {
+    # Method 2: Alternate GeoIP provider as second opinion
+    local result
+    result=$(curl -s --max-time 5 "$GEO_FALLBACK_URL")
+    if [ -n "$result" ] && [ -f "/usr/share/zoneinfo/$result" ]; then
+        save_geoip_cache "$result"
+        echo "$result"
+        return 0
+    fi
+    return 1
+}
 
-    # Get BSSIDs and signal levels from nearby WiFi networks
-    wifi_json=$(iw dev "$WIFI_IFACE" scan 2>/dev/null | awk '
-        /^BSS / { mac = $2; sub(/:?$/, "", mac) }
-        /signal:/ { signal = $2; printf "{\"macAddress\":\"%s\",\"signalStrength\":%s}\n", mac, signal }
-    ' | head -5)
+tz_offset_hours() {
+    # Get UTC offset in hours for a given IANA timezone
+    local zone="$1"
+    TZ="$zone" date +%z 2>/dev/null | awk '{
+        h = substr($0,1,3) + 0
+        m = substr($0,4,2) + 0
+        printf "%.1f", h + m/60
+    }'
+}
 
-    if [ -z "$wifi_json" ]; then
+check_tz_confidence() {
+    # Reject GeoIP results that jump >13 hours from current timezone.
+    # Schedule and manual methods bypass this check.
+    local new_tz="$1" method="$2"
+    case "$method" in
+        schedule|manual) return 0 ;;  # trusted sources, always accept
+    esac
+
+    local current_tz
+    current_tz=$(cat /etc/timezone 2>/dev/null || echo "")
+    [ -z "$current_tz" ] && return 0  # no baseline, accept anything
+
+    local cur_off new_off diff
+    cur_off=$(tz_offset_hours "$current_tz")
+    new_off=$(tz_offset_hours "$new_tz")
+    diff=$(awk "BEGIN { d=$new_off - $cur_off; print (d<0 ? -d : d) }")
+
+    if awk "BEGIN { exit !($diff > 13) }"; then
+        logger "sync-clock: rejecting $new_tz via $method — offset jump ${diff}h from $current_tz"
+        echo "  Low confidence: $new_tz is ${diff}h from $current_tz, ignoring"
         return 1
     fi
-
-    # WiFi-based services (Mozilla Location) are discontinued,
-    # so we use a different IP geolocation provider as second opinion
-    curl -s --max-time 5 "https://ipapi.co/timezone"
+    return 0
 }
 
 set_timezone() {
@@ -45,11 +112,16 @@ set_timezone() {
         return 1
     fi
 
+    if ! check_tz_confidence "$TZ" "$METHOD"; then
+        return 1
+    fi
+
     CURRENT_TZ=$(cat /etc/timezone 2>/dev/null || echo "")
 
     if [ "$TZ" != "$CURRENT_TZ" ]; then
         echo "$TZ" > /etc/timezone
         ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+        export TZ="$TZ"
         logger "sync-clock: timezone changed from $CURRENT_TZ to $TZ (via $METHOD)"
         echo "  Timezone updated: $CURRENT_TZ -> $TZ (via $METHOD)"
     else
@@ -83,12 +155,12 @@ if [ "$TZ_SET" = false ]; then
     fi
 fi
 
-# Priority 3: WiFi-based fallback
+# Priority 3: GeoIP fallback (alternate provider)
 if [ "$TZ_SET" = false ]; then
-    logger "sync-clock: GeoIP failed, trying WiFi detection"
-    echo "  GeoIP failed, trying WiFi scan..."
-    if TZ=$(detect_tz_wifi) && [ -n "$TZ" ]; then
-        if set_timezone "$TZ" "WiFi"; then
+    logger "sync-clock: primary GeoIP failed, trying fallback"
+    echo "  Primary GeoIP failed, trying fallback..."
+    if TZ=$(detect_tz_geoip_fallback) && [ -n "$TZ" ]; then
+        if set_timezone "$TZ" "GeoIP-fallback"; then
             TZ_SET=true
         fi
     fi
