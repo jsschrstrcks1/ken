@@ -1,8 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# Prevent concurrent runs (boot + wake can race)
+exec 9>/var/run/tz.lock
+flock -n 9 || { logger "sync-clock: already running, skipping"; exit 0; }
+
 GEO_URL="https://worldtimeapi.org/api/ip"
 GEO_FALLBACK_URL="https://ipapi.co/timezone"
+GEO_CACHE="/var/cache/tz/geoip"
+GEO_CACHE_TTL=21600  # 6 hours in seconds
 
 # --- Timezone Detection Functions ---
 
@@ -11,14 +17,54 @@ detect_tz_schedule() {
     /usr/local/bin/tz schedule check --query 2>/dev/null
 }
 
+check_geoip_cache() {
+    if [ -f "$GEO_CACHE" ]; then
+        local cached_time cached_tz now elapsed
+        cached_time=$(head -1 "$GEO_CACHE")
+        cached_tz=$(tail -1 "$GEO_CACHE")
+        now=$(date +%s)
+        elapsed=$((now - cached_time))
+        if [ "$elapsed" -lt "$GEO_CACHE_TTL" ] && [ -f "/usr/share/zoneinfo/$cached_tz" ]; then
+            echo "$cached_tz"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+save_geoip_cache() {
+    mkdir -p "$(dirname "$GEO_CACHE")"
+    printf '%s\n%s\n' "$(date +%s)" "$1" > "$GEO_CACHE"
+}
+
 detect_tz_geoip() {
+    # Check cache first
+    local cached
+    if cached=$(check_geoip_cache); then
+        echo "$cached"
+        return 0
+    fi
     # Method 1: IP-based geolocation (fast, works before VPN)
-    curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+'
+    local result
+    result=$(curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+')
+    if [ -n "$result" ]; then
+        save_geoip_cache "$result"
+        echo "$result"
+        return 0
+    fi
+    return 1
 }
 
 detect_tz_geoip_fallback() {
     # Method 2: Alternate GeoIP provider as second opinion
-    curl -s --max-time 5 "$GEO_FALLBACK_URL"
+    local result
+    result=$(curl -s --max-time 5 "$GEO_FALLBACK_URL")
+    if [ -n "$result" ] && [ -f "/usr/share/zoneinfo/$result" ]; then
+        save_geoip_cache "$result"
+        echo "$result"
+        return 0
+    fi
+    return 1
 }
 
 set_timezone() {
@@ -36,6 +82,7 @@ set_timezone() {
     if [ "$TZ" != "$CURRENT_TZ" ]; then
         echo "$TZ" > /etc/timezone
         ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+        export TZ="$TZ"
         logger "sync-clock: timezone changed from $CURRENT_TZ to $TZ (via $METHOD)"
         echo "  Timezone updated: $CURRENT_TZ -> $TZ (via $METHOD)"
     else

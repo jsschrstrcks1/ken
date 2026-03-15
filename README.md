@@ -115,6 +115,7 @@ tz                           # show current timezone
 - ntpd
 - logger (bsdutils)
 - acpid (for wake hook)
+- wireless-tools (optional, for `iwgetid` in network change detection)
 
 ## Installation
 
@@ -122,7 +123,8 @@ tz                           # show current timezone
 ```
 sudo cp sync-clock.sh /usr/local/bin/sync-clock.sh
 sudo cp tz /usr/local/bin/tz
-sudo chmod +x /usr/local/bin/sync-clock.sh /usr/local/bin/tz
+sudo cp tz-network-check /usr/local/bin/tz-network-check
+sudo chmod +x /usr/local/bin/sync-clock.sh /usr/local/bin/tz /usr/local/bin/tz-network-check
 ```
 
 2. Install the city mapping:
@@ -130,9 +132,9 @@ sudo chmod +x /usr/local/bin/sync-clock.sh /usr/local/bin/tz
 sudo cp tz-cities /usr/local/share/tz-cities
 ```
 
-3. Create state directory:
+3. Create state and cache directories:
 ```
-sudo mkdir -p /var/lib/tz
+sudo mkdir -p /var/lib/tz /var/cache/tz
 ```
 
 4. Install the init.d service:
@@ -151,7 +153,13 @@ sudo chmod +x /etc/acpi/tz-wakeup.sh
 sudo service acpid restart
 ```
 
-6. (Optional) Test it now:
+6. (Optional) Install network change hook:
+```
+sudo cp tz-network-check /etc/network/if-up.d/tz-network-check
+sudo chmod +x /etc/network/if-up.d/tz-network-check
+```
+
+7. (Optional) Test it now:
 ```
 sudo /etc/init.d/sync-clock start
 ```
@@ -168,9 +176,10 @@ the office|America/New_York
 ```
 sudo update-rc.d sync-clock remove
 sudo rm /etc/init.d/sync-clock
-sudo rm /usr/local/bin/sync-clock.sh /usr/local/bin/tz
+sudo rm /usr/local/bin/sync-clock.sh /usr/local/bin/tz /usr/local/bin/tz-network-check
 sudo rm /usr/local/share/tz-cities
 sudo rm -f /etc/tz-schedule
-sudo rm -rf /var/lib/tz
+sudo rm -rf /var/lib/tz /var/cache/tz
 sudo rm -f /etc/acpi/events/tz-wakeup /etc/acpi/tz-wakeup.sh
+sudo rm -f /etc/network/if-up.d/tz-network-check
 ```
