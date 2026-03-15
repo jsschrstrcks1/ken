@@ -101,17 +101,31 @@ if [ "$TZ_SET" = false ]; then
     echo "  (Use 'tz' command to set manually, e.g.: tz tampa)"
 fi
 
-# --- Force NTP Sync ---
+# --- Force NTP Sync (with retry) ---
 echo ""
 echo "Syncing clock..."
 logger "sync-clock: starting NTP sync"
-if ntpd -g -q; then
+
+NTP_OK=false
+for attempt in 1 2 3; do
+    if ntpd -g -q; then
+        NTP_OK=true
+        break
+    fi
+    if [ "$attempt" -lt 3 ]; then
+        logger "sync-clock: ntpd attempt $attempt failed, retrying in ${attempt}s..."
+        echo "  Attempt $attempt failed, retrying..."
+        sleep "$attempt"
+    fi
+done
+
+if [ "$NTP_OK" = true ]; then
     hwclock --systohc
     logger "sync-clock: clock synchronized successfully"
     echo "  Clock synchronized: $(date)"
 else
-    logger "sync-clock: ntpd sync failed"
-    echo "  Clock sync failed!"
+    logger "sync-clock: ntpd sync failed after 3 attempts"
+    echo "  Clock sync failed after 3 attempts!"
     sleep 3
     exit 1
 fi
