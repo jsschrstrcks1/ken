@@ -12,124 +12,87 @@ wake-from-sleep hooks.
 3. **GeoIP fallback** — ipapi.co as second provider if primary fails
 4. **Manual** — use `tz` command as last resort
 
-## Changes in this iteration
+## Current Architecture
 
-### 1. Remove WiFi detection, replace with simple GeoIP fallback
-**File:** `sync-clock.sh`
-- Delete `detect_tz_wifi()` entirely (WiFi BSSID scan + iw dependency is dead weight since Mozilla Location Services shut down)
-- Replace with `detect_tz_geoip_fallback()` that just calls `ipapi.co/timezone`
-- Detection chain becomes: schedule → worldtimeapi.org → ipapi.co → keep current
-- Remove `iw` from dependencies in README
+### Detection chain (boot, wake, network change)
+1. **Schedule** — `/etc/tz-schedule` for today's entry (no network needed)
+2. **GeoIP** — worldtimeapi.org with 6-hour cache
+3. **GeoIP fallback** — ipapi.co as second provider
+4. **Manual** — `tz` command
 
-### 2. Fix double timezone application
-**File:** `tz` (cmd_schedule check)
-- Add `--query` flag to `tz schedule check`
-- `tz schedule check` — applies timezone AND returns it (for manual use)
-- `tz schedule check --query` — returns timezone only, no side effects
-- **File:** `sync-clock.sh` — change `detect_tz_schedule()` to call `tz schedule check --query`
+### Triggers
+- **Boot**: SysVinit service (`/etc/init.d/sync-clock`)
+- **Wake**: ACPI hook (`/etc/acpi/tz-wakeup.sh`), throttled to 30min
+- **Network change**: if-up.d hook (`tz-network-check`), throttled to 5min
 
-### 3. Auto-SEA inference in cruise mode
-**File:** `tz` (cmd_cruise)
-- When adding a port, compare its timezone to the previous port's timezone
-- If timezones differ, auto-insert a SEA day before the new port
-- Same port repeated = multi-day stay, no SEA inserted
-- Same timezone but different port = direct sailing, no SEA inserted
-- Different timezone = SEA day auto-inserted (timezone changes at ~2am on ships)
-- Explicit `tz cruise sea` still works for multi-day crossings (transatlantic, Panama Canal, etc.)
-- Show "(auto)" marker on auto-inserted SEA days to distinguish from manual ones
-
-### 4. Move cruise state to /var/lib/tz/
-**File:** `tz`
-- Change `CRUISE_STATE` from `/tmp/tz-cruise-state` to `/var/lib/tz/cruise-state`
-- Create `/var/lib/tz/` directory if it doesn't exist
-- Survives reboots so you don't lose a half-built itinerary
-
-### 5. Add `tz cruise load <file>`
-**File:** `tz` (cmd_cruise)
-- Load itinerary from a plain text file
-- File format:
-  ```
-  2026-02-24
-  cabo
-  cabo
-  ensenada
-  los angeles
-  tampa
-  ```
-  First line = start date, remaining lines = ports (or "sea" for explicit sea days)
-- Resolves each port, applies auto-SEA inference, writes schedule
-- Enables saving/reusing itineraries across trips
-- Example: `tz cruise load ~/cruises/west-coast-2026.txt`
-
-### 6. Add `tz here`
-**File:** `tz`
-- Detect timezone from network (GeoIP) and apply immediately
-- Useful when landing somewhere without rebooting
-- Tries worldtimeapi.org first, falls back to ipapi.co
-- Shows result: `Detected: America/Denver (via GeoIP)`
-
-### 7. Add `tz explain`
-**File:** `tz`
-- Show current timezone state with source information
-- Output:
-  ```
-  Timezone:  America/Mazatlan
-  Local time: 09:34 PST
-  UTC offset: -07:00
-  Schedule:  active (cruise itinerary)
-  Today:     2026-02-26 — cabo san lucas
-  Next:      2026-02-27 — SEA → America/Tijuana
-  ```
-- Makes debugging trivial
-
-### 8. Update README.md
-- Remove `iw` from dependencies
-- Add `tz here`, `tz explain`, `tz cruise load` to usage docs
-- Update detection priority description
-
-### 9. Update plan.md
-- Reflect new architecture
+### Security hardening (latest iteration)
+- Timezone string validation: `^[A-Za-z0-9_/+-]+$`, no `..` (blocks path traversal via GeoIP responses)
+- Atomic state file writes (temp + mv) to prevent symlink attacks
+- State directories 0700 root:root
+- flock on all entry points (sync-clock.sh, tz-network-check, tz-wakeup.sh)
+- SSID sanitization: non-printable chars stripped, 32-byte limit
+- AWK variables via `-v` flag (no string interpolation injection)
+- grep -F for user input (no regex injection)
+- grep -Fxv replaces sed with user-controlled delimiters
+- curl --fail rejects HTML error pages as timezone data
+- Numeric validation on cooldown/timestamp files
+- install(1) with explicit ownership instead of cp+chmod
 
 ## Files
 
-### 1. `sync-clock.sh` — Boot-time sync script
+### 1. `sync-clock.sh` — Boot/wake sync script
 - Layered timezone detection (schedule → GeoIP → GeoIP fallback)
-- Echo status to screen with 3-second delay
+- Timezone validation (path traversal, character whitelist)
+- GeoIP cache with 6-hour TTL, atomic writes
+- Confidence check rejects >13h timezone jumps from GeoIP
 - NTP sync with retry logic (3 attempts)
 - Sync hardware clock with `hwclock --systohc`
+- flock prevents concurrent runs
 
 ### 2. `sync-clock` — SysVinit init.d script
 - LSB headers with `Required-Start: $network $remote_fs`
 - Runs before WireGuard comes up
 
 ### 3. `tz` — Timezone helper command
-- `tz` — show current timezone
-- `tz <city>` — set timezone by city name
+- `tz` — dashboard (status, trip info, next change)
+- `tz <city>` — set timezone by city name (or add to trip)
 - `tz here` — detect from network and set
-- `tz explain` — show timezone state + source info
-- `tz list <keyword>` — search cities and timezones
-- `tz undo` — remove last schedule entry
+- `tz list <keyword>` — search cities and timezones (fixed-string match)
+- `tz undo` — remove last schedule entry (safe string matching)
 - `tz schedule` — manage schedule entries
-- `tz cruise start <date>` — start building cruise itinerary
-- `tz cruise <port>` — add next port (auto-SEA inference)
-- `tz cruise sea` — explicit sea day (multi-day crossings)
-- `tz cruise load <file>` — load itinerary from file
-- `tz cruise end` — finish itinerary
+- `tz trip start <date> <city>` — start building trip itinerary
+- `tz trip load <file>` — load itinerary from file
+- `tz trip end` — finish itinerary
+- `tz sea` — explicit sea day
+- `tz +<city>` — same-day port
+- Timezone validation on all input paths
 
 ### 4. `tz-cities` — City-to-timezone mapping
-- 1200+ cruise ports from whatsinport.com
+- 1200+ cruise ports
 - Fuzzy matching (cabo, cabo-san-lucas, cabo san lucas all work)
 - Grouped by region with comments
 
 ### 5. `tz-wakeup-event` + `tz-wakeup.sh` — ACPI wake hook
 - Runs sync-clock.sh when laptop lid opens
 - Throttled to max once per 30 minutes
+- flock prevents concurrent runs
+- Atomic state file writes
 
-### 6. `README.md` — Installation and usage instructions
+### 6. `tz-network-check` — Network change hook
+- Triggers on interface up via if-up.d
+- Detects SSID + gateway changes
+- SSID sanitized (printable chars only, 32-byte limit)
+- Throttled to once per 5 minutes
+- flock prevents concurrent runs
+- Atomic state file writes
+
+### 7. `install.sh` — Installation script
+- Uses install(1) with explicit ownership (root:root)
+- State directories set to 0700
 
 ## Dependencies
 - curl
-- ntpd
+- ntpd (ntp package)
 - logger (bsdutils)
-- acpid (for wake hook)
-- ~~iw~~ (removed — no longer needed)
+- acpid (optional, for wake hook)
+- wireless-tools (optional, for iwgetid in network change detection)
