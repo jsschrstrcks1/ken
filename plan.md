@@ -2,35 +2,40 @@
 
 ## Overview
 A boot-time script that force-syncs the system clock and auto-detects timezone
-via layered detection (GeoIP -> WiFi scan fallback), before VPN starts.
-Includes a manual `tz` helper command as a reliable last resort for travelers.
-Outputs status to screen with a 3-second delay so you can see the result during boot.
+via layered detection. Includes a `tz` helper command with city name lookup,
+timezone search, and cruise itinerary scheduling.
+
+## Detection Priority (at boot)
+1. **Schedule** — check `/etc/tz-schedule` for today's entry (no network needed, perfect for cruises)
+2. **GeoIP** — IP-based geolocation via worldtimeapi.org (before VPN connects)
+3. **WiFi fallback** — alternate IP geolocation provider if primary fails
+4. **Manual** — use `tz` command as last resort
 
 ## Files
 
 ### 1. `sync-clock.sh` — Boot-time sync script
-- **Layer 1:** Detect timezone via GeoIP (https://worldtimeapi.org/api/ip)
-- **Layer 2:** If GeoIP fails, scan WiFi BSSIDs via `iw` and try alternate IP geolocation
-- Fail safely if both fail (log and continue with current timezone)
-- Write to `/etc/timezone` and symlink `/etc/localtime` (no timedatectl)
+- Layered timezone detection (schedule -> GeoIP -> WiFi)
+- Echo status to screen with 3-second delay
 - Force-sync clock using `ntpd -g -q`
 - Sync hardware clock with `hwclock --systohc`
-- Echo timezone and clock status to screen with 3-second delay
-- Uses `set -euo pipefail` and `logger` throughout
 
 ### 2. `sync-clock` — SysVinit init.d script
 - LSB headers with `Required-Start: $network $remote_fs`
 - Runs before WireGuard comes up
-- Only implements `start`
 
-### 3. `tz` — Manual timezone helper command
-- Usage: `tz America/Denver`, `tz Europe/London`
-- Validates timezone exists in `/usr/share/zoneinfo/`
-- Updates `/etc/timezone` and `/etc/localtime` symlink
-- Shows current date/time after change
-- No arguments = show current timezone
+### 3. `tz` — Timezone helper command
+- `tz <city>` — set timezone by city name (e.g. `tz tampa`)
+- `tz <timezone>` — set by timezone name (e.g. `tz America/Denver`)
+- `tz list <keyword>` — search cities and timezones
+- `tz schedule` — show cruise/travel itinerary
+- `tz schedule add <date> <city> [note]` — add scheduled change
+- `tz schedule clear` — clear schedule
+- `tz schedule check` — apply today's entry (used by boot script)
+- No arguments = show current timezone + next scheduled change
 
-### 4. `README.md` — Installation instructions
-- Copy scripts to `/usr/local/bin/`, make executable
-- Copy init.d script, register with `update-rc.d`
-- Dependencies: curl, ntpd, iw, logger
+### 4. `tz-cities` — City-to-timezone mapping
+- 150+ cities covering US, Caribbean, Mexico, Mediterranean, Europe, Asia, Pacific
+- Focus on cruise ports and common travel destinations
+- User-extensible (add entries at the bottom)
+
+### 5. `README.md` — Installation and usage instructions

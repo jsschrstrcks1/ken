@@ -1,25 +1,245 @@
-#!/bin/sh
+#!/bin/bash
 
-# Manual timezone helper for travelers
-# Usage: tz America/Denver
-#        tz Europe/London
-#        tz              (show current timezone)
+# Timezone helper for travelers
+# Usage: tz                          show current timezone
+#        tz <city or timezone>       set timezone
+#        tz list <keyword>           search cities/timezones
+#        tz schedule                 show scheduled timezone changes
+#        tz schedule add <date> <city/tz> [note]
+#        tz schedule clear           remove all scheduled entries
+#        tz schedule check           apply today's scheduled timezone (used by boot script)
 
-if [ -z "$1" ]; then
+CITIES_FILE="/usr/local/share/tz-cities"
+SCHEDULE_FILE="/etc/tz-schedule"
+
+# --- Helper Functions ---
+
+lookup_city() {
+    local query
+    query=$(echo "$*" | tr '[:upper:]' '[:lower:]')
+
+    if [ -f "$CITIES_FILE" ]; then
+        grep -i "^${query}|" "$CITIES_FILE" 2>/dev/null | head -1 | cut -d'|' -f2
+    fi
+}
+
+resolve_timezone() {
+    # Try as a timezone name first (e.g. America/Denver)
+    if [ -f "/usr/share/zoneinfo/$1" ]; then
+        echo "$1"
+        return 0
+    fi
+
+    # Try as a city name
+    local tz
+    tz=$(lookup_city "$@")
+    if [ -n "$tz" ]; then
+        echo "$tz"
+        return 0
+    fi
+
+    return 1
+}
+
+apply_timezone() {
+    local tz="$1"
+    echo "$tz" > /etc/timezone
+    ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+}
+
+# --- Commands ---
+
+cmd_show() {
     echo "Current timezone: $(cat /etc/timezone 2>/dev/null || echo 'unknown')"
     echo "Current time:     $(date)"
-    exit 0
-fi
 
-TZ_FILE="/usr/share/zoneinfo/$1"
+    # Show next scheduled change if any
+    if [ -f "$SCHEDULE_FILE" ]; then
+        local today next
+        today=$(date +%Y-%m-%d)
+        next=$(grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep -v '^$' | awk -v today="$today" '$1 > today { print; exit }')
+        if [ -n "$next" ]; then
+            echo ""
+            echo "Next scheduled: $next"
+        fi
+    fi
+}
 
-if [ ! -f "$TZ_FILE" ]; then
-    echo "Error: timezone '$1' not found in /usr/share/zoneinfo/"
-    echo "Examples: America/New_York, Europe/London, America/Denver"
-    exit 1
-fi
+cmd_set() {
+    local tz
+    tz=$(resolve_timezone "$@")
 
-echo "$1" > /etc/timezone
-ln -sf "$TZ_FILE" /etc/localtime
-echo "Timezone set to $1"
-date
+    if [ -z "$tz" ]; then
+        echo "Error: '$*' not recognized as a timezone or city."
+        echo "Try: tz list $1"
+        exit 1
+    fi
+
+    apply_timezone "$tz"
+    echo "Timezone set to $tz"
+    date
+}
+
+cmd_list() {
+    local keyword
+    keyword=$(echo "$*" | tr '[:upper:]' '[:lower:]')
+
+    if [ -z "$keyword" ]; then
+        echo "Usage: tz list <keyword>"
+        echo "Examples: tz list caribbean, tz list europe, tz list miami"
+        exit 1
+    fi
+
+    echo "Matching cities/regions for '$keyword':"
+    echo ""
+
+    if [ -f "$CITIES_FILE" ]; then
+        grep -i "$keyword" "$CITIES_FILE" 2>/dev/null | grep -v '^#' | while IFS='|' read -r city timezone; do
+            printf "  %-25s %s\n" "$city" "$timezone"
+        done
+    fi
+
+    # Also search zoneinfo
+    echo ""
+    echo "Matching timezone names:"
+    echo ""
+    find /usr/share/zoneinfo -type f 2>/dev/null | sed 's|/usr/share/zoneinfo/||' | grep -i "$keyword" | grep '/' | sort | while read -r tz; do
+        printf "  %s\n" "$tz"
+    done
+}
+
+cmd_schedule() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        ""|show)
+            if [ ! -f "$SCHEDULE_FILE" ] || [ ! -s "$SCHEDULE_FILE" ]; then
+                echo "No timezone schedule set."
+                echo "Use: tz schedule add <date> <city> [note]"
+                exit 0
+            fi
+            echo "Timezone schedule:"
+            echo ""
+            local today
+            today=$(date +%Y-%m-%d)
+            printf "  %-12s %-28s %s\n" "DATE" "TIMEZONE" "NOTE"
+            printf "  %-12s %-28s %s\n" "----" "--------" "----"
+            grep -v '^#' "$SCHEDULE_FILE" | grep -v '^$' | while read -r date tz note; do
+                local marker=""
+                if [ "$date" = "$today" ]; then
+                    marker=" <-- today"
+                fi
+                printf "  %-12s %-28s %s%s\n" "$date" "$tz" "$note" "$marker"
+            done
+            ;;
+        add)
+            local date="$1"
+            shift
+            # Remaining args are the city/timezone and optional note
+            # Try to find where the timezone ends and note begins
+            local tz_input="" note=""
+
+            # Try resolving progressively more words as a city name
+            local resolved=""
+            local words=("$@")
+            local i
+            for i in $(seq ${#words[@]} -1 1); do
+                local try="${words[*]:0:$i}"
+                resolved=$(resolve_timezone "$try")
+                if [ -n "$resolved" ]; then
+                    note="${words[*]:$i}"
+                    break
+                fi
+            done
+
+            if [ -z "$resolved" ]; then
+                echo "Error: could not resolve timezone from '$*'"
+                echo "Try: tz list <keyword> to find the right name"
+                exit 1
+            fi
+
+            # Validate date format
+            if ! echo "$date" | grep -qP '^\d{4}-\d{2}-\d{2}$'; then
+                echo "Error: date must be YYYY-MM-DD format"
+                exit 1
+            fi
+
+            # Create schedule file if needed
+            if [ ! -f "$SCHEDULE_FILE" ]; then
+                echo "# Timezone schedule - managed by tz command" > "$SCHEDULE_FILE"
+                echo "# Format: YYYY-MM-DD timezone/name optional note" >> "$SCHEDULE_FILE"
+            fi
+
+            echo "$date $resolved $note" >> "$SCHEDULE_FILE"
+
+            # Sort the file (keeping header comments)
+            {
+                grep '^#' "$SCHEDULE_FILE"
+                grep -v '^#' "$SCHEDULE_FILE" | grep -v '^$' | sort
+            } > "${SCHEDULE_FILE}.tmp" && mv "${SCHEDULE_FILE}.tmp" "$SCHEDULE_FILE"
+
+            echo "Added: $date  $resolved  $note"
+            ;;
+        clear)
+            rm -f "$SCHEDULE_FILE"
+            echo "Schedule cleared."
+            ;;
+        check)
+            # Used by boot script - apply today's timezone if scheduled
+            if [ ! -f "$SCHEDULE_FILE" ]; then
+                return 1 2>/dev/null || exit 1
+            fi
+            local today tz
+            today=$(date +%Y-%m-%d)
+            tz=$(grep -v '^#' "$SCHEDULE_FILE" 2>/dev/null | grep "^$today " | tail -1 | awk '{print $2}')
+            if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
+                apply_timezone "$tz"
+                echo "$tz"
+                return 0 2>/dev/null || exit 0
+            fi
+            return 1 2>/dev/null || exit 1
+            ;;
+        *)
+            echo "Usage: tz schedule [show|add|clear|check]"
+            exit 1
+            ;;
+    esac
+}
+
+# --- Main ---
+
+case "${1:-}" in
+    "")
+        cmd_show
+        ;;
+    list)
+        shift
+        cmd_list "$@"
+        ;;
+    schedule)
+        shift
+        cmd_schedule "$@"
+        ;;
+    help|-h|--help)
+        echo "tz - timezone helper for travelers"
+        echo ""
+        echo "Usage:"
+        echo "  tz                              Show current timezone"
+        echo "  tz <city or timezone>           Set timezone"
+        echo "  tz list <keyword>               Search cities/timezones"
+        echo "  tz schedule                     Show scheduled changes"
+        echo "  tz schedule add <date> <city>   Add scheduled change"
+        echo "  tz schedule clear               Clear all scheduled changes"
+        echo ""
+        echo "Examples:"
+        echo "  tz tampa"
+        echo "  tz America/Denver"
+        echo "  tz list caribbean"
+        echo "  tz schedule add 2026-02-24 ensenada Day at port"
+        echo "  tz schedule add 2026-02-25 cabo Cabo day trip"
+        ;;
+    *)
+        cmd_set "$@"
+        ;;
+esac

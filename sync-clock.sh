@@ -6,15 +6,19 @@ WIFI_IFACE="wlan0"
 
 # --- Timezone Detection Functions ---
 
+detect_tz_schedule() {
+    # Method 0: Check pre-loaded schedule (e.g. cruise itinerary)
+    /usr/local/bin/tz schedule check 2>/dev/null
+}
+
 detect_tz_geoip() {
     # Method 1: IP-based geolocation (fast, works before VPN)
     curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+'
 }
 
 detect_tz_wifi() {
-    # Method 2: WiFi BSSID scan -> geolocation API
-    # Scans nearby access points and uses Google-compatible geolocation
-    local bssids signal_levels wifi_json
+    # Method 2: WiFi BSSID scan -> alternate IP geolocation provider
+    local wifi_json
 
     # Get BSSIDs and signal levels from nearby WiFi networks
     wifi_json=$(iw dev "$WIFI_IFACE" scan 2>/dev/null | awk '
@@ -26,11 +30,6 @@ detect_tz_wifi() {
         return 1
     fi
 
-    # Format as JSON array for geolocation API
-    local ap_list
-    ap_list=$(echo "$wifi_json" | paste -sd ',' -)
-
-    # Query ipapi.co as fallback (uses IP but different provider)
     # WiFi-based services (Mozilla Location) are discontinued,
     # so we use a different IP geolocation provider as second opinion
     curl -s --max-time 5 "https://ipapi.co/timezone"
@@ -60,7 +59,7 @@ set_timezone() {
     return 0
 }
 
-# --- Timezone Detection (best-effort, before VPN) ---
+# --- Timezone Detection (layered, best-effort) ---
 echo "=== Clock Sync ==="
 echo ""
 echo "Detecting timezone..."
@@ -68,14 +67,23 @@ logger "sync-clock: starting timezone detection"
 
 TZ_SET=false
 
-# Try GeoIP first
-if TZ=$(detect_tz_geoip) && [ -n "$TZ" ]; then
-    if set_timezone "$TZ" "GeoIP"; then
+# Priority 1: Check schedule (cruise itinerary, no network needed)
+if TZ=$(detect_tz_schedule) && [ -n "$TZ" ]; then
+    if set_timezone "$TZ" "schedule"; then
         TZ_SET=true
     fi
 fi
 
-# Fall back to WiFi-based detection
+# Priority 2: GeoIP (before VPN connects)
+if [ "$TZ_SET" = false ]; then
+    if TZ=$(detect_tz_geoip) && [ -n "$TZ" ]; then
+        if set_timezone "$TZ" "GeoIP"; then
+            TZ_SET=true
+        fi
+    fi
+fi
+
+# Priority 3: WiFi-based fallback
 if [ "$TZ_SET" = false ]; then
     logger "sync-clock: GeoIP failed, trying WiFi detection"
     echo "  GeoIP failed, trying WiFi scan..."
@@ -90,7 +98,7 @@ if [ "$TZ_SET" = false ]; then
     CURRENT_TZ=$(cat /etc/timezone 2>/dev/null || echo "unknown")
     logger "sync-clock: all timezone detection failed, keeping $CURRENT_TZ"
     echo "  Detection failed, keeping current timezone: $CURRENT_TZ"
-    echo "  (Use 'tz' command to set manually, e.g.: tz America/Denver)"
+    echo "  (Use 'tz' command to set manually, e.g.: tz tampa)"
 fi
 
 # --- Force NTP Sync ---
