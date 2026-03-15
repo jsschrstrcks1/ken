@@ -1,25 +1,40 @@
-# Plan: Linux Clock Sync + Timezone Detection Startup Script
+# Plan: Linux Clock Sync + Timezone Detection (Devuan/SysVinit)
+
+## Overview
+A boot-time script that force-syncs the system clock and auto-detects timezone
+via GeoIP (best-effort, before VPN starts). Includes a manual `tz` helper
+command as a reliable fallback for travelers.
 
 ## Files to create
 
-### 1. `sync-clock.sh` — The sync script
-- Detect timezone via IP geolocation (ip-api.com) and set it with `timedatectl`
-- Force-sync the clock using `ntpd -g -q` (one-time jump, then exit)
+### 1. `sync-clock.sh` — Boot-time sync script
+- Detect timezone via GeoIP (https://worldtimeapi.org/api/ip)
+- Write to `/etc/timezone` and symlink `/etc/localtime` (no timedatectl)
+- Fail safely if detection fails (log and continue)
+- Force-sync clock using `ntpd -g -q`
 - Sync hardware clock with `hwclock --systohc`
+- Uses `set -euo pipefail` and `logger` throughout
 
-### 2. `sync-clock.service` — systemd unit file
-- `[Unit]` section: `Description`, `After=network-online.target`, `Wants=network-online.target`, `Before=ntpd.service`
-- `[Service]` section: `Type=oneshot`, `ExecStart=/usr/local/bin/sync-clock.sh`
-- `[Install]` section: `WantedBy=multi-user.target`
+### 2. `sync-clock` — SysVinit init.d script
+- LSB headers with `Required-Start: $network $remote_fs`
+- Runs before WireGuard comes up
+- `Type: oneshot` equivalent — only implements `start`
 
-### 3. `README.md` — Installation instructions
-- Copy script to `/usr/local/bin/`, make executable
-- Copy service to `/etc/systemd/system/`
-- `systemctl daemon-reload && systemctl enable sync-clock.service`
-- Dependencies: curl, ntpd, timedatectl
+### 3. `tz` — Manual timezone helper command
+- Usage: `tz America/Denver`, `tz Europe/London`
+- Validates timezone exists in `/usr/share/zoneinfo/`
+- Updates `/etc/timezone` and `/etc/localtime` symlink
+- Shows current date/time after change
+- No arguments = show current timezone
+
+### 4. `README.md` — Installation instructions
+- Copy scripts to `/usr/local/bin/`, make executable
+- Copy init.d script, register with `update-rc.d`
+- Dependencies: curl, ntpd, logger
 
 ## Implementation steps
-1. Create `sync-clock.sh` with timezone detection and force time sync
-2. Create `sync-clock.service` systemd unit
-3. Create `README.md` with install steps and dependencies
-4. Commit and push to branch
+1. Create `sync-clock.sh`
+2. Create `sync-clock` init.d script
+3. Create `tz` helper command
+4. Create `README.md`
+5. Commit and push to branch

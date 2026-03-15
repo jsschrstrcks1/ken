@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# Manual timezone helper for travelers
+# Usage: tz America/Denver
+#        tz Europe/London
+#        tz              (show current timezone)
+
+if [ -z "$1" ]; then
+    echo "Current timezone: $(cat /etc/timezone 2>/dev/null || echo 'unknown')"
+    echo "Current time:     $(date)"
+    exit 0
+fi
+
+TZ_FILE="/usr/share/zoneinfo/$1"
+
+if [ ! -f "$TZ_FILE" ]; then
+    echo "Error: timezone '$1' not found in /usr/share/zoneinfo/"
+    echo "Examples: America/New_York, Europe/London, America/Denver"
+    exit 1
+fi
+
+echo "$1" > /etc/timezone
+ln -sf "$TZ_FILE" /etc/localtime
+echo "Timezone set to $1"
+date

@@ -1,0 +1,27 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          sync-clock
+# Required-Start:    $network $remote_fs
+# Required-Stop:
+# Should-Start:
+# Should-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Detect timezone and sync clock at boot
+# Description:       Detects timezone via GeoIP and force-syncs
+#                    the system clock before VPN starts.
+### END INIT INFO
+
+case "$1" in
+    start)
+        /usr/local/bin/sync-clock.sh
+        ;;
+    stop|restart|force-reload)
+        ;;
+    *)
+        echo "Usage: $0 start"
+        exit 1
+        ;;
+esac
+
+exit 0
