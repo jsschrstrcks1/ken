@@ -1,0 +1,1284 @@
+Aalborg|Denmark
+Abashiri|Japan
+Aberdeen-Scotland|United Kingdom
+Abidjan|Ivory Coast
+Abu-Dhabi|United Arab Emirates
+Aburatsu|Japan
+Acajutla|El Salvador
+Acapulco|Mexico
+Adelaide|Australia
+Aeroskobing|Denmark
+Agadir|Morocco
+Agios-Nikolaos-Crete|Greece
+Agropoli|Italy
+Ain-Soukhna|Egypt
+Airlie-Beach|Australia
+Aitcho-Islands|Antarctica
+Aitutaki|Cook Islands
+Ajaccio-Corsica|France
+Akaroa|New Zealand
+Akita|Japan
+Akpatok-Island|Canada
+Akrafjord|Norway
+Akureyri|Iceland
+Al-Wajh|Saudi Arabia
+Alanya|Turkey
+Albany|Australia
+Alcudia|Spain
+Alert-Bay-BC|Canada
+Alesund|Norway
+Alexandria|Egypt
+Alghero-Sardinia|Italy
+Algiers|Algeria
+Alicante|Spain
+Almeria|Spain
+Alofi|Niue
+Alotau-Papoea|Papua New Guinea
+Alta|Norway
+Alter-do-Chao|Brazil
+Amalfi|Italy
+Amalia-Glacier-Passage|Chile
+Amami|Japan
+Amasra|Turkey
+Amber-Cove|Dominican Republic
+Ambon|Indonesia
+Ammassalik|Greenland
+Amorgos|Greece
+Amsterdamoya|Svalbard
+Amsterdam|Netherlands
+Anchorage-Whittier-AK|Alaska
+Anchorage-Whittier-AK|USA
+Ancona|Italy
+Ancud|Chile
+Andalsnes|Norway
+Andros-Island|Bahamas
+Anegada|British Virgin Islands
+Angra-Dos-Reis|Brazil
+Anguilla|Anguilla
+Antalya|Turkey
+Antibes|France
+Antofagasta|Chile
+Antwerp|Belgium
+Anzac-Cove|Turkey
+Aomori|Japan
+Apia-Samoa-i-Sisifo|Samoa
+Aqaba|Jordan
+Arendal|Norway
+Argostoli-Kefalonia|Greece
+Arhus|Denmark
+Arica|Chile
+Armacao-dos-Buzios|Brazil
+Arraial-do-Cabo|Brazil
+Arrecife-Lanzarote|Canary Islands
+Aruba|Aruba
+Ashdod|Israel
+Astoria-Oregon|USA
+Atuona-Hiva-Oa-Marquesa-Islands|French Polynesia
+Auckland|New Zealand
+Augusta-Bay|Svalbard
+Aviles|Spain
+Ayerfjord|Svalbard
+Ayia-Napa|Cyprus
+Ayr-Scotland|United Kingdom
+Baddeck-Cape-Breton-Island|Canada
+Bahia-Culebra|Costa Rica
+Bahia-drake|Costa Rica
+Bahrain|Bahrain
+Baie-Comeau|Canada
+Balestrand|Norway
+Bali|Indonesia
+Baltimore|USA
+Bandar-Abbas|Iran
+Bandar-Seri-Begawan-Brunei|Brunei
+Bandol|France
+Bangkok|Thailand
+Banjul|Gambia
+Bar-Harbour|USA
+Barbuda|Antigua
+Barcelona|Spain
+Barentsburg|Svalbard
+Bari|Italy
+Barren-Island|Falkland Islands
+Bar|Montenegro
+Basseterre|Saint Kitts and Nevis
+Bastia-Corsica|France
+Batumi|Georgia
+Baubau|Indonesia
+Bay-of-Islands|New Zealand
+Bear-Island|Svalbard
+Bekkjarvik|Norway
+Belawan-Sumatra|Indonesia
+Belem|Brazil
+Belfast|Ireland
+Belfast|United Kingdom
+Belize|Belize
+Beppu|Japan
+Beqa-Island|Fiji
+Bequia|Saint Vincent and the Granadines
+Bergen|Norway
+Bessaker|Norway
+Bilbao|Spain
+Bimini|Bahamas
+Bintulu|Malaysia
+Binz-Rugen|Germany
+Bissau|Guinea Bissau
+Bitung-Sulawesi|Indonesia
+Bjornoya|Norway
+Blanquilla|Venezuela
+Blomstrandhavn|Svalbard
+Bluff|New Zealand
+Boa-Vista|Cape Verde
+Boca-do-Valeria|Brazil
+Bocas-del-Toro|Panama
+Bodo|Norway
+Bodrum|Turkey
+Bohol|Philippines
+Bonaire|Bonaire
+Bonifacio-Corsica|France
+Boqueron|Puerto Rico
+Bora-Bora|French Polynesia
+Boracay|Philippines
+Bordeaux|France
+Borgholm|Sweden
+Boston|USA
+Bounty-Bay|Pitcairn
+Bozcaada|Turkey
+Bremerhaven|Germany
+Brest|France
+Bridgetown|Barbados
+Brindisi|Italy
+Brisbane|Australia
+Bristol|United Kingdom
+Bronnoysund|Norway
+Broome|Australia
+Buenos-Aires|Argentina
+Bunbury|Australia
+Burgas|Bulgaria
+Burnie-Tasmania|Australia
+Busan|South Korea
+Buschehr|Iran
+Busselton|Australia
+Cabo-Frio|Brazil
+Cabo-Rojo|Dominican Republic
+Cabo-San-Lucas|Mexico
+Cadiz|Spain
+Cagliari-Sardinia|Italy
+Cairns|Australia
+Calica|Mexico
+Callao-Lima|Peru
+Calvi-Corsica|France
+Camboriu|Brazil
+Canakkale|Turkey
+Cannes|France
+Canouan|Saint Vincent and the Granadines
+Cape-Adare|Antarctica
+Cape-Evans|Antarctica
+Cape-Hallet|Antarctica
+Cape-Horn|Chile
+Cape-Liberty|USA
+Cape-Royds|Antarctica
+Cape-Town|South Africa
+Cape-of-Good-Hope|South Africa
+Capri|Italy
+Carcass-Island|Falkland Islands
+Cardiff|United Kingdom
+Carloforte|Italy
+Carriacou|Grenada
+Cartagena-de-Indias|Colombia
+Cartagena|Spain
+Casablanca|Morocco
+Cassis|France
+Castaway-Cay|Bahamas
+Castellon-de-la-Plana|Spain
+Castro-Chiloe-Island|Chile
+Catania-Sicily|Italy
+Cayman-Brac|Cayman Islands
+Cayo-Coco|Cuba
+Cebu|Philippines
+CelebrationKey|Bahamas
+Celukan-Bawang|Indonesia
+Cesme|Turkey
+Ceuta|Morocco
+Ceuta|Spain
+Champagne-Bay-Espiritu-Santo|Vanuatu
+Chan-May|Vietnam
+Chania-Crete|Greece
+Charleston-SC|USA
+Charlestown|Saint Kitts and Nevis
+Charlottetown-Prince-Edward-Island|Canada
+Charlotteville|Trinidad and Tobago
+Cherbourg|France
+Chioggia|Italy
+Chios-Island|Greece
+Chuuk-Island|Micronesia
+Cid-Harbour|Australia
+Cienfuegos|Cuba
+Ciutadella-de-Menorca|Spain
+Civitavecchia-Rome|Italy
+Cobh-Cork|Ireland
+Cockburn-Town|Bahamas
+Coco-Cay|Bahamas
+Coles-Bay-Tasmania|Australia
+Colombo|Sri Lanka
+Colon-Cristobal-Pier|Panama
+Comodoro-Rivadavia|Argentina
+Conakry|Guinea
+Concarneau|France
+Conflict-Islands|Papua New Guinea
+Constanza|Romania
+Cooktown|Australia
+Cooper-Bay|South Georgia
+Copenhagen|Denmark
+Coquimbo|Chile
+Corigliano-Calabro|Italy
+Corinto|Nicaragua
+Corner-Brook-Newfoundland|Canada
+Coron|Philippines
+Costa-Maya|Mexico
+Cotonou|Benin
+Cowes-Isle-of-Wight|United Kingdom
+Cowes|Australia
+Cozumel|Mexico
+Cres|Croatia
+Crotone|Italy
+Cruising-in-Lysefjord|Norway
+Crystal-Sound|Antarctica
+Culebrita-Island|Puerto Rico
+Curacao|Curacao
+Curieuse-Island|Seychelles
+Curu|Costa Rica
+Cuxhaven|Germany
+Da-Nang|Vietnam
+Dakar|Senegal
+Dalian|China
+Dalyan|Turkey
+Dammam|Saudi Arabia
+Dar-es-Salaam|Tanzania
+Dartmouth|United Kingdom
+Darwin|Australia
+Deception-Island|Antarctica
+Delos-Island|Greece
+Denia|Spain
+Deshaies|Guadeloupe
+Desroches|Seychelles
+Devil-Island|Antarctica
+Devonport-Tasmania|Australia
+Diamond-Island|Australia
+Didim|Turkey
+Diego-Suarez|Madagascar
+Dikili|Turkey
+Dili|Timor Leste
+Dingle|Ireland
+Djupivogur|Iceland
+Doha|Qatar
+Doini-Island|Papua New Guinea
+Dongtou|China
+Douarnenez|France
+Douglas-Isle-of-Man|United Kingdom
+Dover|United Kingdom
+Dravuni-Island|Fiji
+Dubai|United Arab Emirates
+Duba|Saudi Arabia
+Dublin|Ireland
+Dubrovnik|Croatia
+Ducie-Atoll|Pitcairn
+Dumont-d-Urville|Antarctica
+Dun-Laoghaire|Ireland
+Dundee|United Kingdom
+Dunedin|New Zealand
+Dunkirk|France
+Durban|South Africa
+Durres|Albania
+Dusky-Sound|New Zealand
+Dutch-Harbor-Unalaska-Island|Alaska
+Dutch-Harbor-Unalaska-Island|USA
+Dzaoudzi-Mayotte|Comoros
+East-London|South Africa
+Eastport|USA
+Eden|Australia
+Edinburgh-of-the-Seven-Seas|Saint Helena
+Edinburgh|United Kingdom
+Eidfjord|Norway
+Eidsdal|Norway
+Eilat|Israel
+El-Hierro|Canary Islands
+Elephant-Island|Antarctica
+Elephant-Island|Argentina
+Eleuthera|Bahamas
+Ensenada|Mexico
+Eskifjordur|Iceland
+Esperance|Australia
+Esperanza|Puerto Rico
+Exmouth|Australia
+Faaborg|Denmark
+Fakarava-Tuamotu-Islands|French Polynesia
+Falmouth-Antigua|Antigua
+Falmouth-Jamaica|Jamaica
+Falmouth|United Kingdom
+Fatu-Hiva-Marquesa-Islands|French Polynesia
+Ferrol|Spain
+Fethiye|Turkey
+Fishguard-Wales|United Kingdom
+Fiskardo-Kefalonia|Greece
+Fitzalan-Island|Australia
+Flam-Aurlandsfjord|Norway
+Flensburg|Germany
+Fogo|Cape Verde
+Folegandros|Greece
+Formentera-Island|Spain
+Fort-Dauphin|Madagascar
+Fort-Lauderdale-Port-Everglades|USA
+Fort-William|United Kingdom
+Fort-de-France|Martinique
+Fortaleza|Brazil
+Fowey|United Kingdom
+Foynes|Ireland
+Fraser-Island|Australia
+Fredericia|Denmark
+Frederiksted-Saint-Croix|US Virgin Islands
+Freeport|Bahamas
+Fremantle|Australia
+Froya-Island|Norway
+Fuerte-Amador|Panama
+Fujairah|United Arab Emirates
+Fukuoka|Japan
+Funchal-Madeira|Madeira
+Funchal-Madeira|Portugal
+Gabes|Tunisia
+Gaeta|Italy
+Galle|Sri Lanka
+Gallipoli|Italy
+Galveston-Texas|USA
+Galway|Ireland
+Gaspe|Canada
+Gdynia-Gdansk|Poland
+Geelong|Australia
+Geiranger-Geirangerfjord|Norway
+Genoa|Italy
+Georgetown-Grand-Cayman|Cayman Islands
+Georgetown|Ascension
+Geraldton|Australia
+Gibraltar|Gibraltar
+Gijon|Spain
+Gili-Trawangan|Indonesia
+Gisborne|New Zealand
+Gizo|Solomon Islands
+Gladstone|Australia
+Glengariff|Ireland
+Gold-Harbour|South Georgia
+Golfito|Costa Rica
+Golfo-Aranci|Italy
+Gothenburg|Sweden
+Grand-Turk|Turks and Caicos
+Grassy-King-Island|Australia
+Gravdal-Leknes-Lofoten|Norway
+Great-Barrier-Reef|Australia
+Great-Exuma-Island|Bahamas
+Great-Stirrup-Cay|Bahamas
+Great-Yarmouth|United Kingdom
+Greencastle|Ireland
+Greenock-Scotland|United Kingdom
+Greenwich-London|United Kingdom
+Grenada|Grenada
+Grundarfjordur|Iceland
+Grytviken|South Georgia
+Guadalcanal|Solomon Islands
+Guam|Guam
+Guangzhou|China
+Guayaquil|Ecuador
+Gudhjem-Bornholm|Denmark
+Gudvangen-Nareoyfjord|Norway
+Gustavia|Saint Barthelemy
+Gythion|Greece
+Hai-Phong|Vietnam
+Haifa|Israel
+Haikou|China
+Haines-AK|Alaska
+Haines-AK|USA
+Hakodate|Japan
+Half-Moon-Cay|Bahamas
+Half-Moon-Island|Antarctica
+Halifax|Canada
+Halong-Bay-Cai-Lan|Vietnam
+Hambantota|Sri Lanka
+Hamburg|Germany
+Hamilton-Island|Australia
+Hamilton|Bermuda
+Hammamet|Tunisia
+Hammerfest|Norway
+Hangaroa|Easter Island
+Harlingen|Netherlands
+Harstad|Norway
+Harvest-Cay|Belize
+Harwich|United Kingdom
+Haugesund|Norway
+Havana|Cuba
+Havre-Saint-Pierre|Canada
+Heimaey-West-Men-Islands|Iceland
+Heligoland|Germany
+Hellesylt-Sunnylvsfjord|Norway
+Helsingborg|Sweden
+Helsingor|Denmark
+Helsinki|Finland
+Heraklion-Crete|Greece
+Herradura|Costa Rica
+Hilo-Hawaii|Hawaii
+Hilo-Hawaii|USA
+Himeji|Japan
+Hiroshima|Japan
+Hitachinaka|Japan
+Ho-Chi-Minh-City|Vietnam
+Hobart-Tasmania|Australia
+Holyhead-Wales|United Kingdom
+Homer|Alaska
+Homer|USA
+Honfleur|France
+Hong-Kong|China
+Honningsvag-Nordkapp|Norway
+Honolulu-Oahu-Hawaii|Hawaii
+Honolulu-Oahu-Hawaii|USA
+Hope-Bay|Antarctica
+Hopen|Svalbard
+Horta-Faial-Island|Azores
+Hososhima|Japan
+Houtman-Abrolhos-Islands|Australia
+Huahine|French Polynesia
+Hualien|Taiwan
+Huatulco|Mexico
+Huelva|Spain
+Hundred-Islands|Philippines
+Husavik|Iceland
+Hvar|Croatia
+Hydra|Greece
+Ibiza|Spain
+Icy-Strait-Point-AK|Alaska
+Icy-Strait-Point-AK|USA
+Igoumenitsa|Greece
+Ikaria|Greece
+Ile-Rousse-Corsica|France
+Ile-Royale-Devils-Islands|French Guiana
+Ile-Sainte-Marie|Madagascar
+Ile-des-Pins|New Caledonia
+Ile-des-Saintes|Guadeloupe
+Iles-Hyeres|France
+Iles-de-la-Madeleine|Canada
+Iles-du-Salut|French Guiana
+Ilha-Grande|Brazil
+Ilha-de-Mozambique|Mozambique
+Ilha-dos-Portugueses|Mozambique
+Ilhabela|Brazil
+Ilheus|Brazil
+Ilulissat-Jacobshavn|Greenland
+Inchon|South Korea
+Inhambane|Mozambique
+Invergordon-Scotland|United Kingdom
+Ios|Greece
+Iquique|Chile
+Iquitos|Peru
+Isafjordur|Iceland
+Ischia|Italy
+Ishigaki-Sakishima-Islands|Japan
+Isla-Catalina|Dominican Republic
+Isla-Gamez|Panama
+Isla-Iguana|Panama
+Isla-Margarita|Venezuela
+Isla-Providencia|Colombia
+Isla-de-Coiba|Panama
+Isla-de-la-Juventud|Cuba
+Istanbul|Turkey
+Itajai|Brazil
+Itea|Greece
+Ittoqqortoormiit|Greenland
+Izmir|Turkey
+Jabal|Saudi Arabia
+Jacarta-Java|Indonesia
+Jacksonville-Florida|USA
+Jamestown|Saint Helena
+Jan-Mayen|Norway
+Jeju|South Korea
+Jiddah|Saudi Arabia
+Jost-Van-Dyke-Island|British Virgin Islands
+Juneau-AK|Alaska
+Juneau-AK|USA
+Kagoshima|Japan
+Kahului-Maui-Hawaii|Hawaii
+Kahului-Maui-Hawaii|USA
+Kaikoura-Bay|New Zealand
+Kalamata|Greece
+Kalmar|Sweden
+Kalundborg|Denmark
+Kalymnos|Greece
+Kamares|Greece
+Kanazawa|Japan
+Kangaroo-Island|Australia
+Kangerlussuaq|Greenland
+Kaohsiung|Taiwan
+Karachi|Pakistan
+Karlskrona|Sweden
+Kas|Turkey
+Katakolon-Olympia|Greece
+Kavala|Greece
+Keelung|Taiwan
+Kemi|Finland
+Kerkyra-Corfu|Greece
+Ketchikan-AK|Alaska
+Ketchikan-AK|USA
+Key-West|USA
+Khasab-Musandam|Oman
+Khawr-Fakkan|United Arab Emirates
+Kiel|Germany
+Killybegs-Donegal|Ireland
+King-Abdulla-Port|Saudi Arabia
+King-George-Island|Antarctica
+King-Haakon-Bay|South Georgia
+Kings-Wharf|Bermuda
+Kingstown|Saint Vincent and the Granadines
+Kiritimati-Christmas-Island|Kiribati
+Kiriwina-Island|Papua New Guinea
+Kirkenes|Norway
+Kirkwall-Orkney-Islands-Scotland|United Kingdom
+Kitakyushu|Japan
+Kitava|Papua New Guinea
+Klaipeda|Lithuania
+Klaksvik|Faroe Islands
+Klawock|Alaska
+Klawock|USA
+Ko-Kood|Thailand
+Ko-Lanta|Thailand
+Ko-Phi-Phi-Islands|Thailand
+Kobe-Osaka|Japan
+Kochi-Japan|Japan
+Kochi|India
+Kodi-Sumba|Indonesia
+Kodiak-AK|Alaska
+Kodiak-AK|USA
+Koh-Samui|Thailand
+Koh-Yao-Noi|Thailand
+Komiza|Croatia
+Komodo|Indonesia
+Kona-Hawaii|Hawaii
+Kona-Hawaii|USA
+Koper|Slovenia
+Korcula|Croatia
+Korinth|Greece
+Koror|Palau
+Kos|Greece
+Kota-Kinabalu|Malaysia
+Kotka|Finland
+Kotor|Montenegro
+Kristiansand|Norway
+Kristiansund|Norway
+Krk|Croatia
+Kuantan|Malaysia
+Kuching|Malaysia
+Kuda-Bandos|Malaysia
+Kudema-Bay-Saaremaa-Island|Estonia
+Kumamoto|Japan
+Kupang|Indonesia
+Kuri-Bay|Australia
+Kusadasi|Turkey
+Kushiro|Japan
+Kuwait-City-Shuwaikh|Kuweit
+Kythnos|Greece
+L-Anse-aux-Meadows-Newfoundland|Canada
+La-Ciotat|France
+La-Coruna|Spain
+La-Dique|Seychelles
+La-Goulette-Tunis|Tunisia
+La-Guaira-Caracas|Venezuela
+La-Pallice-La-Rochelle|France
+La-Paz|Mexico
+La-Romana|Dominican Republic
+La-Spezia|Italy
+Labadee|Haiti
+Laem-Chabang|Thailand
+Laerdal|Norway
+Laguna-San-Raphael|Chile
+Lahaina-Maui-Hawaii|Hawaii
+Lahaina-Maui-Hawaii|USA
+Lakselv-Hamnebukt|Norway
+Langebaan|South Africa
+Langkawi|Malaysia
+Larantuka-Flores|Indonesia
+Larnaca|Cyprus
+Las-Palmas-Gran-Canaria|Canary Islands
+Launceston-Tasmania|Australia
+Lautoka|Fiji
+Lavrion-Athens|Greece
+Le-Havre|France
+Le-Lavandou|France
+Le-Marin|Martinique
+Le-Palais-Belle-Ile-en-Mer|France
+Le-Verdon-sur-Mer|France
+Leirvik|Norway
+Leith-Edinburgh-Scotland|United Kingdom
+Leixoes|Portugal
+Lerwick-Shetland-Islands-Scotland|United Kingdom
+Les-Anses-Arlet|Martinique
+Levuka|Fiji
+Liepaja|Latvia
+Lifou|New Caledonia
+Lighthouse-Point|Bahamas
+Limassol|Cyprus
+Lipari-Liparian-Islands|Italy
+Lisbon|Portugal
+List-Sylt|Germany
+Liverpool|United Kingdom
+Livingston-Island|Antarctica
+Livorno|Italy
+Lobito|Angola
+Lombok|Indonesia
+Lome|Togo
+Lomfjord|Svalbard
+London-City|United Kingdom
+Londonderry|United Kingdom
+Long-Island|Bahamas
+Longyearbyen|Norway
+Longyearbyen|Svalbard
+Loreto|Mexico
+Lorient|France
+Los-Angeles|USA
+Los-Cristianos-Tenerife|Canary Islands
+Louisbourg-Cape-Breton-Island|Canada
+Lovango-Cay|US Virgin Islands
+Luanda|Angola
+Luderitz|Namibia
+Luganville|Vanuatu
+Lulea|Sweden
+Lysebotn|Norway
+Lysefjord|Norway
+Lysekil|Sweden
+Lyttelton-Christchurch|New Zealand
+Macapa|Brazil
+Maceio|Brazil
+Mackay|Australia
+Macquarie-Island|Australia
+Madang-Papua-New-Guinea|Papua New Guinea
+Madras|India
+Magdalenenfjord|Norway
+Magdalenenfjord|Svalbard
+Magong|Taiwan
+Mahajanga|Madagascar
+Mahon-Menorca|Spain
+Maiao-Society-Islands|French Polynesia
+Maizuru|Japan
+Makemo-Tuamotu-Archipel|French Polynesia
+Malacca|Malaysia
+Malaga|Spain
+Male|Maldives
+Mali-Losinj|Croatia
+Malmo|Sweden
+Maloy|Norway
+Manaus|Brazil
+Mangalore|India
+Mangareva-Gambier-Islands|French Polynesia
+Manihi-Tuamotu-Island|French Polynesia
+Manila|Philippines
+Manta|Ecuador
+Manzanillo|Mexico
+Maputo|Mozambique
+Mar-del-Plata|Argentina
+Mare|New Caledonia
+Margaret-River|Australia
+Maria-la-Gorda|Cuba
+Mariehamn-Aland-Islands|Finland
+Marigot-Saint-Martin|Saint Martin
+Marina-di-Carrara|Italy
+Marmaris|Turkey
+Marseilles|France
+Matarani|Peru
+Mayreau|Saint Vincent and the Granadines
+Mazatlan|Mexico
+McMurdo-Station|Antarctica
+Melbourne|Australia
+Melilla|Morocco
+Melilla|Spain
+Mena-Saud|Kuweit
+Menton|France
+Messina-Sicily|Italy
+Metlakatla|USA
+Mgarr|Malta
+Miami|USA
+Milford-Haven-Wales|United Kingdom
+Milford-Sound|New Zealand
+Milos|Greece
+Mina-Salman|Bahrain
+Mindelo-Sao-Vicente|Cape Verde
+Mithymna|Greece
+Mitilini-Lesbos|Greece
+Miyakojima|Japan
+Miyako|Japan
+Miyazaki|Japan
+Mobile|USA
+Moffen-Island|Svalbard
+Molde|Norway
+Moller-harbour|Svalbard
+Mombasa|Kenya
+Monacogletscher|Svalbard
+Monemvasia|Greece
+Monfalcone|Italy
+Monkey-Mia|Australia
+Monopoli|Italy
+Monte-Carlo|Monaco
+Montego-Bay|Jamaica
+Monterey-California|USA
+Montevideo|Uruguay
+Montreal|Canada
+Montserrat|Montserrat
+Mooloolaba|Australia
+Moorea|French Polynesia
+Moreton-Island|Australia
+Mormugao-Goa|India
+Mornington|Australia
+Moroni-Grande-Comore|Comoros
+Mossel-Bay|South Africa
+Motril|Spain
+Motu-Oa|French Polynesia
+Mount-Athos|Greece
+Muara-Brunei|Brunei
+Mumbai|India
+Muroran|Japan
+Muscat|Oman
+Mykonos|Greece
+Myrina|Greece
+Mystery-Island|Vanuatu
+Nagasaki|Japan
+Nagoya|Japan
+Naha-Okinawa|Japan
+Nanaimo|Canada
+Nanortalik|Greenland
+Nantes|France
+Napier|New Zealand
+Naples|Italy
+Narsaq|Greenland
+Narsarsuaq|Greenland
+Narvik|Norway
+Nassau|Bahamas
+Natal|Brazil
+Nauplia|Greece
+Nawiliwili-Kauai-Hawaii|Hawaii
+Nawiliwili-Kauai-Hawaii|USA
+Naxos|Greece
+Neko-Harbor|Antarctica
+Nelson|New Zealand
+Nessebar|Bulgaria
+New-Island|Falkland Islands
+New-Orleans|USA
+New-Plymouth|New Zealand
+New-York|USA
+Newcastle-Australia|Australia
+Newcastle|United Kingdom
+Newhaven-Edinburgh-Scotland|United Kingdom
+Newhaven|United Kingdom
+Newport-Rhode-Island|USA
+Nha-Trang|Vietnam
+Nice|France
+Niigata|Japan
+Nome-AK|Alaska
+Nome-AK|USA
+Nordfjordeid-Nordfjord|Norway
+Norfolk-Island|Australia
+Norfolk-VA|USA
+Norman-Island|British Virgin Islands
+Norrkoping|Sweden
+Nosi-Be-Hell-Ville|Madagascar
+Noumea|New Caledonia
+Nukualofa|Tonga
+Nuuk-Godthab|Greenland
+NyAlesund|Svalbard
+Nyborg|Denmark
+Nydri|Greece
+Nynashamn|Sweden
+Oak-Bluffs-Marthas-Vineyard|USA
+Oban-Scotland|United Kingdom
+Oban-Southland|New Zealand
+Ocean-Cay|Bahamas
+Ocho-Rios|Jamaica
+Olbia-Sardinia|Italy
+Olden-Nordfjord|Norway
+Oostende|Belgium
+Opatija|Croatia
+Oran|Algeria
+Orkney-Islands-Scotland|United Kingdom
+Osaka|Japan
+Oslo-Fjord|Norway
+Oslo|Norway
+Otaru-Sapporo|Japan
+Otranto|Italy
+Oudeschild|Netherlands
+Oulu|Finland
+Ouvea-Iles-Loyante|New Caledonia
+Paamiut|Greenland
+Padang-Bay|Indonesia
+Pago-Pago|American Samoa
+Palamos|Spain
+Palau|Italy
+Palermo-Sicily|Italy
+Palma-de-Majorca|Spain
+Palmarola|Italy
+Palmeira-Sal-Island|Cape Verde
+Palmtree-Island|Australia
+Panama-Canal|Panama
+Papeete-Tahiti|French Polynesia
+Paphos|Cyprus
+Paradise-Bay|Antarctica
+Paramaribo|Suriname
+Paranagua|Brazil
+Parati|Brazil
+Pare-Pare-Sulawesi|Indonesia
+Parga|Greece
+Parintins|Brazil
+Paros|Greece
+Patmos|Greece
+Patreksfjordur|Iceland
+Paulet-Island|Antarctica
+Penang|Malaysia
+Penneshaw|Australia
+Pentecost-Island|Vanuatu
+Pesaro|Italy
+Peter-I-Island|Antarctica
+Peter-Island|British Virgin Islands
+Petermann-Island|Antarctica
+Philadelphia-PA|USA
+Philipsburg-Sint-Maarten|Saint Martin
+Philipsburg-Sint-Maarten|Sint Maarten
+Phillip-Island|Australia
+Phu-Quoc|Vietnam
+Phuket|Thailand
+Picton|New Zealand
+Pingtan-Island|China
+Pio-XI-Glacier|Chile
+Piombino|Italy
+Piraeus-Athens|Greece
+Piran|Slovenia
+Pisco|Peru
+Platis-Gialos-Sifnos|Greece
+Playa-Flamingo|Costa Rica
+Playa-del-Carmen|Mexico
+Playas-del-Coco|Costa Rica
+Pleneau-Island|Antarctica
+Plymouth|United Kingdom
+Pointe-Noire|Congo
+Pointe-a-Pitre|Guadeloupe
+Pointe-des-Galets|Reunion
+Pomene|Mozambique
+Ponce|Puerto Rico
+Ponta-Delgada-Sao-Miguel|Azores
+Ponza|Italy
+Porbandar|India
+Poros|Greece
+Porquerolles|France
+Port-Antonio|Jamaica
+Port-Arthur-Tasmania|Australia
+Port-Blair-Andamanes|India
+Port-Canaveral|USA
+Port-Chalmers|New Zealand
+Port-Denarau|Fiji
+Port-Douglas|Australia
+Port-Elizabeth|South Africa
+Port-Hedland|Australia
+Port-Kelang|Malaysia
+Port-Kembla|Australia
+Port-Lincoln|Australia
+Port-Lockroy|Antarctica
+Port-Louis|Mauritius
+Port-Martin|Antarctica
+Port-Moresby-Papua-New-Guinea|Papua New Guinea
+Port-Royal|Jamaica
+Port-Said|Egypt
+Port-Stanley|Falkland Islands
+Port-Vendres|France
+Port-Vila|Vanuatu
+Port-of-Spain|Trinidad and Tobago
+Portimao|Portugal
+Portland-AU|Australia
+Portland-Maine|USA
+Portlanduk|United Kingdom
+Porto-Belo|Brazil
+Porto-Cervo|Italy
+Porto-Empedocle-Sicily|Italy
+Porto-Ercole|Italy
+Porto-Novo-Sao-Antao|Cape Verde
+Porto-Santo-Island|Portugal
+Porto-Santo-Stefano|Italy
+Porto-Torres|Italy
+Porto-Vecchio-Corsica|France
+Portobelo|Panama
+Portoferraio-Elba|Italy
+Portofino|Italy
+Portovecchio|Italy
+Portovenere|Italy
+Portree-Scotland|United Kingdom
+Portrush|United Kingdom
+Portsmouth-Dominica|Dominica
+Portsmouth|United Kingdom
+Positano|Italy
+Poum|New Caledonia
+Praia-Sao-Tiago|Cape Verde
+Praia-da-Victoria-Terceira|Azores
+Praslin|Seychelles
+Preveza|Greece
+Primosten|Croatia
+Prince-Rupert-British-Columbia|Canada
+Princess-Cay|Bahamas
+Prion-Island-Bay-of-Isles|South Georgia
+Probolinggo|Indonesia
+Progreso|Mexico
+Propriano-Corsica|France
+Puerto-Banus|Spain
+Puerto-Bolivar|Ecuador
+Puerto-Caldera|Costa Rica
+Puerto-Chacabuco|Chile
+Puerto-Chiapas|Mexico
+Puerto-Cortez|Honduras
+Puerto-Deseado|Argentina
+Puerto-Limon|Costa Rica
+Puerto-Madryn-Patagonia|Argentina
+Puerto-Montt|Chile
+Puerto-Princesa|Philippines
+Puerto-Quetzal|Guatemala
+Puerto-Vallarta|Mexico
+Puerto-Williams|Chile
+Puerto-del-Rosario-Fuerteventura|Canary Islands
+Pulau-Bintan|Indonesia
+Pulau-Pangkor|Malaysia
+Pula|Croatia
+Punta-Arenas|Chile
+Punta-Cana|Dominican Republic
+Punta-del-Este|Uruguay
+Puntarenas|Costa Rica
+Pylos|Greece
+Qaanaq-Thule|Greenland
+Qaqortoq|Greenland
+Qeqertassuaq-Disko-Island|Greenland
+Qingdao|China
+Quebec|Canada
+Queensferry-Edinburgh-Scotland|United Kingdom
+Quepos|Costa Rica
+Qui-Nhon|Vietnam
+Rabaul-Papua-New-Guinea|Papua New Guinea
+Rab|Croatia
+Raiatea|French Polynesia
+Rangiroa-Tuamotu-Islands|French Polynesia
+Rapallo|Italy
+Rarotonga|Cook Islands
+Ras-Al-Khaimah|United Arab Emirates
+Ravdfjord|Svalbard
+Ravenna|Italy
+Recife|Brazil
+Red-Bay-Labrador|Canada
+Reggio-Calabria|Italy
+Rethymnon|Greece
+Reykjavik|Iceland
+Rhodes|Greece
+Richards-Bay|South Africa
+Riga|Latvia
+Right-Whale-Bay|South Georgia
+Rijeka|Croatia
+Rio-Grande|Brazil
+Rio-de-Janeiro|Brazil
+Roadtown-Tortola|British Virgin Islands
+Roatan|Honduras
+Robe|Australia
+Robinson-Crusoe-Island|Chile
+Rockland|USA
+Romblon-Island|Philippines
+Ronne-Bornholm|Denmark
+Rorvik|Norway
+Roseau|Dominica
+Rosendal-Hardangerfjord|Norway
+Roses|Spain
+Rosyth-Edinburgh-Scotland|United Kingdom
+Rothera-Station-Adelaide-Island|Antarctica
+Rothesay|United Kingdom
+Rotterdam|Netherlands
+Rouen-Paris|France
+Rovinj|Croatia
+Runavik-Kongshavn|Faroe Islands
+Sabang|Indonesia
+Saba|Saba
+Safaga|Egypt
+Safi|Morocco
+Saint-Anthony-Newfoundland|Canada
+Saint-Florent-Corsica|France
+Saint-George|Bermuda
+Saint-Helier-Jersey|Channel Islands
+Saint-Jean-de-Luz|France
+Saint-John-New-Brunswick|Canada
+Saint-Johns-Newfoundland|Canada
+Saint-Johns|Antigua
+Saint-John|US Virgin Islands
+Saint-Lucia|Saint Lucia
+Saint-Malo|France
+Saint-Marys-Scilly|United Kingdom
+Saint-Nazaire|France
+Saint-Peter-Port-Guernsey|Channel Islands
+Saint-Pierre-and-Miquelon|Saint Pierre and Miquelon
+Saint-Pierre|Martinique
+Saint-Raphael|France
+Saint-Thomas|US Virgin Islands
+Saint-Tropez|France
+Saipan|Northern Mariana Islands
+Sakaiminato|Japan
+Salalah|Oman
+Salaverry|Peru
+Salem|USA
+Salerno|Italy
+Salinas|Puerto Rico
+Salisbury-Plain|South Georgia
+Salomague|Philippines
+Salvador-de-Bahia|Brazil
+Sal|Cape Verde
+Samana-Bay|Dominican Republic
+Samarai-Island|Papua New Guinea
+Sami|Greece
+Samos|Greece
+San-Andres|Colombia
+San-Antonio|Chile
+San-Blas|Panama
+San-Diego|USA
+San-Francisco|USA
+San-Juan-del-Sur|Nicaragua
+San-Juan|Puerto Rico
+San-Miguel-Islas-Perlas|Panama
+San-Salvador-Island|Bahamas
+San-Sebastian-Gomera|Canary Islands
+San-Sebastian|Spain
+Sanary-sur-Mer|France
+Sandakan|Malaysia
+Sandnessjoen|Norway
+Sandnes|Norway
+Sanremo|Italy
+Sansibar|Tanzania
+Santa-Barbara-CA|USA
+Santa-Catalina-Island|USA
+Santa-Cruz-La-Palma|Canary Islands
+Santa-Cruz-Tenerife|Canary Islands
+Santa-Cruz-das-Flores|Azores
+Santa-Margherita|Italy
+Santa-Marina-Di-Leuca|Italy
+Santa-Marta|Colombia
+Santander|Spain
+Santarem|Brazil
+Santiago-de-Cuba|Cuba
+Santo-Domingo|Dominican Republic
+Santo-Tomas-de-Castilla|Guatemala
+Santorini|Greece
+Santos|Brazil
+Sanya|China
+Sao-Francisco-do-Sul|Brazil
+Sao-Tome|Sao Tome and Principe
+Saranda|Albania
+Sark-Guernsey|Channel Islands
+Sasebo|Japan
+Sassnitz|Germany
+Savannah|USA
+Savona|Italy
+Savu-Savu-Fidji|Fiji
+Scarborough|Trinidad and Tobago
+Scrabster-Scotland|United Kingdom
+Seattle|USA
+Semarang|Indonesia
+Sendai|Japan
+Seogwipo-si|South Korea
+Sept-Iles|Canada
+Sete|France
+Sevilla-City|Spain
+Seward-AK|Alaska
+Seward-AK|USA
+Seydisfjordur|Iceland
+Shanghai|China
+Sharm-El-Sheikh|Egypt
+Shelburne|Canada
+Shenzhen|China
+Sherrard-Island|Australia
+Shimizu|Japan
+Sibenik|Croatia
+Siglufjorour|Iceland
+Sihanoukville|Cambodia
+Silhouette|Seychelles
+Singapore|Singapore
+Sinop|Turkey
+Sir-Bani-Yas|United Arab Emirates
+Sisimiut-Holsteinborg|Greenland
+Sitka-AK|Alaska
+Sitka-AK|USA
+Skagen|Denmark
+Skagway-AK|Alaska
+Skagway-AK|USA
+Skarsvag|Norway
+Skiathos|Greece
+Skjolden|Norway
+Skopelos-Northern-Sporades|Greece
+Snow-Hill-Vega-Island|Antarctica
+Sokcho|South Korea
+Soller|Spain
+Sorgfjord|Svalbard
+Sorrento|Italy
+Sortland|Norway
+Soudha-Crete|Greece
+Sousse|Tunisia
+South-Georgia|South Georgia
+South-Orkney-Islands|Antarctica
+South-Shetland-Islands|Antarctica
+Southampton|United Kingdom
+Spanish-Town|British Virgin Islands
+Spetses|Greece
+Split|Croatia
+Staniel-Cay|Bahamas
+Stavanger|Norway
+Stintino|Italy
+Stockholm|Sweden
+Stornoway-Hebrides-Scotland|United Kingdom
+Stromboli|Italy
+Stromness-Fortuna-Bay|South Georgia
+Stromness-Orkney-Islands-Scotland|United Kingdom
+Sua-Atacames|Ecuador
+Subic-Bay|Philippines
+Suez|Egypt
+Sulina|Romania
+Sundsvall|Sweden
+Surabaya|Indonesia
+Sur|Oman
+Suva-Fiji|Fiji
+Svartisen-Holandsfjord|Norway
+Svolvaer|Norway
+Sydney-Cape-Breton-Island|Canada
+Sydney|Australia
+Symi|Greece
+Syracuse-Sicily|Italy
+Syros|Greece
+Szczecin|Poland
+Tabuaeran-Fanning-Island|Kiribati
+Tahaa|French Polynesia
+Tahuata|French Polynesia
+Taichung|Taiwan
+Taiohae-Nuku-Hiva|French Polynesia
+Takamatsu|Japan
+Takoradi|Ghana
+Talcahuano|Chile
+Tallinn|Estonia
+Tamano|Japan
+Tampa|USA
+Tanger|Morocco
+Taomasina|Madagascar
+Taormina|Italy
+Taranto|Italy
+Tarragona|Spain
+Tauranga|New Zealand
+Taveuni|Fiji
+Tema|Ghana
+Ternate|Indonesia
+Terra-Nova|Antarctica
+Terre-de-Haut|Guadeloupe
+Thessaloniki|Greece
+Thoothukudi|India
+Thorshavn|Faroe Islands
+Thursday-Island|Australia
+Tianjin|China
+Tikehau-Tuamotu-Islands|French Polynesia
+Timaru|New Zealand
+Tinian|Northern Mariana Islands
+Tinos|Greece
+Toba|Japan
+Tobermory-Isle-of-Mull-Scotland|United Kingdom
+Tokyo|Japan
+Tomonoura|Japan
+Torbay|United Kingdom
+Torquay|United Kingdom
+Tortuga|Costa Rica
+Toulon|France
+Townsville|Australia
+Toyama|Japan
+Trabzon|Turkey
+Tracy-Arm-Fjord-AK|Alaska
+Tracy-Arm-Fjord-AK|USA
+Traena|Norway
+Trapani-Sicily|Italy
+Travemunde|Germany
+Tresco-Scilly-Isles|United Kingdom
+Triest|Italy
+Triluke-Bay|Croatia
+Trincomalee|Sri Lanka
+Trogir|Croatia
+Trois-Rivieres|Canada
+Tromso|Norway
+Trondheim|Norway
+Trujillo|Honduras
+Tsuruga|Japan
+Tulear|Madagascar
+Turku|Finland
+Ua-Pou-Marquesa-Islands|French Polynesia
+Ubatuba|Brazil
+Ujung-Pandang-Sulawesi|Indonesia
+Ullapool-Scotland|United Kingdom
+Ulvik|Norway
+Umea|Sweden
+Union-Island|Saint Vincent and the Granadines
+Upernavik|Greenland
+Ushuaia-Tierra-del-Fuego|Argentina
+Uummannaq|Greenland
+Valdez-AK|Alaska
+Valdez-AK|USA
+Valdivia-Puerto-Corral|Chile
+Valencia|Spain
+Valletta|Malta
+Valparaiso|Chile
+Vancouver|Canada
+Vardo|Norway
+Varna|Bulgaria
+Vasa|Finland
+Vathi|Greece
+Vavau|Tonga
+Venice|Italy
+Ventspils|Latvia
+Viareggio|Italy
+Victoria-BC|Canada
+Victoria-Mahe|Seychelles
+Victoria|Cameroon
+Vigo|Spain
+Vik-Sognefjord|Norway
+Vilagarcia|Spain
+Ville-Saguenay-Quebec|Canada
+Villefranche-Nice|France
+Visby-Gotland|Sweden
+Vitoria|Brazil
+Vlissingen-Zeeland|Netherlands
+Vlora|Albania
+Volda|Norway
+Volos|Greece
+Vopnafjordur|Iceland
+Vung-Tau|Vietnam
+Waitangi-Chatham-Islands|New Zealand
+Wakayama|Japan
+Wala|Vanuatu
+Walvis-Bay|Namibia
+Warnemunde|Germany
+Warrenpoint|United Kingdom
+Waterford|Ireland
+Wellington|New Zealand
+West-End|Bahamas
+Westpoint-Island|Falkland Islands
+Weymouth|United Kingdom
+Whalers-Bay-Deception-Island|Antarctica
+Whangarei|New Zealand
+Whitsunday-Island|Australia
+Willis-Island|Australia
+Wismar|Germany
+Wrangell|Alaska
+Wrangell|USA
+Xiamen|China
+Yanbu|Saudi Arabia
+Yap|Micronesia
+Yarmouth-Nova-Scotia|Canada
+Yasawa-I-Rara|Fiji
+Yatsushiro|Japan
+Yeosu|South Korea
+Yokohama|Japan
+Yorkeys-Knob|Australia
+Ytre-Norskoya|Svalbard
+Zadar|Croatia
+Zakinthos|Greece
+Zeebrugge|Belgium
+Zhoushan|China
+Zihuatanejo-Ixtapa|Mexico
