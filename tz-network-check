@@ -2,6 +2,10 @@
 # Triggered by if-up.d when a network interface comes up.
 # Checks if the network has changed and runs timezone detection if so.
 
+# Prevent concurrent runs
+exec 9>/var/run/tz-network-check.lock
+flock -n 9 || exit 0
+
 CACHE_DIR="/var/cache/tz"
 STATE_FILE="$CACHE_DIR/network-state"
 COOLDOWN_FILE="$CACHE_DIR/last-network-check"
@@ -10,12 +14,14 @@ COOLDOWN=300  # 5 minutes
 # Cooldown: don't run more than once per 5 minutes
 NOW=$(date +%s)
 LAST=$(cat "$COOLDOWN_FILE" 2>/dev/null || echo 0)
+case "$LAST" in *[!0-9]*) LAST=0 ;; esac
 if [ $((NOW - LAST)) -lt "$COOLDOWN" ]; then
     exit 0
 fi
 
-# Build network fingerprint
+# Build network fingerprint (sanitize SSID: strip non-printable chars and shell metacharacters)
 SSID=$(iwgetid -r 2>/dev/null || echo "none")
+SSID=$(printf '%s' "$SSID" | tr -cd '[:alnum:] _.@#-' | head -c 32)
 GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
 FINGERPRINT="$SSID|$GW"
 
@@ -27,8 +33,10 @@ fi
 
 # Network changed — save state and run sync
 mkdir -p "$CACHE_DIR"
-echo "$FINGERPRINT" > "$STATE_FILE"
-echo "$NOW" > "$COOLDOWN_FILE"
+chmod 700 "$CACHE_DIR"
+# Atomic writes: write to temp file then rename (prevents symlink attacks)
+printf '%s\n' "$FINGERPRINT" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+printf '%s\n' "$NOW" > "${COOLDOWN_FILE}.tmp" && mv "${COOLDOWN_FILE}.tmp" "$COOLDOWN_FILE"
 
 logger "tz-network-check: network changed ($OLD -> $FINGERPRINT), running timezone detection"
 /usr/local/bin/sync-clock.sh

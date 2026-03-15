@@ -15,6 +15,15 @@
 #   tz trip load <file>         load itinerary from file
 #   tz schedule [show|add|clear|check]  manage schedule directly
 
+validate_timezone() {
+    local tz="$1"
+    # Must match: letters, digits, underscores, forward slashes, hyphens, plus signs
+    echo "$tz" | grep -qP '^[A-Za-z0-9_/+\-]+$' || return 1
+    # Reject path traversal
+    case "$tz" in ..*|*/..*|*/../*|*/..) return 1 ;; esac
+    return 0
+}
+
 CITIES_FILE="/usr/local/share/tz-cities"
 SCHEDULE_FILE="/etc/tz-schedule"
 TRIP_STATE="/var/lib/tz/trip-state"
@@ -114,7 +123,7 @@ fuzzy_suggest() {
 
 resolve_timezone() {
     # Try as IANA timezone name first (e.g. America/Denver)
-    if [ -f "/usr/share/zoneinfo/$1" ]; then
+    if validate_timezone "$1" && [ -f "/usr/share/zoneinfo/$1" ]; then
         echo "$1"
         return 0
     fi
@@ -132,6 +141,10 @@ resolve_timezone() {
 
 apply_timezone() {
     local tz="$1"
+    if ! validate_timezone "$tz"; then
+        echo "Error: invalid timezone string"
+        return 1
+    fi
     echo "$tz" > /etc/timezone
     ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
     export TZ="$tz"
@@ -298,7 +311,7 @@ cmd_list() {
     echo ""
 
     if [ -f "$CITIES_FILE" ]; then
-        grep -i "$keyword" "$CITIES_FILE" 2>/dev/null | grep -v '^#' | while IFS='|' read -r city timezone; do
+        grep -Fi "$keyword" "$CITIES_FILE" 2>/dev/null | grep -v '^#' | while IFS='|' read -r city timezone; do
             printf "  %-25s %s\n" "$city" "$timezone"
         done
     fi
@@ -306,7 +319,7 @@ cmd_list() {
     echo ""
     echo "Matching timezone names:"
     echo ""
-    find /usr/share/zoneinfo -type f 2>/dev/null | sed 's|/usr/share/zoneinfo/||' | grep -i "$keyword" | grep '/' | sort | while read -r tz; do
+    find /usr/share/zoneinfo -type f 2>/dev/null | sed 's|/usr/share/zoneinfo/||' | grep -Fi "$keyword" | grep '/' | sort | while read -r tz; do
         printf "  %s\n" "$tz"
     done
 }
@@ -316,13 +329,13 @@ cmd_here() {
 
     echo "Detecting timezone..."
 
-    tz=$(curl -s --max-time 5 "https://worldtimeapi.org/api/ip" 2>/dev/null | grep -oP '"timezone"\s*:\s*"\K[^"]+')
+    tz=$(curl -sf --max-time 5 "https://worldtimeapi.org/api/ip" 2>/dev/null | grep -oP '"timezone"\s*:\s*"\K[^"]+')
 
     if [ -z "$tz" ]; then
-        tz=$(curl -s --max-time 5 "https://ipapi.co/timezone" 2>/dev/null)
+        tz=$(curl -sf --max-time 5 "https://ipapi.co/timezone" 2>/dev/null)
     fi
 
-    if [ -z "$tz" ] || [ ! -f "/usr/share/zoneinfo/$tz" ]; then
+    if [ -z "$tz" ] || ! validate_timezone "$tz" || [ ! -f "/usr/share/zoneinfo/$tz" ]; then
         echo "Could not detect timezone from network."
         exit 1
     fi
@@ -352,7 +365,7 @@ cmd_undo() {
         exit 1
     fi
 
-    sed -i "\|^${last_entry}$|d" "$SCHEDULE_FILE"
+    grep -Fxv "$last_entry" "$SCHEDULE_FILE" > "${SCHEDULE_FILE}.tmp" && mv "${SCHEDULE_FILE}.tmp" "$SCHEDULE_FILE"
     echo "Removed: $last_entry"
 
     # If trip active, rewind the trip date
@@ -489,7 +502,7 @@ cmd_trip() {
 
             # If first port provided, add it
             if [ -n "$first_port" ]; then
-                trip_add_port $first_port
+                trip_add_port "$first_port"
             else
                 echo "Add ports with: tz <city>"
             fi
@@ -536,7 +549,7 @@ cmd_trip() {
                     local port="${line#+}"
                     trip_add_port_same_day "$port"
                 else
-                    trip_add_port $line
+                    trip_add_port "$line"
                 fi
             done < "$file"
 

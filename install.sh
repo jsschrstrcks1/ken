@@ -13,28 +13,27 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Installing tz..."
 
-# Scripts
-cp "$DIR/sync-clock.sh" /usr/local/bin/sync-clock.sh
-cp "$DIR/tz" /usr/local/bin/tz
-cp "$DIR/tz-network-check" /usr/local/bin/tz-network-check
-chmod +x /usr/local/bin/sync-clock.sh /usr/local/bin/tz /usr/local/bin/tz-network-check
+# Scripts (install with explicit ownership and permissions)
+install -o root -g root -m 755 "$DIR/sync-clock.sh" /usr/local/bin/sync-clock.sh
+install -o root -g root -m 755 "$DIR/tz" /usr/local/bin/tz
+install -o root -g root -m 755 "$DIR/tz-network-check" /usr/local/bin/tz-network-check
 
 # City mapping
-cp "$DIR/tz-cities" /usr/local/share/tz-cities
+install -o root -g root -m 644 "$DIR/tz-cities" /usr/local/share/tz-cities
 
-# State and cache directories
+# State and cache directories (root-only access)
 mkdir -p /var/lib/tz /var/cache/tz
+chmod 700 /var/lib/tz /var/cache/tz
+chown root:root /var/lib/tz /var/cache/tz
 
 # init.d service
-cp "$DIR/sync-clock" /etc/init.d/sync-clock
-chmod +x /etc/init.d/sync-clock
+install -o root -g root -m 755 "$DIR/sync-clock" /etc/init.d/sync-clock
 update-rc.d sync-clock defaults 2>/dev/null || true
 
 # Wake hook (acpid)
 if command -v acpid >/dev/null 2>&1 || dpkg -l acpid >/dev/null 2>&1; then
-    cp "$DIR/tz-wakeup-event" /etc/acpi/events/tz-wakeup
-    cp "$DIR/tz-wakeup.sh" /etc/acpi/tz-wakeup.sh
-    chmod +x /etc/acpi/tz-wakeup.sh
+    install -o root -g root -m 644 "$DIR/tz-wakeup-event" /etc/acpi/events/tz-wakeup
+    install -o root -g root -m 755 "$DIR/tz-wakeup.sh" /etc/acpi/tz-wakeup.sh
     service acpid restart 2>/dev/null || true
     echo "  Wake hook installed (acpid)"
 else
@@ -43,8 +42,7 @@ fi
 
 # Network change hook
 if [ -d /etc/network/if-up.d ]; then
-    cp "$DIR/tz-network-check" /etc/network/if-up.d/tz-network-check
-    chmod +x /etc/network/if-up.d/tz-network-check
+    install -o root -g root -m 755 "$DIR/tz-network-check" /etc/network/if-up.d/tz-network-check
     echo "  Network hook installed"
 fi
 

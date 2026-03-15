@@ -10,6 +10,31 @@ GEO_FALLBACK_URL="https://ipapi.co/timezone"
 GEO_CACHE="/var/cache/tz/geoip"
 GEO_CACHE_TTL=21600  # 6 hours in seconds
 
+# --- Validation ---
+
+validate_timezone() {
+    # Reject path traversal and shell metacharacters in timezone strings
+    local tz="$1"
+    case "$tz" in
+        *..* | */* | "")
+            # Allow forward slashes only if no ".." present
+            ;;
+    esac
+    # Must match: letters, digits, underscores, forward slashes, hyphens, plus signs
+    if ! echo "$tz" | grep -qP '^[A-Za-z0-9_/+\-]+$'; then
+        logger "sync-clock: rejecting invalid timezone string: $(echo "$tz" | tr -cd '[:print:]' | head -c 80)"
+        return 1
+    fi
+    # Reject path traversal
+    case "$tz" in
+        ..*|*/..*|*/../*|*/..)
+            logger "sync-clock: rejecting path traversal in timezone: $tz"
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 # --- Timezone Detection Functions ---
 
 detect_tz_schedule() {
@@ -24,7 +49,7 @@ check_geoip_cache() {
         cached_tz=$(tail -1 "$GEO_CACHE")
         now=$(date +%s)
         elapsed=$((now - cached_time))
-        if [ "$elapsed" -lt "$GEO_CACHE_TTL" ] && [ -f "/usr/share/zoneinfo/$cached_tz" ]; then
+        if [ "$elapsed" -lt "$GEO_CACHE_TTL" ] && validate_timezone "$cached_tz" && [ -f "/usr/share/zoneinfo/$cached_tz" ]; then
             echo "$cached_tz"
             return 0
         fi
@@ -33,8 +58,12 @@ check_geoip_cache() {
 }
 
 save_geoip_cache() {
-    mkdir -p "$(dirname "$GEO_CACHE")"
-    printf '%s\n%s\n' "$(date +%s)" "$1" > "$GEO_CACHE"
+    local dir
+    dir="$(dirname "$GEO_CACHE")"
+    mkdir -p "$dir"
+    chmod 700 "$dir"
+    # Atomic write to prevent symlink attacks
+    printf '%s\n%s\n' "$(date +%s)" "$1" > "${GEO_CACHE}.tmp" && mv "${GEO_CACHE}.tmp" "$GEO_CACHE"
 }
 
 detect_tz_geoip() {
@@ -46,7 +75,7 @@ detect_tz_geoip() {
     fi
     # Method 1: IP-based geolocation (fast, works before VPN)
     local result
-    result=$(curl -s --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+')
+    result=$(curl -sf --max-time 5 "$GEO_URL" | grep -oP '"timezone"\s*:\s*"\K[^"]+')
     if [ -n "$result" ]; then
         save_geoip_cache "$result"
         echo "$result"
@@ -58,8 +87,8 @@ detect_tz_geoip() {
 detect_tz_geoip_fallback() {
     # Method 2: Alternate GeoIP provider as second opinion
     local result
-    result=$(curl -s --max-time 5 "$GEO_FALLBACK_URL")
-    if [ -n "$result" ] && [ -f "/usr/share/zoneinfo/$result" ]; then
+    result=$(curl -sf --max-time 5 "$GEO_FALLBACK_URL")
+    if [ -n "$result" ] && validate_timezone "$result" && [ -f "/usr/share/zoneinfo/$result" ]; then
         save_geoip_cache "$result"
         echo "$result"
         return 0
@@ -92,9 +121,9 @@ check_tz_confidence() {
     local cur_off new_off diff
     cur_off=$(tz_offset_hours "$current_tz")
     new_off=$(tz_offset_hours "$new_tz")
-    diff=$(awk "BEGIN { d=$new_off - $cur_off; print (d<0 ? -d : d) }")
+    diff=$(awk -v a="$new_off" -v b="$cur_off" 'BEGIN { d=a-b; print (d<0 ? -d : d) }')
 
-    if awk "BEGIN { exit !($diff > 13) }"; then
+    if awk -v d="$diff" 'BEGIN { exit !(d > 13) }'; then
         logger "sync-clock: rejecting $new_tz via $method — offset jump ${diff}h from $current_tz"
         echo "  Low confidence: $new_tz is ${diff}h from $current_tz, ignoring"
         return 1
@@ -105,6 +134,11 @@ check_tz_confidence() {
 set_timezone() {
     local TZ="$1"
     local METHOD="$2"
+
+    if ! validate_timezone "$TZ"; then
+        echo "  Warning: invalid timezone string rejected"
+        return 1
+    fi
 
     if [ ! -f "/usr/share/zoneinfo/$TZ" ]; then
         logger "sync-clock: detected timezone $TZ not found in zoneinfo, skipping"
