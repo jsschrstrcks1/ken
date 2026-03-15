@@ -112,50 +112,13 @@ Old schedule entries are automatically pruned.
 
 ## Installation
 
-1. Copy scripts and make them executable:
 ```
-sudo cp sync-clock.sh /usr/local/bin/sync-clock.sh
-sudo cp tz /usr/local/bin/tz
-sudo cp tz-network-check /usr/local/bin/tz-network-check
-sudo chmod +x /usr/local/bin/sync-clock.sh /usr/local/bin/tz /usr/local/bin/tz-network-check
+sudo ./install.sh
 ```
 
-2. Install the city mapping:
-```
-sudo cp tz-cities /usr/local/share/tz-cities
-```
-
-3. Create state and cache directories:
-```
-sudo mkdir -p /var/lib/tz /var/cache/tz
-```
-
-4. Install the init.d service:
-```
-sudo cp sync-clock /etc/init.d/sync-clock
-sudo chmod +x /etc/init.d/sync-clock
-sudo update-rc.d sync-clock defaults
-```
-
-5. Install the wake hook (requires acpid):
-```
-sudo apt install acpid
-sudo cp tz-wakeup-event /etc/acpi/events/tz-wakeup
-sudo cp tz-wakeup.sh /etc/acpi/tz-wakeup.sh
-sudo chmod +x /etc/acpi/tz-wakeup.sh
-sudo service acpid restart
-```
-
-6. (Optional) Install network change hook:
-```
-sudo cp tz-network-check /etc/network/if-up.d/tz-network-check
-sudo chmod +x /etc/network/if-up.d/tz-network-check
-```
-
-7. (Optional) Test it now:
-```
-sudo /etc/init.d/sync-clock start
-```
+Installs scripts, city mapping, init.d service, wake hook (if acpid
+is present), and network change hook. For wake detection, install
+acpid first: `sudo apt install acpid`.
 
 ## Adding custom cities
 
