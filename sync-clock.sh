@@ -67,6 +67,41 @@ detect_tz_geoip_fallback() {
     return 1
 }
 
+tz_offset_hours() {
+    # Get UTC offset in hours for a given IANA timezone
+    local zone="$1"
+    TZ="$zone" date +%z 2>/dev/null | awk '{
+        h = substr($0,1,3) + 0
+        m = substr($0,4,2) + 0
+        printf "%.1f", h + m/60
+    }'
+}
+
+check_tz_confidence() {
+    # Reject GeoIP results that jump >13 hours from current timezone.
+    # Schedule and manual methods bypass this check.
+    local new_tz="$1" method="$2"
+    case "$method" in
+        schedule|manual) return 0 ;;  # trusted sources, always accept
+    esac
+
+    local current_tz
+    current_tz=$(cat /etc/timezone 2>/dev/null || echo "")
+    [ -z "$current_tz" ] && return 0  # no baseline, accept anything
+
+    local cur_off new_off diff
+    cur_off=$(tz_offset_hours "$current_tz")
+    new_off=$(tz_offset_hours "$new_tz")
+    diff=$(awk "BEGIN { d=$new_off - $cur_off; print (d<0 ? -d : d) }")
+
+    if awk "BEGIN { exit !($diff > 13) }"; then
+        logger "sync-clock: rejecting $new_tz via $method — offset jump ${diff}h from $current_tz"
+        echo "  Low confidence: $new_tz is ${diff}h from $current_tz, ignoring"
+        return 1
+    fi
+    return 0
+}
+
 set_timezone() {
     local TZ="$1"
     local METHOD="$2"
@@ -74,6 +109,10 @@ set_timezone() {
     if [ ! -f "/usr/share/zoneinfo/$TZ" ]; then
         logger "sync-clock: detected timezone $TZ not found in zoneinfo, skipping"
         echo "  Warning: timezone '$TZ' not recognized, skipping"
+        return 1
+    fi
+
+    if ! check_tz_confidence "$TZ" "$METHOD"; then
         return 1
     fi
 
