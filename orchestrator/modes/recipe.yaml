@@ -1,0 +1,78 @@
+# Recipe Mode — Content + UX Engine
+# Recipe websites (Allrecipes, Grandmasrecipes, Grannysrecipes, MomsRecipes)
+
+name: recipe
+lead: gpt  # GPT generates, single-pass preferred
+
+pipeline:
+  - step: generate
+    model: gpt
+    role: plan
+    description: >
+      Generate recipe with structured format:
+      ingredients, step-by-step instructions, variations.
+
+  - step: expand
+    model: gemini
+    role: expand
+    description: >
+      Add ingredient knowledge, substitutions, nutrition data.
+      Expand with cooking science where helpful.
+
+  - step: safety_check
+    model: claude
+    role: safety
+    description: >
+      Verify cooking temperatures are safe.
+      Check allergen warnings.
+      Ensure instructions are clear and unambiguous.
+      Flag any food safety concerns.
+
+  - step: creative_variation
+    model: grok
+    role: challenge
+    optional: true
+    description: >
+      Suggest creative variations, unexpected flavor combinations,
+      or regional twists.
+
+constraints:
+  - Clear, step-by-step instructions
+  - SEO optimized (schema.org Recipe markup)
+  - Accessible formatting
+  - Safe cooking temperatures
+  - Allergen warnings where applicable
+
+context_boundary:
+  send_externally:
+    - recipe requirements
+    - ingredient lists
+    - dietary constraints
+  keep_local:
+    - family attribution details (if any)
+    - site analytics
+
+output_schema:
+  title: ""
+  description: ""
+  prep_time: ""
+  cook_time: ""
+  servings: ""
+  ingredients: []
+  instructions: []
+  variations: []
+  nutrition:
+    calories: ""
+    protein: ""
+    carbs: ""
+    fat: ""
+  seo:
+    title: ""
+    description: ""
+    schema_type: "Recipe"
+
+data_sources:
+  - Recipe database (format TBD)
+  - Existing recipe repos
+
+max_loops: 0  # Single pass, no loops
