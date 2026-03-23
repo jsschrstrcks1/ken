@@ -10,9 +10,15 @@ MODEL = "gemini-1.5-pro"
 COST_PER_1M = {"input": 3.50, "output": 10.50}
 
 
+def _get_api_key():
+    """Return Gemini API key — free tier first, paid tier as fallback."""
+    return os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
+
+
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
     """Send a prompt to Gemini and return structured response with usage metadata."""
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+    key = _get_api_key()
+    genai.configure(api_key=key)
 
     model = genai.GenerativeModel(
         model_name=MODEL,
@@ -24,7 +30,25 @@ def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temper
         ),
     )
 
-    response = model.generate_content(prompt)
+    try:
+        response = model.generate_content(prompt)
+    except Exception as e:
+        # If free tier exhausted (429/quota), try paid tier
+        paid_key = os.environ.get("GOOGLE_API_KEY_PAID")
+        if paid_key and paid_key != key:
+            genai.configure(api_key=paid_key)
+            model = genai.GenerativeModel(
+                model_name=MODEL,
+                system_instruction=system,
+                generation_config=genai.GenerationConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                ),
+            )
+            response = model.generate_content(prompt)
+        else:
+            raise
 
     # Gemini exposes token counts via usage_metadata
     meta = response.usage_metadata
