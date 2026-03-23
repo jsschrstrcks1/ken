@@ -22,6 +22,16 @@ This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, or `
 - **Memory scope:** `/ken`
 - **Orchestrator:** `/home/user/ken/orchestrator/`
 
+### First-Time Setup (Per Session)
+
+Before first use of `/consult` or `/orchestrate` in a session, install dependencies:
+
+```bash
+pip3 install -q -r /home/user/ken/orchestrator/requirements.txt
+```
+
+This is silent when already installed. If `/consult` or `/orchestrate` fails with `ModuleNotFoundError`, run this command first.
+
 ### Orchestrator Architecture
 
 ```
