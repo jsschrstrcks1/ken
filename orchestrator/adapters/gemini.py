@@ -1,13 +1,14 @@
-"""Google Gemini adapter — thin wrapper with cost tracking."""
+"""Google Gemini adapter — uses google.genai (REST) with cost tracking."""
 
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-MODEL = "gemini-1.5-pro"
+MODEL = "gemini-2.0-flash"
 
 # Pricing per 1M tokens (USD) — update as rates change
-COST_PER_1M = {"input": 3.50, "output": 10.50}
+COST_PER_1M = {"input": 0.10, "output": 0.40}
 
 
 def _get_api_key():
@@ -18,42 +19,41 @@ def _get_api_key():
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
     """Send a prompt to Gemini and return structured response with usage metadata."""
     key = _get_api_key()
-    genai.configure(api_key=key)
-
-    model = genai.GenerativeModel(
-        model_name=MODEL,
-        system_instruction=system,
-        generation_config=genai.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-            response_mime_type="application/json",
-        ),
-    )
+    client = genai.Client(api_key=key)
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+                response_mime_type="application/json",
+            ),
+        )
     except Exception as e:
         # If free tier exhausted (429/quota), try paid tier
         paid_key = os.environ.get("GOOGLE_API_KEY_PAID")
         if paid_key and paid_key != key:
-            genai.configure(api_key=paid_key)
-            model = genai.GenerativeModel(
-                model_name=MODEL,
-                system_instruction=system,
-                generation_config=genai.GenerationConfig(
+            client = genai.Client(api_key=paid_key)
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
                     max_output_tokens=max_tokens,
                     temperature=temperature,
                     response_mime_type="application/json",
                 ),
             )
-            response = model.generate_content(prompt)
         else:
             raise
 
-    # Gemini exposes token counts via usage_metadata
+    # Token counts from usage_metadata
     meta = response.usage_metadata
-    input_tokens = getattr(meta, "prompt_token_count", 0)
-    output_tokens = getattr(meta, "candidates_token_count", 0)
+    input_tokens = getattr(meta, "prompt_token_count", 0) or 0
+    output_tokens = getattr(meta, "candidates_token_count", 0) or 0
 
     input_cost = (input_tokens / 1_000_000) * COST_PER_1M["input"]
     output_cost = (output_tokens / 1_000_000) * COST_PER_1M["output"]
