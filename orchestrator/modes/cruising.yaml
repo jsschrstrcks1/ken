@@ -1,0 +1,87 @@
+# Cruising Mode — Web + Content System
+# Cruising in the Wake website (InTheWake repo)
+
+name: cruising
+lead: claude  # Claude has file access to standards and codebase
+
+pipeline:
+  - step: read_standards
+    model: claude
+    description: >
+      Read standards from InTheWake repo:
+      hero + compass pattern, right-side rail, accessibility script,
+      canonical URLs, versioning system, Frontend v3.x.
+    notes: This happens in Claude Code directly via file access.
+
+  - step: generate
+    model: claude
+    description: >
+      Generate standards-compliant page content.
+      Claude writes because Claude has the codebase context.
+
+  - step: consult_content
+    model: gpt
+    role: structure
+    optional: true
+    description: >
+      Suggest content additions, structural alternatives,
+      or SEO improvements.
+
+  - step: consult_completeness
+    model: gemini
+    role: expand
+    optional: true
+    description: >
+      Check content completeness.
+      Suggest missing sections, travel data, port information.
+
+  - step: consult_ux
+    model: grok
+    role: challenge
+    optional: true
+    description: >
+      Challenge layout assumptions.
+      Suggest UX innovations.
+      Push back on conventional cruise site patterns.
+
+  - step: integrate
+    model: claude
+    description: >
+      Integrate feedback, enforce compliance, produce final output.
+      All standards violations fixed before output.
+
+constraints:
+  - One hero + one compass per page
+  - Right-side rail required
+  - Accessibility script included
+  - Canonical URLs on all pages
+  - Versioning system followed
+  - All project standards from InTheWake repo enforced
+
+context_boundary:
+  send_externally:
+    - page requirements and structure
+    - content topics and outlines
+    - SEO targets
+    - general cruise/travel data
+  keep_local:
+    - full codebase
+    - internal standards documents (send summaries)
+    - analytics data
+
+output_schema:
+  page_type: ""
+  html: ""
+  seo:
+    title: ""
+    description: ""
+    canonical: ""
+  a11y_checks: []
+  compliance_report: []
+
+data_sources:
+  - InTheWake repository standards
+  - Ship data and cruise line data
+  - Port database (ken repo)
+
+max_loops: 1

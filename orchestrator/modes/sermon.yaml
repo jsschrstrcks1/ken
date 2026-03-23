@@ -1,0 +1,93 @@
+# Sermon Mode — Claude leads, others consult
+# Reformed Baptist expository preaching through Romans
+
+name: sermon
+lead: claude  # Claude Code is the primary author and evaluator
+
+pipeline:
+  - step: draft
+    model: claude
+    description: >
+      Write sermon using full .claude/ infrastructure: voice profile,
+      theological maps, congregation profile, like-a-human, careful-not-clever.
+    notes: This happens in Claude Code directly, not through the adapter.
+
+  - step: consult_challenge
+    model: grok
+    role: challenge
+    optional: true
+    description: >
+      Challenge weak reasoning, surface bold illustrations,
+      push back on safe or shallow interpretations.
+
+  - step: consult_expand
+    model: gemini
+    role: expand
+    optional: true
+    description: >
+      Expand cross-references, add historical/theological context,
+      surface connections to church fathers and Reformation theology.
+
+  - step: consult_structure
+    model: gpt
+    role: structure
+    optional: true
+    description: >
+      Light structural suggestions only. Do NOT rewrite sermon text.
+      Review flow, transitions, and logical progression.
+
+  - step: integrate
+    model: claude
+    description: >
+      Integrate feedback. Discard what doesn't fit.
+      Claude decides what survives — external models do not override.
+
+  - step: evaluate
+    model: claude
+    description: >
+      Run thus-says-the-lord rubric (100-point weighted scale).
+      Revise based on surgical fixes.
+
+  - step: voice_audit
+    model: claude
+    description: >
+      Run voice-audit before committing.
+      Scan for machine tells and voice drift.
+
+constraints:
+  - Reformed Baptist theology (1689 LBCF)
+  - ESV scripture only — no exceptions
+  - Gospel call required in every sermon
+  - Voice profile must be preserved
+  - Congregation profile shapes all application
+  - careful-not-clever active on all modifications
+
+context_boundary:
+  send_externally:
+    - sermon outline
+    - theological claims and questions
+    - cross-reference requests
+    - illustration concepts (anonymized)
+  keep_local:
+    - congregation member names
+    - pastoral application details
+    - personal illustrations with identifiable people
+    - voice profile internals
+    - full sermon manuscripts (send excerpts only)
+
+evaluation:
+  rubric: .claude/skills/thus-says-the-lord/SKILL.md
+  voice_check: .claude/skills/voice-audit/SKILL.md
+  integrity: .claude/skills/careful-not-clever/SKILL.md
+
+data_sources:
+  - .claude/sermon-map.md
+  - .claude/theological-map.md
+  - .claude/quote-map.md
+  - .claude/illustration-map.md
+  - .claude/congregation-profile.md
+  - .claude/voice-profile.md
+  - .claude/confessional-framework.md
+  - .claude/citation-standards.md
+
+max_loops: 1  # Sermon refinement is managed by the rubric cycle, not the orchestrator
