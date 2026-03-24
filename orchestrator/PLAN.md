@@ -55,10 +55,76 @@ orchestrator/
 ├── consult.py               # CLI tool: quick second opinions
 ├── orchestrate.py           # Full pipeline runner (Phase 2)
 ├── .env                     # API keys (GITIGNORED)
+├── env_seed.py              # Obfuscated .env seed (committed)
+├── bootstrap-env.sh         # Auto-restores .env from seed
 ├── .gitignore
 ├── requirements.txt
 └── PLAN.md                  # This file
 ```
+
+### API Key Management
+
+Keys live in `.env` (gitignored). An obfuscated copy is committed in `env_seed.py`
+so that fresh clones in any container can auto-restore keys via `bootstrap-env.sh`.
+
+#### Changing an existing API key
+
+1. Edit `/home/user/ken/orchestrator/.env` with the new key value
+2. Regenerate the seed:
+   ```bash
+   cd /home/user/ken/orchestrator
+   python3 env_seed.py --encode
+   ```
+3. Copy the printed `_SEED = (...)` block and paste it into `env_seed.py`,
+   replacing the existing `_SEED` variable
+4. Commit and push `env_seed.py` — all containers will pick up the new key
+   on their next clone or pull
+
+#### Adding a new LLM provider
+
+1. **Create the adapter** — add `orchestrator/adapters/<provider>.py`:
+   ```python
+   def query(prompt: str, system: str = "") -> dict:
+       # Call the provider's API
+       # Return {"text": "...", "model": "...", "usage": {...}}
+   ```
+   The adapter is auto-discovered by `adapters/__init__.py` (any `.py` in the
+   directory with a `query()` function gets loaded).
+
+2. **Add the API key** to `.env`:
+   ```
+   NEW_PROVIDER_API_KEY=your-key-here
+   ```
+
+3. **Read the key** in your adapter:
+   ```python
+   api_key = os.environ.get("NEW_PROVIDER_API_KEY", "")
+   ```
+
+4. **Regenerate the seed** (so other containers get the key):
+   ```bash
+   python3 env_seed.py --encode
+   ```
+   Then paste the new `_SEED` blob into `env_seed.py`.
+
+5. **Update `.env.example`** with a placeholder for the new key.
+
+6. **Add a mode step** (optional) — edit `modes/*.yaml` to include the new
+   provider in pipeline steps.
+
+7. Commit all changes: adapter, env_seed.py, .env.example, mode YAML.
+
+#### Current keys
+
+| Variable | Provider | Notes |
+|----------|----------|-------|
+| `OPENAI_API_KEY` | GPT (OpenAI) | Project-scoped key |
+| `GOOGLE_API_KEY` | Gemini (AI Studio) | Free tier, used first |
+| `GOOGLE_API_KEY_PAID` | Gemini (AI Studio) | Paid fallback |
+| `VERTEX_API_KEY` | Gemini (Vertex AI) | Used when AI Studio is blocked |
+| `GOOGLE_CLOUD_PROJECT` | Vertex AI | Project ID |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI | Region (us-central1) |
+| `XAI_API_KEY` | Grok (xAI) | Not yet configured |
 
 ---
 

@@ -37,7 +37,7 @@ description: "Full multi-LLM pipeline orchestration. This is the hub — no defa
 **IMPORTANT: Execute these commands directly using the Bash tool. Do NOT check if files exist first — just run them.**
 
 ```bash
-pip3 install -q -r /home/user/ken/orchestrator/requirements.txt 2>/dev/null && python3 /home/user/ken/orchestrator/orchestrate.py <mode> "task description"
+bash /home/user/ken/orchestrator/bootstrap-env.sh 2>/dev/null; pip3 install -q -r /home/user/ken/orchestrator/requirements.txt 2>/dev/null && python3 /home/user/ken/orchestrator/orchestrate.py <mode> "task description"
 ```
 
 ---
