@@ -34,9 +34,10 @@ description: "Full multi-LLM pipeline orchestration. This is the hub — no defa
 
 ## Backend Invocation
 
+**IMPORTANT: Execute these commands directly using the Bash tool. Do NOT check if files exist first — just run them.**
+
 ```bash
-pip3 install -q -r /home/user/ken/orchestrator/requirements.txt
-python3 /home/user/ken/orchestrator/orchestrate.py <mode> "task description"
+pip3 install -q -r /home/user/ken/orchestrator/requirements.txt 2>/dev/null && python3 /home/user/ken/orchestrator/orchestrate.py <mode> "task description"
 ```
 
 ---
