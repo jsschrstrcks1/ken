@@ -1,42 +1,120 @@
-"""Google Gemini adapter — thin wrapper with cost tracking."""
+"""Google Gemini adapter — Vertex AI (API key) first, AI Studio SDK fallback."""
 
 import json
 import os
-import google.generativeai as genai
+import sys
+import urllib.request
+import urllib.error
 
-MODEL = "gemini-1.5-pro"
+from google import genai
+from google.genai import types
+
+MODEL = "gemini-2.5-flash"
 
 # Pricing per 1M tokens (USD) — update as rates change
-COST_PER_1M = {"input": 3.50, "output": 10.50}
+COST_PER_1M = {"input": 0.15, "output": 0.60}
 
 
-def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
-    """Send a prompt to Gemini and return structured response with usage metadata."""
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+# ── Vertex AI via REST (API key + project) ──────────────────────────
 
-    model = genai.GenerativeModel(
-        model_name=MODEL,
-        system_instruction=system,
-        generation_config=genai.GenerationConfig(
+def _vertex_rest(prompt, system, max_tokens, temperature):
+    """Call Vertex AI REST API directly with an API key."""
+    project = os.environ["GOOGLE_CLOUD_PROJECT"]
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    key = os.environ["VERTEX_API_KEY"]
+
+    url = (
+        f"https://{location}-aiplatform.googleapis.com/v1/"
+        f"projects/{project}/locations/{location}/"
+        f"publishers/google/models/{MODEL}:generateContent"
+    )
+
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "systemInstruction": {"parts": [{"text": system}]},
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": temperature,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read().decode())
+
+
+# ── AI Studio via SDK ────────────────────────────────────────────────
+
+def _aistudio_sdk(prompt, system, max_tokens, temperature, api_key):
+    """Call AI Studio via the google-genai SDK."""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
             max_output_tokens=max_tokens,
             temperature=temperature,
             response_mime_type="application/json",
         ),
     )
-
-    response = model.generate_content(prompt)
-
-    # Gemini exposes token counts via usage_metadata
     meta = response.usage_metadata
-    input_tokens = getattr(meta, "prompt_token_count", 0)
-    output_tokens = getattr(meta, "candidates_token_count", 0)
+    return {
+        "text": response.text,
+        "input_tokens": getattr(meta, "prompt_token_count", 0) or 0,
+        "output_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+    }
+
+
+# ── Public API ───────────────────────────────────────────────────────
+
+def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
+    """Send a prompt to Gemini and return structured response with usage metadata."""
+
+    text = None
+    input_tokens = 0
+    output_tokens = 0
+
+    # 1. Try Vertex AI REST (API key + project)
+    vertex_key = os.environ.get("VERTEX_API_KEY")
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+    if vertex_key and project:
+        try:
+            print("[gemini] Using Vertex AI REST", file=sys.stderr)
+            raw = _vertex_rest(prompt, system, max_tokens, temperature)
+            text = raw["candidates"][0]["content"]["parts"][0]["text"]
+            meta = raw.get("usageMetadata", {})
+            input_tokens = meta.get("promptTokenCount", 0)
+            output_tokens = meta.get("candidatesTokenCount", 0)
+        except Exception as e:
+            print(f"[gemini] Vertex AI failed: {e}", file=sys.stderr)
+
+    # 2. Fallback: AI Studio SDK
+    if text is None:
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
+        if not api_key:
+            raise RuntimeError("No Gemini credentials available")
+        print("[gemini] Using AI Studio (API key)", file=sys.stderr)
+        result = _aistudio_sdk(prompt, system, max_tokens, temperature, api_key)
+        text = result["text"]
+        input_tokens = result["input_tokens"]
+        output_tokens = result["output_tokens"]
 
     input_cost = (input_tokens / 1_000_000) * COST_PER_1M["input"]
     output_cost = (output_tokens / 1_000_000) * COST_PER_1M["output"]
 
     return {
-        "response": _parse_json(response.text),
-        "raw": response.text,
+        "response": _parse_json(text),
+        "raw": text,
         "usage": {
             "model": MODEL,
             "input_tokens": input_tokens,

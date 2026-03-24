@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "description": "Auto-activation rules for Claude Code skills - Ken personal hub (orchestrator home)",
+  "skills": {
+    "orchestrate": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Full multi-LLM pipeline orchestration. This is the hub — no default mode. Specify sermon, sheep, cruising, or recipe explicitly.",
+      "promptTriggers": {
+        "keywords": ["orchestrate", "pipeline", "multi-model", "multi-llm", "full pipeline", "run pipeline"],
+        "intentPatterns": ["(orchestrate|run pipeline|full pipeline).*?(sermon|sheep|cruising|recipe)", "(coordinate|consult).*?(multiple|all).*?model"]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/orchestrate/SKILL.md",
+        "maxLines": 200,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Orchestrator hub active. Specify mode: sermon, sheep, cruising, or recipe."
+    },
+    "consult": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Quick multi-LLM second opinion. Sends a single prompt to GPT, Gemini, or Grok with a role-based system prompt and returns structured feedback.",
+      "promptTriggers": {
+        "keywords": ["consult", "second opinion", "ask gpt", "ask gemini", "ask grok", "challenge this", "expand this", "get feedback"],
+        "intentPatterns": ["(consult|ask|query).*?(gpt|gemini|grok)", "(second opinion|outside perspective|another model)"]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/consult/SKILL.md",
+        "maxLines": 100,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Consultation ready. One model, one question, structured feedback."
+    }
+  },
+  "globalSettings": {
+    "enableAutoActivation": true,
+    "verboseLogging": false,
+    "cacheSkillContext": true,
+    "maxConcurrentSkills": 3
+  },
+  "notes": {
+    "project": "Ken — Personal hub, orchestrator home",
+    "orchestrator_location": "orchestrator/",
+    "available_modes": ["sermon", "sheep", "cruising", "recipe"]
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "description": "Maps each repository to its orchestrator mode and domain context",
+  "repos": {
+    "Romans": {
+      "mode": "sermon",
+      "domain": "Expository sermon writing — book of Romans and related preaching",
+      "lead": "claude",
+      "scope": "/romans"
+    },
+    "manateecreeksheep": {
+      "mode": "sheep",
+      "domain": "Sheep flock management, breeding program, Manatee Creek farm",
+      "lead": "gpt",
+      "scope": "/sheep"
+    },
+    "InTheWake": {
+      "mode": "cruising",
+      "domain": "Cruise industry resource site — itineraries, ports, ship info",
+      "lead": "claude",
+      "scope": "/inthewake"
+    },
+    "flickersofmajesty": {
+      "mode": "cruising",
+      "domain": "Fine art photography business site with FOM-Lite protocol",
+      "lead": "claude",
+      "notes": "Uses cruising pipeline for web content generation; may need a custom mode later",
+      "scope": "/flickersofmajesty"
+    },
+    "Allrecipes": {
+      "mode": "recipe",
+      "domain": "Recipe aggregation hub (cross-repo collection)",
+      "lead": "gpt",
+      "scope": "/recipes/allrecipes"
+    },
+    "Grandmasrecipes": {
+      "mode": "recipe",
+      "domain": "Grandma's family recipe archive with OCR processing and search",
+      "lead": "gpt",
+      "scope": "/recipes/grandmasrecipes"
+    },
+    "Grannysrecipes": {
+      "mode": "recipe",
+      "domain": "Granny Hudson's family recipe collection",
+      "lead": "gpt",
+      "scope": "/recipes/grannysrecipes"
+    },
+    "MomsRecipes": {
+      "mode": "recipe",
+      "domain": "MomMom Baker's recipe collection — 2700+ recipes",
+      "lead": "gpt",
+      "scope": "/recipes/momsrecipes"
+    },
+    "ken": {
+      "mode": null,
+      "domain": "Personal hub — timezone utility, orchestrator home. Specify mode explicitly.",
+      "lead": "claude",
+      "scope": "/ken"
+    }
+  }
+}
