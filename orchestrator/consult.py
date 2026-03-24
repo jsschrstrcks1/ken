@@ -21,14 +21,20 @@ import os
 import sys
 
 # Load .env if present (simple key=value parsing, no dependency needed)
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-if os.path.exists(_env_path):
-    with open(_env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                os.environ.setdefault(key.strip(), value.strip())
+# Check orchestrator dir first, then ~/.orchestrator.env as fallback
+_env_candidates = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+    os.path.expanduser("~/.orchestrator.env"),
+]
+for _env_path in _env_candidates:
+    if os.path.exists(_env_path):
+        with open(_env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(), value.strip())
+        break
 
 from adapters import ADAPTERS
 

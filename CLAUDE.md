@@ -27,6 +27,7 @@ This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, or `
 Before first use of `/consult` or `/orchestrate` in a session, install dependencies:
 
 ```bash
+bash /home/user/ken/orchestrator/bootstrap-env.sh 2>/dev/null
 pip3 install -q -r /home/user/ken/orchestrator/requirements.txt
 ```
 
