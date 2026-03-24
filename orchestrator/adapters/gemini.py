@@ -1,7 +1,8 @@
-"""Google Gemini adapter — uses google.genai (REST) with cost tracking."""
+"""Google Gemini adapter — Vertex AI first, AI Studio API key fallback."""
 
 import json
 import os
+import sys
 from google import genai
 from google.genai import types
 
@@ -11,42 +12,56 @@ MODEL = "gemini-2.0-flash"
 COST_PER_1M = {"input": 0.10, "output": 0.40}
 
 
-def _get_api_key():
-    """Return Gemini API key — free tier first, paid tier as fallback."""
-    return os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
+def _make_client():
+    """Build a genai Client. Vertex AI if credentials exist, else API key."""
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    has_creds = (
+        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        or os.path.exists(os.path.expanduser("~/.config/gcloud/application_default_credentials.json"))
+    )
+
+    if project and has_creds:
+        print(f"[gemini] Using Vertex AI (project={project}, location={location})", file=sys.stderr)
+        return genai.Client(vertexai=True, project=project, location=location)
+
+    key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
+    if key:
+        print("[gemini] Using AI Studio (API key)", file=sys.stderr)
+        return genai.Client(api_key=key)
+
+    raise RuntimeError("No Gemini credentials: set GOOGLE_CLOUD_PROJECT + service account, or GOOGLE_API_KEY")
+
+
+def _call(client, prompt, system, max_tokens, temperature):
+    """Single generate_content call."""
+    return client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            response_mime_type="application/json",
+        ),
+    )
 
 
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
     """Send a prompt to Gemini and return structured response with usage metadata."""
-    key = _get_api_key()
-    client = genai.Client(api_key=key)
+    client = _make_client()
 
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-                response_mime_type="application/json",
-            ),
-        )
-    except Exception as e:
-        # If free tier exhausted (429/quota), try paid tier
+        response = _call(client, prompt, system, max_tokens, temperature)
+    except Exception:
+        # Fallback: if Vertex AI failed, try API key; if API key failed, try paid key
         paid_key = os.environ.get("GOOGLE_API_KEY_PAID")
-        if paid_key and paid_key != key:
-            client = genai.Client(api_key=paid_key)
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                    response_mime_type="application/json",
-                ),
-            )
+        free_key = os.environ.get("GOOGLE_API_KEY")
+        fallback_key = paid_key if paid_key and paid_key != free_key else free_key
+        if fallback_key:
+            print("[gemini] Primary failed, trying API key fallback", file=sys.stderr)
+            fallback_client = genai.Client(api_key=fallback_key)
+            response = _call(fallback_client, prompt, system, max_tokens, temperature)
         else:
             raise
 

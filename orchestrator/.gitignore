@@ -1,4 +1,5 @@
 .env
+.gcp-sa-key.json
 __pycache__/
 *.pyc
 state/current.json
