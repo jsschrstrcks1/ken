@@ -13,24 +13,31 @@ COST_PER_1M = {"input": 0.10, "output": 0.40}
 
 
 def _make_client():
-    """Build a genai Client. Vertex AI if credentials exist, else API key."""
+    """Build a genai Client. Vertex AI API key first, then service account, then AI Studio."""
+    # 1. Vertex AI via API key (simplest for remote environments)
+    vertex_key = os.environ.get("VERTEX_API_KEY")
+    if vertex_key:
+        print("[gemini] Using Vertex AI (API key)", file=sys.stderr)
+        return genai.Client(api_key=vertex_key, vertexai=True)
+
+    # 2. Vertex AI via service account credentials
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
     has_creds = (
         os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         or os.path.exists(os.path.expanduser("~/.config/gcloud/application_default_credentials.json"))
     )
-
     if project and has_creds:
-        print(f"[gemini] Using Vertex AI (project={project}, location={location})", file=sys.stderr)
+        print(f"[gemini] Using Vertex AI (service account, project={project})", file=sys.stderr)
         return genai.Client(vertexai=True, project=project, location=location)
 
+    # 3. AI Studio API key
     key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
     if key:
         print("[gemini] Using AI Studio (API key)", file=sys.stderr)
         return genai.Client(api_key=key)
 
-    raise RuntimeError("No Gemini credentials: set GOOGLE_CLOUD_PROJECT + service account, or GOOGLE_API_KEY")
+    raise RuntimeError("No Gemini credentials: set VERTEX_API_KEY, or GOOGLE_CLOUD_PROJECT + service account, or GOOGLE_API_KEY")
 
 
 def _call(client, prompt, system, max_tokens, temperature):
