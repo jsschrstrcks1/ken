@@ -55,6 +55,8 @@ orchestrator/
 ├── consult.py               # CLI tool: quick second opinions
 ├── orchestrate.py           # Full pipeline runner (Phase 2)
 ├── .env                     # API keys (GITIGNORED)
+├── env_seed.py              # Obfuscated .env seed (committed)
+├── bootstrap-env.sh         # Auto-restores .env from seed
 ├── .gitignore
 ├── requirements.txt
 └── PLAN.md                  # This file
