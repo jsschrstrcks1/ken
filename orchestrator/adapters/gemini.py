@@ -1,48 +1,62 @@
-"""Google Gemini adapter — Vertex AI first, AI Studio API key fallback."""
+"""Google Gemini adapter — Vertex AI (API key) first, AI Studio SDK fallback."""
 
 import json
 import os
 import sys
+import urllib.request
+import urllib.error
+
 from google import genai
 from google.genai import types
 
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash"
 
 # Pricing per 1M tokens (USD) — update as rates change
-COST_PER_1M = {"input": 0.10, "output": 0.40}
+COST_PER_1M = {"input": 0.15, "output": 0.60}
 
 
-def _make_client():
-    """Build a genai Client. Vertex AI API key first, then service account, then AI Studio."""
-    # 1. Vertex AI via API key (simplest for remote environments)
-    vertex_key = os.environ.get("VERTEX_API_KEY")
-    if vertex_key:
-        print("[gemini] Using Vertex AI (API key)", file=sys.stderr)
-        return genai.Client(api_key=vertex_key, vertexai=True)
+# ── Vertex AI via REST (API key + project) ──────────────────────────
 
-    # 2. Vertex AI via service account credentials
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+def _vertex_rest(prompt, system, max_tokens, temperature):
+    """Call Vertex AI REST API directly with an API key."""
+    project = os.environ["GOOGLE_CLOUD_PROJECT"]
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-    has_creds = (
-        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        or os.path.exists(os.path.expanduser("~/.config/gcloud/application_default_credentials.json"))
+    key = os.environ["VERTEX_API_KEY"]
+
+    url = (
+        f"https://{location}-aiplatform.googleapis.com/v1/"
+        f"projects/{project}/locations/{location}/"
+        f"publishers/google/models/{MODEL}:generateContent"
     )
-    if project and has_creds:
-        print(f"[gemini] Using Vertex AI (service account, project={project})", file=sys.stderr)
-        return genai.Client(vertexai=True, project=project, location=location)
 
-    # 3. AI Studio API key
-    key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
-    if key:
-        print("[gemini] Using AI Studio (API key)", file=sys.stderr)
-        return genai.Client(api_key=key)
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "systemInstruction": {"parts": [{"text": system}]},
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": temperature,
+            "responseMimeType": "application/json",
+        },
+    }
 
-    raise RuntimeError("No Gemini credentials: set VERTEX_API_KEY, or GOOGLE_CLOUD_PROJECT + service account, or GOOGLE_API_KEY")
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read().decode())
 
 
-def _call(client, prompt, system, max_tokens, temperature):
-    """Single generate_content call."""
-    return client.models.generate_content(
+# ── AI Studio via SDK ────────────────────────────────────────────────
+
+def _aistudio_sdk(prompt, system, max_tokens, temperature, api_key):
+    """Call AI Studio via the google-genai SDK."""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
         model=MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -52,37 +66,55 @@ def _call(client, prompt, system, max_tokens, temperature):
             response_mime_type="application/json",
         ),
     )
+    meta = response.usage_metadata
+    return {
+        "text": response.text,
+        "input_tokens": getattr(meta, "prompt_token_count", 0) or 0,
+        "output_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+    }
 
+
+# ── Public API ───────────────────────────────────────────────────────
 
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
     """Send a prompt to Gemini and return structured response with usage metadata."""
-    client = _make_client()
 
-    try:
-        response = _call(client, prompt, system, max_tokens, temperature)
-    except Exception:
-        # Fallback: if Vertex AI failed, try API key; if API key failed, try paid key
-        paid_key = os.environ.get("GOOGLE_API_KEY_PAID")
-        free_key = os.environ.get("GOOGLE_API_KEY")
-        fallback_key = paid_key if paid_key and paid_key != free_key else free_key
-        if fallback_key:
-            print("[gemini] Primary failed, trying API key fallback", file=sys.stderr)
-            fallback_client = genai.Client(api_key=fallback_key)
-            response = _call(fallback_client, prompt, system, max_tokens, temperature)
-        else:
-            raise
+    text = None
+    input_tokens = 0
+    output_tokens = 0
 
-    # Token counts from usage_metadata
-    meta = response.usage_metadata
-    input_tokens = getattr(meta, "prompt_token_count", 0) or 0
-    output_tokens = getattr(meta, "candidates_token_count", 0) or 0
+    # 1. Try Vertex AI REST (API key + project)
+    vertex_key = os.environ.get("VERTEX_API_KEY")
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+    if vertex_key and project:
+        try:
+            print("[gemini] Using Vertex AI REST", file=sys.stderr)
+            raw = _vertex_rest(prompt, system, max_tokens, temperature)
+            text = raw["candidates"][0]["content"]["parts"][0]["text"]
+            meta = raw.get("usageMetadata", {})
+            input_tokens = meta.get("promptTokenCount", 0)
+            output_tokens = meta.get("candidatesTokenCount", 0)
+        except Exception as e:
+            print(f"[gemini] Vertex AI failed: {e}", file=sys.stderr)
+
+    # 2. Fallback: AI Studio SDK
+    if text is None:
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_PAID", "")
+        if not api_key:
+            raise RuntimeError("No Gemini credentials available")
+        print("[gemini] Using AI Studio (API key)", file=sys.stderr)
+        result = _aistudio_sdk(prompt, system, max_tokens, temperature, api_key)
+        text = result["text"]
+        input_tokens = result["input_tokens"]
+        output_tokens = result["output_tokens"]
 
     input_cost = (input_tokens / 1_000_000) * COST_PER_1M["input"]
     output_cost = (output_tokens / 1_000_000) * COST_PER_1M["output"]
 
     return {
-        "response": _parse_json(response.text),
-        "raw": response.text,
+        "response": _parse_json(text),
+        "raw": text,
         "usage": {
             "model": MODEL,
             "input_tokens": input_tokens,
