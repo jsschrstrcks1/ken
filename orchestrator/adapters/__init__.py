@@ -13,7 +13,7 @@ def _try_load(name):
         ADAPTERS[name] = mod
     except ImportError as e:
         ADAPTER_ERRORS[name] = f"SDK not installed: {e}"
-    except Exception as e:
+    except BaseException as e:
         ADAPTER_ERRORS[name] = f"Load error: {e}"
 
 
