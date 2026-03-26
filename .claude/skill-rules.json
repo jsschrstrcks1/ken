@@ -7,10 +7,20 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Full multi-LLM pipeline orchestration. This is the hub — no default mode. Specify sermon, sheep, cruising, or recipe explicitly.",
+      "description": "Full multi-LLM pipeline orchestration. This is the hub \u2014 no default mode. Specify sermon, sheep, cruising, or recipe explicitly.",
       "promptTriggers": {
-        "keywords": ["orchestrate", "pipeline", "multi-model", "multi-llm", "full pipeline", "run pipeline"],
-        "intentPatterns": ["(orchestrate|run pipeline|full pipeline).*?(sermon|sheep|cruising|recipe)", "(coordinate|consult).*?(multiple|all).*?model"]
+        "keywords": [
+          "orchestrate",
+          "pipeline",
+          "multi-model",
+          "multi-llm",
+          "full pipeline",
+          "run pipeline"
+        ],
+        "intentPatterns": [
+          "(orchestrate|run pipeline|full pipeline).*?(sermon|sheep|cruising|recipe)",
+          "(coordinate|consult).*?(multiple|all).*?model"
+        ]
       },
       "autoLoad": {
         "mainFile": ".claude/skills/orchestrate/SKILL.md",
@@ -26,8 +36,20 @@
       "priority": "high",
       "description": "Quick multi-LLM second opinion. Sends a single prompt to GPT, Gemini, or Grok with a role-based system prompt and returns structured feedback.",
       "promptTriggers": {
-        "keywords": ["consult", "second opinion", "ask gpt", "ask gemini", "ask grok", "challenge this", "expand this", "get feedback"],
-        "intentPatterns": ["(consult|ask|query).*?(gpt|gemini|grok)", "(second opinion|outside perspective|another model)"]
+        "keywords": [
+          "consult",
+          "second opinion",
+          "ask gpt",
+          "ask gemini",
+          "ask grok",
+          "challenge this",
+          "expand this",
+          "get feedback"
+        ],
+        "intentPatterns": [
+          "(consult|ask|query).*?(gpt|gemini|grok)",
+          "(second opinion|outside perspective|another model)"
+        ]
       },
       "autoLoad": {
         "mainFile": ".claude/skills/consult/SKILL.md",
@@ -35,6 +57,31 @@
         "loadOnFirstFileEdit": false
       },
       "activationMessage": "Consultation ready. One model, one question, structured feedback."
+    },
+    "icp-2": {
+      "enabled": true,
+      "type": "guardrail",
+      "enforcement": "block",
+      "priority": "critical",
+      "description": "ICP-2 \u2014 Human-First SEO & AEO standard for 2026. Supersedes ICP-Lite v1.4 and seo-optimizer. Blocks HTML edits that don't meet ICP-2 compliance.",
+      "fileTriggers": {
+        "pathPatterns": [
+          "*.html",
+          "**/*.html"
+        ],
+        "exclude": [
+          "node_modules/**",
+          ".git/**",
+          "dist/**",
+          "build/**"
+        ]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/icp-2/SKILL.md",
+        "maxLines": 500,
+        "loadOnFirstFileEdit": true
+      },
+      "activationMessage": "ICP-2 guardrail active. HTML edits will be validated for SEO/AEO compliance. Non-compliance is a blocking error."
     }
   },
   "globalSettings": {
@@ -44,8 +91,13 @@
     "maxConcurrentSkills": 3
   },
   "notes": {
-    "project": "Ken — Personal hub, orchestrator home",
+    "project": "Ken \u2014 Personal hub, orchestrator home",
     "orchestrator_location": "orchestrator/",
-    "available_modes": ["sermon", "sheep", "cruising", "recipe"]
+    "available_modes": [
+      "sermon",
+      "sheep",
+      "cruising",
+      "recipe"
+    ]
   }
 }
