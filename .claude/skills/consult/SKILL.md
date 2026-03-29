@@ -1,6 +1,6 @@
 ---
 name: consult
-description: "Quick multi-LLM second opinion. Sends a single prompt to GPT, Gemini, or Grok with a role-based system prompt and returns structured feedback."
+description: "Quick multi-LLM second opinion. Sends a single prompt to GPT, Gemini, Grok, or Perplexity with a role-based system prompt and returns structured feedback."
 ---
 
 # Consult — Quick Second Opinion
@@ -17,6 +17,7 @@ description: "Quick multi-LLM second opinion. Sends a single prompt to GPT, Gemi
 - **gpt** — OpenAI GPT (strong at structure, planning)
 - **gemini** — Google Gemini (strong at expansion, cross-references)
 - **grok** — xAI Grok (strong at challenge, adversarial thinking)
+- **perplexity** — Perplexity Sonar (strong at sourced research, citation-backed verification)
 
 ### Roles
 - **challenge** — Push back on assumptions, surface weak reasoning

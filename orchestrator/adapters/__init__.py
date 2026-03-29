@@ -21,6 +21,7 @@ def _try_load(name):
 _try_load("gpt")
 _try_load("gemini")
 _try_load("grok")
+_try_load("perplexity")
 
 # Report on startup (to stderr so it doesn't pollute JSON output)
 if ADAPTER_ERRORS:

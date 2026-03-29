@@ -36,6 +36,14 @@ pipeline:
       Light structural suggestions only. Do NOT rewrite sermon text.
       Review flow, transitions, and logical progression.
 
+  - step: consult_verify
+    model: perplexity
+    role: expand
+    optional: true
+    description: >
+      Verify cross-references and historical claims with sourced research.
+      Return citations for any factual assertions. Flag anything unverifiable.
+
   - step: integrate
     model: claude
     description: >
