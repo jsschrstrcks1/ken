@@ -1,8 +1,9 @@
 /**
- * Manatee Creek Flock Manager — Data Migration Script
+ * Manatee Creek Flock Manager — Data Migration Script v2
  *
  * Migrates REAL DATA from old 113-tab spreadsheet to new 26-tab structure.
- * Chunked execution with checkpoint/resume to survive 6-minute Apps Script limit.
+ * Fixes from orchestra review: dynamic column detection, single-read cache,
+ * sub-sheet checkpoints, 8-12 breed support, missing data phases.
  *
  * SOURCE: 1Rt6N0yD6DPWZmiPH1I2RAB3K0a-qsMWVfJH661tw4gk
  * DEST:   1EQ5bOZL5Xmzu_7VvaMHTHWIwHPJqDKTJY_MMPduKrJU
@@ -12,11 +13,12 @@
  *   2. Paste this file
  *   3. Run migrateAll()
  *   4. If timeout, run migrateResume()
+ *   5. Check "Migration Log" tab for progress
  */
 
 var SOURCE_ID = '1Rt6N0yD6DPWZmiPH1I2RAB3K0a-qsMWVfJH661tw4gk';
 var DEST_ID = '1EQ5bOZL5Xmzu_7VvaMHTHWIwHPJqDKTJY_MMPduKrJU';
-var TIME_LIMIT_MS = 240000; // 4 minutes — aggressive guard, leaves 2 min buffer
+var TIME_LIMIT_MS = 200000; // 3m20s — very aggressive, leaves 2m40s buffer
 var START_TIME;
 
 // ============================================================
@@ -24,646 +26,547 @@ var START_TIME;
 // ============================================================
 
 function migrateAll() {
-  resetCheckpoint_();
+  PropertiesService.getScriptProperties().deleteAllProperties();
   migrateResume();
 }
 
 function migrateResume() {
   START_TIME = Date.now();
-  var phase = getCheckpoint_();
+  var props = PropertiesService.getScriptProperties();
+  var phase = props.getProperty('phase') || 'animalSheets';
+
   var phases = [
-    { name: 'identity', fn: migrateIdentity_ },
-    { name: 'lambing', fn: migrateLambing_ },
-    { name: 'medical', fn: migrateMedical_ },
-    { name: 'penRosters', fn: migratePenRosters_ },
-    { name: 'costs', fn: migrateCosts_ },
-    { name: 'lambData', fn: migrateLambData_ },
-    { name: 'weights', fn: migrateWeights_ },
-    { name: 'eweRamData', fn: migrateEweRamData_ },
+    { name: 'animalSheets', fn: migrateAnimalSheets_ },
+    { name: 'systemTabs', fn: migrateSystemTabs_ },
     { name: 'done', fn: null }
   ];
 
-  var startIdx = 0;
   for (var i = 0; i < phases.length; i++) {
-    if (phases[i].name === phase) { startIdx = i; break; }
-  }
-
-  for (var i = startIdx; i < phases.length; i++) {
-    if (!phases[i].fn) { log_('Migration complete!'); return; }
-    if (timeUp_()) {
-      log_('Time guard hit before phase: ' + phases[i].name + '. Run migrateResume() to continue.');
-      return;
+    if (phases[i].name !== phase) continue;
+    for (var j = i; j < phases.length; j++) {
+      if (!phases[j].fn) { log_('MIGRATION COMPLETE — all phases done.'); return; }
+      if (timeUp_()) { log_('Time guard before ' + phases[j].name + '. Run migrateResume().'); return; }
+      log_('=== Starting phase: ' + phases[j].name + ' ===');
+      var done = phases[j].fn();
+      if (done === false) {
+        log_('Phase ' + phases[j].name + ' paused for time. Run migrateResume().');
+        return;
+      }
+      props.setProperty('phase', (j + 1 < phases.length) ? phases[j + 1].name : 'done');
+      log_('=== Completed phase: ' + phases[j].name + ' ===');
     }
-    log_('Starting phase: ' + phases[i].name);
-    try {
-      phases[i].fn();
-    } catch (e) {
-      log_('ERROR in ' + phases[i].name + ': ' + e.message);
-      return;
-    }
-    // Save next phase as checkpoint
-    var nextPhase = (i + 1 < phases.length) ? phases[i + 1].name : 'done';
-    setCheckpoint_(nextPhase);
-    log_('Completed phase: ' + phases[i].name);
+    break;
   }
 }
 
 // ============================================================
-// PHASE 1: ANIMAL IDENTITY → Master Flock List
+// PHASE 1: ALL ANIMAL SHEETS — single read, extract everything
 // ============================================================
 
-function migrateIdentity_() {
+function migrateAnimalSheets_() {
   var src = SpreadsheetApp.openById(SOURCE_ID);
   var dest = SpreadsheetApp.openById(DEST_ID);
-  var mfl = getOrCreateSheet_(dest, 'Master Flock List');
+  var props = PropertiesService.getScriptProperties();
+  var startIdx = parseInt(props.getProperty('animalIdx') || '0');
 
-  // Get animal sheet names from source
-  var animalSheets = getAnimalSheetNames_(src);
-  var rows = [];
+  var animalSheets = getAnimalSheets_(src);
 
-  // Standard breed list in order (rows 2-22 in animal sheets)
-  var breeds = [
-    'American Black Belly', 'Awassi', 'Babydoll', 'Barbados Black Belly',
-    'Black Headed Dorper', 'Cotswald', 'Cracker', 'East Friesian',
-    'Gulf Coast Native', 'Hampshire', 'Jacob', 'Karakul', 'Katahdin',
-    'Southdown', 'St Augustine', 'St Croix', 'Suffolk', 'Texel',
-    'Tunis', 'White Dorper', 'Wiltshire Horn'
+  var identityRows = [];
+  var lambingRows = [];
+  var medicalRows = [];
+
+  // Standard breed names to match against (covers all 22 in the flock)
+  var KNOWN_BREEDS = [
+    'american black belly', 'awassi', 'babydoll', 'barbados black belly',
+    'black headed dorper', 'cotswald', 'cotswold', 'cracker', 'east friesan',
+    'east friesian', 'gulf coast native', 'hampshire', 'jacob', 'karakul',
+    'katahdin', 'southdown', 'st augustine', 'st croix', 'suffolk', 'texel',
+    'tunis', 'white dorper', 'wiltshire horn'
   ];
 
-  for (var i = 0; i < animalSheets.length; i++) {
-    if (timeUp_()) { log_('Time guard in identity at sheet ' + i); setCheckpoint_('identity'); return; }
+  for (var i = startIdx; i < animalSheets.length; i++) {
+    if (timeUp_()) {
+      // Save sub-checkpoint and flush what we have
+      props.setProperty('animalIdx', String(i));
+      props.setProperty('phase', 'animalSheets');
+      flushAnimalData_(dest, identityRows, lambingRows, medicalRows);
+      log_('Time guard at animal sheet ' + i + '/' + animalSheets.length);
+      return false;
+    }
+
     var sheet = animalSheets[i];
+    var sheetName = sheet.getName();
     var data = sheet.getDataRange().getValues();
     if (data.length < 2) continue;
 
-    var name = safeStr_(data[0][0]); // A1
-    var sex = safeStr_(data[0][4] || data[0][3]); // E1 or D1
-    var dob = data[0][7] || data[0][6] || data[0][10] || ''; // H1, G1, or K1
-    var sire = safeStr_(data[0][8] || data[0][11] || ''); // I1 or L1
-    var dam = safeStr_(data[0][9] || data[0][12] || ''); // J1 or M1
-    var tag = data[0][1] || data[4] && data[4][1] || ''; // B1 or B5 (tag row)
-    var inbreed = data[0][5] || data[0][9] || '';
+    // --- IDENTITY: header-based column detection ---
+    var row0 = data[0];
+    var hdr = {};
+    for (var c = 0; c < row0.length; c++) {
+      var h = String(row0[c] || '').toLowerCase().trim();
+      if (h === 'name' || (c === 0 && !hdr['name'])) hdr['name'] = c;
+      if (h === 'tag' || h === 'tag #') hdr['tag'] = c;
+      if (h === 'sex') hdr['sex'] = c;
+      if (h === 'dob' || h === 'date of birth') hdr['dob'] = c;
+      if (h === 'sire') hdr['sire'] = c;
+      if (h === 'dam') hdr['dam'] = c;
+      if (h.indexOf('imbreed') >= 0 || h.indexOf('inbreed') >= 0) hdr['inbreed'] = c;
+      if (h.indexOf('multiple') >= 0) hdr['multiple'] = c;
+    }
 
-    // Extract breed % — column B or C, rows 2-22
-    var breedStr = '';
+    var name = safe_(data[0][hdr['name'] || 0]);
+    var tag = data[0][hdr['tag'] || 1] || '';
+    // Tag sometimes on row 5 col B
+    if (!tag && data.length > 4) {
+      var r4a = String(data[4][0] || '').toLowerCase();
+      if (r4a === 'tag' || r4a === 'tag #') tag = data[4][1] || '';
+    }
+    var sex = safe_(data[0][hdr['sex'] || 4]);
+    var dob = data[0][hdr['dob'] || 7] || '';
+    // Some sheets put DOB in K1 (index 10)
+    if (!dob && data[0][10]) dob = data[0][10];
+    var sire = safe_(data[0][hdr['sire'] || 8]);
+    var dam = safe_(data[0][hdr['dam'] || 9]);
+    // Sire/dam sometimes in later columns (L1, M1)
+    if (!sire && data[0][11]) sire = safe_(data[0][11]);
+    if (!dam && data[0][12]) dam = safe_(data[0][12]);
+
+    // --- BREED %: scan rows 1-24 for breed names + percentages ---
     var breedParts = [];
-    for (var b = 1; b <= 21 && b < data.length; b++) {
-      var pct = data[b][1] || data[b][2]; // Column B or C
-      if (typeof pct === 'number' && pct > 0) {
-        var breedName = (b - 1 < breeds.length) ? breeds[b - 1] : safeStr_(data[b][2] || data[b][3]);
-        breedParts.push(Math.round(pct) + '% ' + breedName);
+    for (var r = 1; r < Math.min(data.length, 25); r++) {
+      // Find the breed name and percentage in this row
+      var pct = null;
+      var breedName = null;
+      for (var c = 0; c < Math.min(data[r].length, 6); c++) {
+        var v = data[r][c];
+        if (typeof v === 'number' && v > 0 && v <= 100 && pct === null) pct = v;
+        if (typeof v === 'string' && v.length > 2) {
+          var vl = v.toLowerCase().trim();
+          for (var b = 0; b < KNOWN_BREEDS.length; b++) {
+            if (vl === KNOWN_BREEDS[b] || vl.indexOf(KNOWN_BREEDS[b]) >= 0) {
+              breedName = v.trim(); break;
+            }
+          }
+        }
+      }
+      if (pct !== null && pct > 0 && breedName) {
+        breedParts.push(Math.round(pct * 100) / 100 + '% ' + breedName);
       }
     }
-    breedStr = breedParts.join(' / ') || 'MC';
+    var breedStr = breedParts.length > 0 ? breedParts.join(' / ') : 'MC';
 
-    // Weight — rows 22-23 area
+    // Ram/Ewe weight from rows 22-24 area
     var weight = '';
-    for (var w = 21; w <= 23 && w < data.length; w++) {
-      var wv = data[w][1];
-      if (typeof wv === 'number' && wv > 0) { weight = wv; break; }
+    for (var r = 21; r < Math.min(data.length, 25); r++) {
+      for (var c = 0; c < Math.min(data[r].length, 4); c++) {
+        var v = data[r][c];
+        if (typeof v === 'number' && v > 20 && v < 500) { weight = v; break; }
+      }
+      if (weight) break;
     }
 
-    rows.push([i + 1, '', tag, name, sex, breedStr, '', weight, '', dob, '', '', sire, dam, '', sheet.getName()]);
-  }
+    identityRows.push([
+      i + 1, '', tag, name, sex, breedStr, '', weight, '', dob, '', '', sire, dam, '', sheetName
+    ]);
 
-  if (rows.length > 0) {
-    // Find first empty row after header (row 4 is header in new sheet)
-    var startRow = findFirstEmptyRow_(mfl, 5, 4); // col D (name)
-    mfl.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' animals to Master Flock List');
-  }
-}
-
-// ============================================================
-// PHASE 2: LAMBING RECORDS → Breeding Season Tracker
-// ============================================================
-
-function migrateLambing_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
-  var bst = getOrCreateSheet_(dest, 'Breeding Season Tracker');
-
-  var animalSheets = getAnimalSheetNames_(src);
-  var rows = [];
-
-  for (var i = 0; i < animalSheets.length; i++) {
-    if (timeUp_()) { log_('Time guard in lambing at sheet ' + i); setCheckpoint_('lambing'); return; }
-    var sheet = animalSheets[i];
-    var data = sheet.getDataRange().getValues();
-    var parentName = safeStr_(data[0][0]);
-
-    // Scan for year headers (numeric value 2019-2026 in column A, row >= 24)
+    // --- LAMBING: scan for year headers ---
+    var inProspective = false;
     for (var r = 24; r < data.length; r++) {
       var cellA = data[r][0];
-      // Stop at "Prospective Breedings" or "Medical" sections
-      if (typeof cellA === 'string' && (cellA.indexOf('Prospective') >= 0)) break;
+      var cellAStr = String(cellA || '').toLowerCase();
+      if (cellAStr.indexOf('prospective') >= 0 || cellAStr.indexOf('if bred') >= 0) {
+        inProspective = true;
+      }
+      if (inProspective) continue;
 
-      // Year header row
       if (typeof cellA === 'number' && cellA >= 2019 && cellA <= 2026) {
         var year = cellA;
-        // Read lambs until next year header or section break
-        for (var lr = r + 1; lr < data.length; lr++) {
-          var lambA = data[lr][0];
-          // Next year header or section header
-          if (typeof lambA === 'number' && lambA >= 2019 && lambA <= 2026) break;
-          if (typeof lambA === 'string' && (lambA.indexOf('Prospective') >= 0 || lambA.indexOf('Medical') >= 0)) break;
+        // Detect header layout from THIS row
+        var headerB = String(data[r][1] || '').toLowerCase();
+        var isSireFirst = (headerB === 'sire');
 
-          // Skip if row is all empty
-          var hasData = false;
-          for (var c = 0; c < Math.min(data[lr].length, 18); c++) {
-            if (data[lr][c] !== '' && data[lr][c] !== null) { hasData = true; break; }
+        r++; // move to first lamb row
+        while (r < data.length) {
+          var la = data[r][0];
+          var laStr = String(la || '').toLowerCase();
+          if (laStr.indexOf('prospective') >= 0 || laStr.indexOf('if bred') >= 0) { inProspective = true; break; }
+          if (laStr === 'medical' || laStr === 'medical:') break;
+          if (typeof la === 'number' && la >= 2019 && la <= 2026) { r--; break; } // back up for outer loop
+
+          // Check if row has any data
+          var hasAny = false;
+          for (var c = 0; c < Math.min(data[r].length, 10); c++) {
+            if (data[r][c] !== '' && data[r][c] !== null && data[r][c] !== undefined) { hasAny = true; break; }
           }
-          if (!hasData) continue;
+          if (!hasAny) { r++; continue; }
 
-          var lambName = safeStr_(lambA);
-          // Columns vary but typical: A=name/tag, B=sire or birthWt, C=mateDate, D=dueDate, E=birthWt or birthDate
-          // Handle both layout variants
-          var sire = '', birthWt = '', birthDate = '', w30 = '', w60 = '', w90 = '';
-          var keepSell = '', income = '', notes = '';
+          var lambName = safe_(la);
+          var sireL = '', birthWt = '', birthDate = '', notes = '';
 
-          // Layout 1 (older): A=name, B=birthWt, C=30d, D=60d, E=90d, F=FEC, G=DOB, H=sire, I=dam
-          // Layout 2 (newer): A=name, B=sire, C=mateDate, D=dueDate, E=birthWt, F=30d, G=60d, H=90d
-          if (data[r][1] === 'Birth Weight' || (typeof data[r][1] === 'string' && data[r][1].indexOf('Birth') >= 0)) {
-            birthWt = data[lr][1] || '';
-            w30 = data[lr][2] || '';
-            w60 = data[lr][3] || '';
-            w90 = data[lr][4] || '';
-            birthDate = data[lr][6] || data[lr][7] || '';
-            sire = safeStr_(data[lr][7] || data[lr][8] || '');
-            keepSell = safeStr_(data[lr][10] || data[lr][11] || '');
-            income = data[lr][11] || data[lr][12] || '';
-            notes = safeStr_(data[lr][14] || data[lr][15] || data[lr][17] || '');
-          } else if (data[r][1] === 'Sire') {
-            sire = safeStr_(data[lr][1] || '');
-            birthWt = data[lr][4] || data[lr][5] || '';
-            birthDate = data[lr][6] || data[lr][9] || '';
-            w30 = data[lr][5] || '';
-            w60 = data[lr][6] || '';
-            w90 = data[lr][7] || '';
-            keepSell = safeStr_(data[lr][13] || data[lr][14] || '');
-            notes = safeStr_(data[lr][17] || data[lr][15] || '');
+          if (isSireFirst) {
+            sireL = safe_(data[r][1] || '');
+            birthWt = data[r][4] || data[r][5] || '';
+            birthDate = data[r][9] || data[r][6] || '';
+            notes = safe_(data[r][17] || data[r][15] || '');
+          } else {
+            birthWt = data[r][1] || '';
+            birthDate = data[r][6] || data[r][7] || '';
+            sireL = safe_(data[r][7] || data[r][8] || '');
+            notes = safe_(data[r][14] || data[r][15] || data[r][17] || '');
           }
 
-          rows.push([
-            '', '', parentName, sire, '', '', '', '', birthDate,
-            lambName || '', '', birthWt, notes + ' [' + year + ', src: ' + sheet.getName() + ']'
+          lambingRows.push([
+            '', '', name, sireL, '', '', '', '', birthDate,
+            1, '', birthWt, '[' + year + '] ' + lambName + ' [src:' + sheetName + '] ' + notes
           ]);
+          r++;
         }
-        // Skip to after the lamb rows (will be handled by the inner loop break)
       }
     }
-  }
 
-  if (rows.length > 0) {
-    var startRow = findFirstEmptyRow_(bst, 4, 3); // col C (ewe name)
-    bst.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' lambing records to Breeding Season Tracker');
-  }
-}
-
-// ============================================================
-// PHASE 3: MEDICAL / FAMACHA → Health & Treatment Log
-// ============================================================
-
-function migrateMedical_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
-  var htl = getOrCreateSheet_(dest, 'Health & Treatment Log');
-
-  var animalSheets = getAnimalSheetNames_(src);
-  var rows = [];
-
-  for (var i = 0; i < animalSheets.length; i++) {
-    if (timeUp_()) { log_('Time guard in medical at sheet ' + i); setCheckpoint_('medical'); return; }
-    var sheet = animalSheets[i];
-    var data = sheet.getDataRange().getValues();
-    var animalName = safeStr_(data[0][0]);
-
-    // Find "Medical" section
+    // --- MEDICAL: find "Medical" section ---
     for (var r = 0; r < data.length; r++) {
-      var cellA = safeStr_(data[r][0]);
-      if (cellA === 'Medical' || cellA === 'medical') {
-        // Read medical rows until empty gap or next section
+      var cellA = String(data[r][0] || '').toLowerCase().trim();
+      if (cellA === 'medical' || cellA === 'medical:') {
+        // Detect if next row has sub-headers
+        var hasFamachaCol = false;
+        var famIdx = 2; // default col C
+        if (r + 1 < data.length) {
+          for (var c = 0; c < Math.min(data[r + 1].length, 6); c++) {
+            if (String(data[r + 1][c] || '').toLowerCase().indexOf('famacha') >= 0) {
+              famIdx = c; hasFamachaCol = true; break;
+            }
+          }
+        }
+
+        var emptyCount = 0;
         for (var mr = r + 1; mr < data.length; mr++) {
           var dateVal = data[mr][0];
-          if (dateVal === '' || dateVal === null) {
-            // Allow one empty row
-            if (mr + 1 < data.length && (data[mr + 1][0] === '' || data[mr + 1][0] === null)) break;
+          if (dateVal === '' || dateVal === null || dateVal === undefined) {
+            emptyCount++;
+            if (emptyCount >= 2) break;
             continue;
           }
-          // Stop if we hit a section header
-          if (typeof dateVal === 'string' && (dateVal.indexOf('Prospective') >= 0 || dateVal.indexOf('If Bred') >= 0)) break;
+          emptyCount = 0;
+          var dvStr = String(dateVal).toLowerCase();
+          if (dvStr.indexOf('prospective') >= 0 || dvStr.indexOf('if bred') >= 0) break;
 
-          var treatment = safeStr_(data[mr][1] || '');
-          var famacha = data[mr][2] || data[mr][3] || '';
-          var fec = data[mr][3] || data[mr][4] || '';
-          var notes = safeStr_(data[mr][4] || data[mr][5] || '');
-
-          // Only add if there's a date-like value
           if (dateVal instanceof Date || (typeof dateVal === 'string' && dateVal.match(/\d{4}/))) {
-            rows.push([dateVal, '', animalName, '', treatment, '', '', famacha, fec, '', '', '', notes + ' [src: ' + sheet.getName() + ']']);
+            var treatment = safe_(data[mr][1] || '');
+            var famacha = data[mr][famIdx] || '';
+            medicalRows.push([
+              dateVal, '', name, '', treatment, '', '', famacha, '', '', '', '',
+              '[src:' + sheetName + ']'
+            ]);
           }
         }
-        break; // Found medical section, done with this sheet
+        break;
       }
     }
   }
 
-  if (rows.length > 0) {
-    // Write to columns M onward (the manual entry section, cols M-S in Health & Treatment Log)
-    var startRow = findFirstEmptyRow_(htl, 4, 13); // col M
-    htl.getRange(startRow, 13, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' medical records to Health & Treatment Log');
+  // Flush all accumulated data
+  flushAnimalData_(dest, identityRows, lambingRows, medicalRows);
+  props.setProperty('animalIdx', '0'); // reset for next full run
+  return true;
+}
+
+function flushAnimalData_(dest, identityRows, lambingRows, medicalRows) {
+  if (identityRows.length > 0) {
+    var mfl = dest.getSheetByName('Master Flock List') || dest.insertSheet('Master Flock List');
+    var startRow = firstEmpty_(mfl, 5, 4);
+    mfl.getRange(startRow, 1, identityRows.length, identityRows[0].length).setValues(identityRows);
+    log_('Wrote ' + identityRows.length + ' animals to Master Flock List');
+  }
+  if (lambingRows.length > 0) {
+    var bst = dest.getSheetByName('Breeding Season Tracker') || dest.insertSheet('Breeding Season Tracker');
+    var startRow = firstEmpty_(bst, 4, 3);
+    bst.getRange(startRow, 1, lambingRows.length, lambingRows[0].length).setValues(lambingRows);
+    log_('Wrote ' + lambingRows.length + ' lambing records to Breeding Season Tracker');
+  }
+  if (medicalRows.length > 0) {
+    var htl = dest.getSheetByName('Health & Treatment Log') || dest.insertSheet('Health & Treatment Log');
+    var startRow = firstEmpty_(htl, 4, 15); // col O (ANIMAL in manual section)
+    htl.getRange(startRow, 13, medicalRows.length, medicalRows[0].length).setValues(medicalRows);
+    log_('Wrote ' + medicalRows.length + ' medical records to Health & Treatment Log');
   }
 }
 
 // ============================================================
-// PHASE 4: PEN ROSTERS → Pen sheets
+// PHASE 2: SYSTEM TABS — On Property, Costs, Lamb Data, etc.
 // ============================================================
 
-function migratePenRosters_() {
+function migrateSystemTabs_() {
   var src = SpreadsheetApp.openById(SOURCE_ID);
   var dest = SpreadsheetApp.openById(DEST_ID);
 
-  var onProp = safeGetSheet_(src, 'On Property');
-  if (!onProp) { log_('No "On Property" sheet found, skipping pen rosters'); return; }
+  migratePenRosters_(src, dest);
+  if (timeUp_()) return false;
+  migrateCosts_(src, dest);
+  if (timeUp_()) return false;
+  migrateLambData_(src, dest);
+  if (timeUp_()) return false;
+  migrateWeights_(src, dest);
+  if (timeUp_()) return false;
+  migrateEweRamData_(src, dest);
+  if (timeUp_()) return false;
+  migratePedigree_(src, dest);
+  if (timeUp_()) return false;
+  migrate30DayWeights_(src, dest);
+  return true;
+}
 
-  var data = onProp.getDataRange().getValues();
-  // Group animals by pen
+// --- Pen Rosters ---
+function migratePenRosters_(src, dest) {
+  var op = src.getSheetByName('On Property');
+  if (!op) { log_('No On Property sheet, skipping pens'); return; }
+  var data = op.getDataRange().getValues();
+
   var penMap = {};
   for (var r = 1; r < data.length; r++) {
-    var name = safeStr_(data[r][3]); // Name column
-    var pen = safeStr_(data[r][11] || data[r][10] || data[r][9] || ''); // Pen column varies
-    if (!name || !pen) continue;
-
-    // Try to find pen in multiple columns
+    var name = safe_(data[r][3]);
+    if (!name) continue;
+    var pen = '';
     for (var c = 0; c < data[r].length; c++) {
-      var v = safeStr_(data[r][c]);
-      if (v.indexOf('Pen') >= 0 || v === 'Tree Fort' || v === 'Goose') { pen = v; break; }
+      var v = String(data[r][c] || '');
+      if (v.match(/^Pen \d/) || v === 'Tree Fort' || v.indexOf('Goose') >= 0) { pen = v; break; }
     }
     if (!pen) continue;
-
     if (!penMap[pen]) penMap[pen] = [];
     penMap[pen].push([
-      data[r][2] || '', // Tag
-      data[r][1] || '', // Abbv
-      name,
-      data[r][4] || '', // Sex
-      data[r][5] || '', // Breed
-      data[r][6] || '', // Color
-      data[r][7] || '', // Weight
-      data[r][8] || '', // DOB
-      data[r][9] || '', // Sire
-      data[r][10] || '', // Dam
-      '' // Notes
+      data[r][2] || '', data[r][1] || '', name, data[r][4] || '',
+      data[r][5] || '', data[r][6] || '', data[r][7] || '',
+      data[r][8] || '', data[r][9] || '', data[r][10] || '', ''
     ]);
   }
 
-  var penSheetMap = {
-    'Pen 1': 'Pen 1', 'Pen 2': 'Pen 2', 'Pen 3': 'Pen 3',
-    'Pen 4': 'Pen 4', 'Pen 5': 'Pen 5', 'Pen 6': 'Pen 6',
-    'Tree Fort': 'Tree Fort Pen', 'Goose': 'Goose Pen', 'Goose Pen': 'Goose Pen'
+  var destNames = {
+    'Pen 1':'Pen 1','Pen 2':'Pen 2','Pen 3':'Pen 3','Pen 4':'Pen 4',
+    'Pen 5':'Pen 5','Pen 6':'Pen 6','Tree Fort':'Tree Fort Pen','Goose Pen':'Goose Pen'
   };
-
   for (var pen in penMap) {
-    var destSheetName = penSheetMap[pen] || pen;
-    var penSheet = safeGetSheet_(dest, destSheetName);
-    if (!penSheet) { log_('Pen sheet not found: ' + destSheetName + ', skipping'); continue; }
-    var animals = penMap[pen];
-    if (animals.length > 0) {
-      penSheet.getRange(5, 1, animals.length, animals[0].length).setValues(animals);
-      log_('Wrote ' + animals.length + ' animals to ' + destSheetName);
-    }
+    var dn = destNames[pen] || pen;
+    var ps = dest.getSheetByName(dn);
+    if (!ps) { log_('No dest sheet: ' + dn); continue; }
+    ps.getRange(5, 1, penMap[pen].length, penMap[pen][0].length).setValues(penMap[pen]);
+    log_('Wrote ' + penMap[pen].length + ' animals to ' + dn);
   }
 }
 
-// ============================================================
-// PHASE 5: COSTS → Costs & Financials
-// ============================================================
-
-function migrateCosts_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
-
-  var costsSheet = safeGetSheet_(src, 'Costs');
-  if (!costsSheet) { log_('No Costs sheet found, skipping'); return; }
-
-  var data = costsSheet.getDataRange().getValues();
-  var cf = getOrCreateSheet_(dest, 'Costs & Financials');
+// --- Costs ---
+function migrateCosts_(src, dest) {
+  var cs = src.getSheetByName('Costs');
+  if (!cs) { log_('No Costs sheet'); return; }
+  var data = cs.getDataRange().getValues();
+  var cf = dest.getSheetByName('Costs & Financials') || dest.insertSheet('Costs & Financials');
   var rows = [];
-
-  // Find header row (look for "Sheep Name" or "Tag Number")
-  var headerRow = -1;
-  for (var r = 0; r < Math.min(data.length, 10); r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (safeStr_(data[r][c]).indexOf('Sheep Name') >= 0 || safeStr_(data[r][c]).indexOf('Tag') >= 0) {
-        headerRow = r; break;
-      }
-    }
-    if (headerRow >= 0) break;
-  }
-  if (headerRow < 0) { log_('No header found in Costs sheet'); return; }
-
-  for (var r = headerRow + 1; r < data.length; r++) {
-    if (timeUp_()) { log_('Time guard in costs'); setCheckpoint_('costs'); return; }
-    var name = safeStr_(data[r][2] || data[r][1]); // Sheep Name
-    if (!name) continue;
-
+  var hdrRow = findHeaderRow_(data, ['Sheep Name', 'Tag', 'Gender']);
+  if (hdrRow < 0) { log_('No header in Costs'); return; }
+  for (var r = hdrRow + 1; r < data.length; r++) {
+    var nm = safe_(data[r][2] || data[r][1]);
+    if (!nm) continue;
     rows.push([
-      data[r][1] || '', // Tag
-      name,
-      data[r][3] || '', // Sex
-      data[r][4] || '', // Status
-      data[r][5] || '', // DOB
-      data[r][6] || '', // Date Acquired
-      data[r][7] || '', // Date Sold/Died
-      data[r][8] || '', // Months Owned
-      data[r][9] || '', // Days Owned
-      '', // Total Cost
-      data[r][12] || '', // Price Paid
-      data[r][13] || '', // Price Received
-      '', // Profit/Loss
-      data[r][14] || '', // Breed
-      data[r][15] || '', // Sire
-      data[r][16] || '', // Dam
-      data[r][17] || '', // Breeder
-      data[r][18] || '', // Babies Total
-      data[r][19] || '', // Birth Weight
-      data[r][20] || '', // 60-day Weight
-      safeStr_(data[r][21] || data[r][22] || '') // Comments
+      data[r][1]||'', nm, data[r][3]||'', data[r][4]||'', data[r][5]||'',
+      data[r][6]||'', data[r][7]||'', data[r][8]||'', data[r][9]||'', '',
+      data[r][12]||'', data[r][13]||'', '', data[r][14]||'', data[r][15]||'',
+      data[r][16]||'', data[r][17]||'', data[r][18]||'', data[r][19]||'',
+      data[r][20]||'', safe_(data[r][21]||'')
     ]);
   }
-
   if (rows.length > 0) {
-    var startRow = findFirstEmptyRow_(cf, 4, 2); // col B (name)
-    cf.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' cost records to Costs & Financials');
+    var sr = firstEmpty_(cf, 4, 2);
+    cf.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+    log_('Wrote ' + rows.length + ' cost records');
   }
 }
 
-// ============================================================
-// PHASE 6: LAMB DATA → Weight History & ADG
-// ============================================================
+// --- Lamb Data (Extension Service) ---
+function migrateLambData_(src, dest) {
+  var ls = src.getSheetByName('Lamb Data');
+  if (!ls) { log_('No Lamb Data sheet'); return; }
+  var data = ls.getDataRange().getValues();
+  var wh = dest.getSheetByName('Weight History & ADG') || dest.insertSheet('Weight History & ADG');
+  var hdrRow = findHeaderRow_(data, ['Lamb ID', 'Ewe ID']);
+  if (hdrRow < 0) { log_('No header in Lamb Data'); return; }
 
-function migrateLambData_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
+  var headers = ['#','Lamb ID','Ewe ID','Ewe Age','Ram ID','Birth Date','Sex',
+    'Birth/Rearing','Birth Wt','Weaning Date','Wng Wt','Wng Age',
+    'Wng Age Group','WDA','ADG','Age Corr WW','Adj WW','Adj WW Ratio'];
+  var sr = firstEmpty_(wh, 1, 1);
+  wh.getRange(sr, 1, 1, headers.length).setValues([headers]);
+  sr++;
 
-  var lambSheet = safeGetSheet_(src, 'Lamb Data');
-  if (!lambSheet) { log_('No Lamb Data sheet found, skipping'); return; }
-
-  var data = lambSheet.getDataRange().getValues();
-  var wh = getOrCreateSheet_(dest, 'Weight History & ADG');
   var rows = [];
-
-  // Find the data header row (contains "Lamb ID", "Ewe ID", etc.)
-  var headerRow = -1;
-  for (var r = 0; r < Math.min(data.length, 15); r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (safeStr_(data[r][c]).indexOf('Lamb ID') >= 0) { headerRow = r; break; }
-    }
-    if (headerRow >= 0) break;
+  for (var r = hdrRow + 1; r < data.length; r++) {
+    if (!data[r][1] && data[r][1] !== 0) continue;
+    var row = [];
+    for (var c = 0; c < 18 && c < data[r].length; c++) row.push(data[r][c] || '');
+    while (row.length < 18) row.push('');
+    rows.push(row);
   }
-  if (headerRow < 0) { log_('No header found in Lamb Data'); return; }
-
-  for (var r = headerRow + 1; r < data.length; r++) {
-    var lambId = data[r][1];
-    if (lambId === '' || lambId === null) continue;
-
-    rows.push([
-      data[r][0] || '', // #
-      lambId, // Lamb ID
-      data[r][2] || '', // Ewe ID
-      data[r][3] || '', // Ewe Age
-      data[r][4] || '', // Ram ID
-      data[r][5] || '', // Birth Date
-      data[r][6] || '', // Sex
-      data[r][7] || '', // Birth/Rearing Type
-      data[r][8] || '', // Birth Weight
-      data[r][9] || '', // Weaning Date
-      data[r][10] || '', // Weaning Weight
-      data[r][11] || '', // Weaning Age (days)
-      data[r][12] || '', // Weaning Age Group
-      data[r][13] || '', // WDA
-      data[r][14] || '', // ADG
-      data[r][15] || '', // Age Corrected WW
-      data[r][16] || '', // Adj WW
-      data[r][17] || ''  // Adj WW Ratio
-    ]);
-  }
-
   if (rows.length > 0) {
-    var startRow = findFirstEmptyRow_(wh, 2, 1);
-    // Write header first if sheet is empty
-    if (startRow <= 2) {
-      var headers = ['#', 'Lamb ID', 'Ewe ID', 'Ewe Age', 'Ram ID', 'Birth Date', 'Sex',
-        'Birth/Rearing Type', 'Birth Wt', 'Weaning Date', 'Wng Wt', 'Wng Age',
-        'Wng Age Group', 'WDA', 'ADG', 'Age Corr WW', 'Adj WW', 'Adj WW Ratio'];
-      wh.getRange(1, 1, 1, headers.length).setValues([headers]);
-      startRow = 2;
-    }
-    wh.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' lamb records to Weight History & ADG');
+    wh.getRange(sr, 1, rows.length, 18).setValues(rows);
+    log_('Wrote ' + rows.length + ' lamb records to Weight History');
   }
 }
 
-// ============================================================
-// PHASE 7: WEIGHTS AND AVERAGES
-// ============================================================
-
-function migrateWeights_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
-
-  var waSrc = safeGetSheet_(src, 'Weights and Averages');
-  if (!waSrc) { log_('No Weights and Averages sheet, skipping'); return; }
-
-  var data = waSrc.getDataRange().getValues();
-  var wh = getOrCreateSheet_(dest, 'Weight History & ADG');
-
-  // Find a spot below the lamb data
-  var startRow = findFirstEmptyRow_(wh, 1, 1) + 2; // Leave a gap
-
-  // Write section header
-  wh.getRange(startRow, 1).setValue('WEIGHTS AND AVERAGES — FROM SOURCE');
-  startRow++;
-
-  // Copy all non-empty rows
+// --- Weights and Averages ---
+function migrateWeights_(src, dest) {
+  var ws = src.getSheetByName('Weights and Averages');
+  if (!ws) { log_('No Weights sheet'); return; }
+  var data = ws.getDataRange().getValues();
+  var wh = dest.getSheetByName('Weight History & ADG') || dest.insertSheet('Weight History & ADG');
+  var sr = firstEmpty_(wh, 1, 1) + 1;
+  wh.getRange(sr, 1).setValue('=== WEIGHTS AND AVERAGES FROM SOURCE ===');
+  sr++;
   var rows = [];
   for (var r = 0; r < data.length; r++) {
     var hasData = false;
-    for (var c = 0; c < data[r].length; c++) {
-      if (data[r][c] !== '' && data[r][c] !== null) { hasData = true; break; }
-    }
-    if (hasData) rows.push(data[r].slice(0, 15)); // Cap at 15 columns
+    for (var c = 0; c < data[r].length; c++) { if (data[r][c]) { hasData = true; break; } }
+    if (hasData) rows.push(data[r].slice(0, 15));
   }
-
   if (rows.length > 0) {
-    wh.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-    log_('Wrote ' + rows.length + ' weight rows to Weight History & ADG');
+    wh.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+    log_('Wrote ' + rows.length + ' weight rows');
+  }
+}
+
+// --- Ewe Data + Ram Data ---
+function migrateEweRamData_(src, dest) {
+  migrateRegistrySheet_(src, dest, 'Ewe Data', 'Active Ewes', 'Ewe ID', 'Ewe Name');
+  migrateRegistrySheet_(src, dest, 'Ram Data', 'Active Rams', 'Ram ID', 'Ram Name');
+}
+
+function migrateRegistrySheet_(src, dest, srcName, destName, idCol, nameCol) {
+  var ss = src.getSheetByName(srcName);
+  if (!ss) { log_('No ' + srcName + ' sheet'); return; }
+  var data = ss.getDataRange().getValues();
+  var ds = dest.getSheetByName(destName) || dest.insertSheet(destName);
+  var hdrRow = findHeaderRow_(data, [idCol, nameCol]);
+  if (hdrRow < 0) { log_('No header in ' + srcName); return; }
+  var rows = [];
+  for (var r = hdrRow + 1; r < data.length; r++) {
+    var id = safe_(data[r][1]);
+    if (!id) continue;
+    rows.push([
+      data[r][0]||'', id, '', data[r][2]||'', '', data[r][3]||'',
+      '', '', '', data[r][7]||'', '', safe_(data[r][5]||'') + '/' + safe_(data[r][6]||'')
+    ]);
+  }
+  if (rows.length > 0) {
+    var sr = firstEmpty_(ds, 5, 2);
+    ds.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+    log_('Wrote ' + rows.length + ' records to ' + destName);
+  }
+}
+
+// --- Pedigree ---
+function migratePedigree_(src, dest) {
+  var pn = src.getSheetByName('Pedigree Name (1)');
+  if (!pn) pn = src.getSheetByName('Pedigree Name');
+  if (!pn) { log_('No Pedigree sheet'); return; }
+  var data = pn.getDataRange().getValues();
+  var pd = dest.getSheetByName('Pedigree') || dest.insertSheet('Pedigree');
+  var sr = firstEmpty_(pd, 2, 1);
+  var rows = [];
+  for (var r = 1; r < data.length; r++) {
+    var hasData = false;
+    for (var c = 0; c < data[r].length; c++) { if (data[r][c]) { hasData = true; break; } }
+    if (hasData) rows.push(data[r].slice(0, 9));
+  }
+  if (rows.length > 0) {
+    pd.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+    log_('Wrote ' + rows.length + ' pedigree rows');
+  }
+}
+
+// --- 2022 30-day weights ---
+function migrate30DayWeights_(src, dest) {
+  var ws = src.getSheetByName('2022 30 day weights');
+  if (!ws) { log_('No 2022 30 day weights'); return; }
+  var data = ws.getDataRange().getValues();
+  var wh = dest.getSheetByName('Weight History & ADG') || dest.insertSheet('Weight History & ADG');
+  var sr = firstEmpty_(wh, 1, 1) + 1;
+  wh.getRange(sr, 1).setValue('=== 2022 30-DAY WEIGHTS FROM SOURCE ===');
+  sr++;
+  var rows = [];
+  for (var r = 0; r < data.length; r++) {
+    var hasData = false;
+    for (var c = 0; c < data[r].length; c++) { if (data[r][c]) { hasData = true; break; } }
+    if (hasData) rows.push(data[r].slice(0, 10));
+  }
+  if (rows.length > 0) {
+    wh.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+    log_('Wrote ' + rows.length + ' 30-day weight rows');
   }
 }
 
 // ============================================================
-// PHASE 8: EWE DATA + RAM DATA → Active Ewes / Active Rams
+// UTILITIES
 // ============================================================
 
-function migrateEweRamData_() {
-  var src = SpreadsheetApp.openById(SOURCE_ID);
-  var dest = SpreadsheetApp.openById(DEST_ID);
-
-  // Ewe Data
-  var eweSrc = safeGetSheet_(src, 'Ewe Data');
-  if (eweSrc) {
-    var data = eweSrc.getDataRange().getValues();
-    var ae = getOrCreateSheet_(dest, 'Active Ewes');
-    var rows = [];
-    var headerRow = -1;
-    for (var r = 0; r < Math.min(data.length, 10); r++) {
-      for (var c = 0; c < data[r].length; c++) {
-        if (safeStr_(data[r][c]).indexOf('Ewe ID') >= 0 || safeStr_(data[r][c]).indexOf('Ewe Name') >= 0) {
-          headerRow = r; break;
-        }
-      }
-      if (headerRow >= 0) break;
-    }
-    if (headerRow >= 0) {
-      for (var r = headerRow + 1; r < data.length; r++) {
-        var id = safeStr_(data[r][1]);
-        if (!id) continue;
-        rows.push([
-          data[r][0] || '', id, '', data[r][2] || '', '', data[r][3] || '',
-          '', '', '', data[r][7] || '', '', safeStr_(data[r][5] || '') + '/' + safeStr_(data[r][6] || '')
-        ]);
-      }
-      if (rows.length > 0) {
-        var startRow = findFirstEmptyRow_(ae, 5, 2);
-        ae.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-        log_('Wrote ' + rows.length + ' ewe records to Active Ewes');
-      }
-    }
-  }
-
-  // Ram Data
-  var ramSrc = safeGetSheet_(src, 'Ram Data');
-  if (ramSrc) {
-    var data = ramSrc.getDataRange().getValues();
-    var ar = getOrCreateSheet_(dest, 'Active Rams');
-    var rows = [];
-    var headerRow = -1;
-    for (var r = 0; r < Math.min(data.length, 10); r++) {
-      for (var c = 0; c < data[r].length; c++) {
-        if (safeStr_(data[r][c]).indexOf('Ram ID') >= 0 || safeStr_(data[r][c]).indexOf('Ram Name') >= 0) {
-          headerRow = r; break;
-        }
-      }
-      if (headerRow >= 0) break;
-    }
-    if (headerRow >= 0) {
-      for (var r = headerRow + 1; r < data.length; r++) {
-        var id = safeStr_(data[r][1]);
-        if (!id) continue;
-        rows.push([
-          data[r][0] || '', id, '', data[r][2] || '', '', data[r][3] || '',
-          '', '', '', '', '', safeStr_(data[r][5] || '') + '/' + safeStr_(data[r][6] || '')
-        ]);
-      }
-      if (rows.length > 0) {
-        var startRow = findFirstEmptyRow_(ar, 5, 2);
-        ar.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-        log_('Wrote ' + rows.length + ' ram records to Active Rams');
-      }
-    }
-  }
-}
-
-// ============================================================
-// UTILITY FUNCTIONS
-// ============================================================
-
-function getAnimalSheetNames_(ss) {
-  var skip = [
-    'Manatee Creek 2025', 'Manatee Creek (Old)', 'Master', 'Master (1)',
-    'Weights and Averages', 'Breeding Plans for 24', 'Possibile Lambs',
-    'Potential Offspring', 'Sheep Weight Calculator', 'Template', 'Pen Template',
-    'Lamb Data', 'Ram Data', 'Ewe Data', 'Summary', 'User Guide', 'Config',
-    '2022 30 day weights', 'On Property', 'Costs', 'Pedigree_Viewer',
-    'Pedigree Name', 'Pedigree Tattoo', 'Pedigree Name (1)', 'Pedigree Tattoo (1)',
-    'Tables', 'EXPORT_VALUES',
-    // Pen sheets
-    'Pen 1', 'Pen 2', 'Pen 1 (2024) ', 'Pen 1 (2024)', 'Pen 2 (2024)',
-    'Pen 3 - Sam (5 Sheep)', 'Pen 4 - Southdown Ram (7 Sheep)',
-    'Pen 5 - Rocky (5 sheep)', 'Pen 6 - Rocky (4 Sheep)',
-    'Pen 6 - Fat Tail', '2024 Pen 4 (Kelsier)',
-    // Scratch sheets
-    'Sheet74', 'Sheet75', 'Sheet79', 'Sheet81', 'Sheet83', 'Sheet84', 'Sheet87'
-  ];
+function getAnimalSheets_(ss) {
+  var SKIP = {
+    'Manatee Creek 2025':1, 'Manatee Creek (Old)':1, 'Master':1, 'Master (1)':1,
+    'Weights and Averages':1, 'Breeding Plans for 24':1, 'Possibile Lambs':1,
+    'Potential Offspring':1, 'Sheep Weight Calculator':1, 'Template':1, 'Pen Template':1,
+    'Lamb Data':1, 'Ram Data':1, 'Ewe Data':1, 'Summary':1, 'User Guide':1, 'Config':1,
+    '2022 30 day weights':1, 'On Property':1, 'Costs':1, 'Pedigree_Viewer':1,
+    'Pedigree Name':1, 'Pedigree Tattoo':1, 'Pedigree Name (1)':1, 'Pedigree Tattoo (1)':1,
+    'Tables':1, 'EXPORT_VALUES':1,
+    'Pen 1':1, 'Pen 2':1, 'Pen 1 (2024) ':1, 'Pen 1 (2024)':1, 'Pen 2 (2024)':1,
+    'Pen 3 - Sam (5 Sheep)':1, 'Pen 4 - Southdown Ram (7 Sheep)':1,
+    'Pen 5 - Rocky (5 sheep)':1, 'Pen 6 - Rocky (4 Sheep)':1,
+    'Pen 6 - Fat Tail':1, '2024 Pen 4 (Kelsier)':1,
+    'Sheet74':1,'Sheet75':1,'Sheet79':1,'Sheet81':1,'Sheet83':1,'Sheet84':1,'Sheet87':1
+  };
   var sheets = ss.getSheets();
   var result = [];
   for (var i = 0; i < sheets.length; i++) {
-    var name = sheets[i].getName();
-    if (skip.indexOf(name) < 0 && skip.indexOf(name.trim()) < 0) {
-      result.push(sheets[i]);
-    }
+    var n = sheets[i].getName();
+    if (!SKIP[n] && !SKIP[n.trim()]) result.push(sheets[i]);
   }
   return result;
 }
 
-function getOrCreateSheet_(ss, name) {
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) sheet = ss.insertSheet(name);
-  return sheet;
-}
-
-function safeGetSheet_(ss, name) {
-  return ss.getSheetByName(name);
-}
-
-function safeStr_(val) {
+function safe_(val) {
   if (val === null || val === undefined) return '';
   var s = String(val).trim();
-  // Skip formula references
   if (s.charAt(0) === '=' && s.indexOf('!') >= 0) return '';
   if (s === '#REF!') return '';
   return s;
 }
 
-function findFirstEmptyRow_(sheet, startRow, checkCol) {
-  var data = sheet.getRange(startRow, checkCol, sheet.getMaxRows() - startRow + 1, 1).getValues();
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][0] === '' || data[i][0] === null) return startRow + i;
+function firstEmpty_(sheet, startRow, col) {
+  var maxR = sheet.getMaxRows();
+  if (startRow > maxR) return startRow;
+  var vals = sheet.getRange(startRow, col, maxR - startRow + 1, 1).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (!vals[i][0] && vals[i][0] !== 0) return startRow + i;
   }
-  return startRow + data.length;
+  return startRow + vals.length;
 }
 
-function timeUp_() {
-  return (Date.now() - START_TIME) > TIME_LIMIT_MS;
+function findHeaderRow_(data, keywords) {
+  for (var r = 0; r < Math.min(data.length, 15); r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      var v = String(data[r][c] || '');
+      for (var k = 0; k < keywords.length; k++) {
+        if (v.indexOf(keywords[k]) >= 0) return r;
+      }
+    }
+  }
+  return -1;
 }
 
-// ============================================================
-// CHECKPOINT & LOGGING
-// ============================================================
-
-function getCheckpoint_() {
-  return PropertiesService.getScriptProperties().getProperty('migrationPhase') || 'identity';
-}
-
-function setCheckpoint_(phase) {
-  PropertiesService.getScriptProperties().setProperty('migrationPhase', phase);
-}
-
-function resetCheckpoint_() {
-  PropertiesService.getScriptProperties().deleteProperty('migrationPhase');
-}
+function timeUp_() { return (Date.now() - START_TIME) > TIME_LIMIT_MS; }
 
 function log_(msg) {
   var dest = SpreadsheetApp.openById(DEST_ID);
-  var logSheet = dest.getSheetByName('Migration Log');
-  if (!logSheet) {
-    logSheet = dest.insertSheet('Migration Log');
-    logSheet.getRange(1, 1, 1, 3).setValues([['Timestamp', 'Message', 'Phase']]);
+  var ls = dest.getSheetByName('Migration Log');
+  if (!ls) {
+    ls = dest.insertSheet('Migration Log');
+    ls.getRange(1, 1, 1, 3).setValues([['Timestamp', 'Message', 'Phase']]);
   }
-  var phase = getCheckpoint_();
-  logSheet.appendRow([new Date(), msg, phase]);
-  Logger.log(msg);
+  ls.appendRow([new Date(), msg, PropertiesService.getScriptProperties().getProperty('phase') || '?']);
 }

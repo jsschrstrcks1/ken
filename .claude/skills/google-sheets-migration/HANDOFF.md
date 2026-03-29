@@ -1,47 +1,35 @@
-# Handoff — Google Sheets Migration Skill
+# Handoff — Google Sheets Migration Skill v2
 
 ## Session State (2026-03-29)
 
 ### What Was Done
-1. Explored both repos (ken + manateecreeksheep) thoroughly
-2. Downloaded and parsed both Google Sheets via xlsx export:
-   - **Old sheet** (113 tabs): `/home/user/old_sheet.xlsx`
-   - **New sheet** (26 tabs): `/home/user/new_sheet.xlsx`
-3. Extracted animal data to `/home/user/old_sheet_animal_data.json` (69 animals, 94 lamb records, 35 medical entries)
-4. Extracted system data to `/home/user/old_sheet_system_data.json` (4.4 MB, 30 sheets)
-5. Wrote SKILL.md describing the migration
-6. Wrote migration.gs — the Apps Script with 8 phases, checkpoint/resume, 4-minute time guard
-7. Added skill to skill-rules.json
+1. Orchestra review identified 11 bugs in v1 script
+2. Rewrote migration.gs v2 with all fixes:
+   - Dynamic column detection via header matching (not hardcoded indices)
+   - Single-read architecture: each animal sheet read ONCE, identity+lambing+medical extracted in one pass
+   - Sub-sheet checkpoint: saves `animalIdx` so resume continues from exact sheet
+   - 8-12 breed support: scans rows 1-24 matching against KNOWN_BREEDS list (23 breeds including spelling variants)
+   - Lambing loop index advances correctly (inner while loop, no re-processing)
+   - FAMACHA column detected by header matching, not assumed col C
+   - Missing phases added: Pedigree, 2022 30-day weights
+   - Time guard at 3m20s (200s), very aggressive
+3. Factored new adapters (Perplexity, You.com) into post-migration QC plan
+4. GPT orchestra round confirmed architecture, suggested preprocessing breed columns
+5. Committed and pushed to ken branch
 
-### What Still Needs Doing
-- **Test the Apps Script** — it has NOT been run yet. User needs to paste it into the new sheet's Apps Script editor and run `migrateAll()`
-- **Verify data completeness** — after migration, compare row counts against source
-- **Column mapping may need tuning** — the old sheet has inconsistent layouts across animal tabs (some use col B for breed %, others col C; lambing headers vary between "Birth Weight" and "Sire" as col B). The script handles both variants but edge cases may exist
-- **FAMACHA scores** — currently extracted in the medical phase but not separately written to the "Famacha & FEC Trend" tab. The Health & Treatment Log gets them. A second pass could pivot that data into the trend sheet format.
-- **Pen 1 (2024) has a trailing space** in its name in the source sheet. The skip list handles both with/without but verify.
-
-### Key Architecture Decisions
-- **No MCP server** — Google Sheets MCP requires GCP credentials the user doesn't have set up. Instead we use the xlsx export trick (`/export?format=xlsx`) via curl + openpyxl for analysis, and Apps Script for the actual write-back.
-- **8 phases, not 1 big run** — Apps Script has 6-minute limit. Each phase saves a checkpoint to PropertiesService. Time guard at 4 minutes (aggressive).
-- **Append-only writes** — script never overwrites existing data in the new sheet. Uses `findFirstEmptyRow_()` to find where to start writing.
-- **Formula filtering** — `safeStr_()` skips cross-sheet formula references (`='Manatee Creek'!P5`) and `#REF!` values. Only real data migrates.
-- **Prospective breeding sections skipped** — anything after "Prospective Breedings" header in animal sheets is formulas, not data.
-
-### Files Created This Session
-- `/home/user/ken/.claude/skills/google-sheets-migration/SKILL.md`
-- `/home/user/ken/.claude/skills/google-sheets-migration/migration.gs`
-- `/home/user/ken/.claude/skills/google-sheets-migration/HANDOFF.md` (this file)
-- `/home/user/old_sheet.xlsx` (downloaded, not committed)
-- `/home/user/new_sheet.xlsx` (downloaded, not committed)
-- `/home/user/old_sheet_animal_data.json` (extracted, not committed)
-- `/home/user/old_sheet_system_data.json` (extracted, not committed)
+### Post-Migration QC Plan (uses new adapters)
+After script runs successfully:
+- `/consult gpt "verify these breed percentages all sum to 100%: [exported data]"` — math check
+- `/consult perplexity "NSIP registry data for Katahdin ram OAV 2223"` — verify Kelsier's data against public records
+- `/consult youdotcom "Manatee Creek sheep farm Florida breeding program"` — verify any public references
 
 ### Spreadsheet IDs
-- **Source (old, 113 tabs):** `1Rt6N0yD6DPWZmiPH1I2RAB3K0a-qsMWVfJH661tw4gk`
-- **Destination (new, 26 tabs):** `1EQ5bOZL5Xmzu_7VvaMHTHWIwHPJqDKTJY_MMPduKrJU`
+- **Source:** `1Rt6N0yD6DPWZmiPH1I2RAB3K0a-qsMWVfJH661tw4gk`
+- **Dest:** `1EQ5bOZL5Xmzu_7VvaMHTHWIwHPJqDKTJY_MMPduKrJU`
 
 ### How to Resume
-1. Read this file
-2. If script hasn't been tested yet → user needs to paste migration.gs into Apps Script and run
-3. If script ran but needs fixes → read the Migration Log tab in the new sheet, fix the phase that failed
-4. If adding FAMACHA trend pivot → add Phase 3b that reads Health & Treatment Log and pivots into Famacha & FEC Trend format
+1. User pastes migration.gs into new sheet's Apps Script editor
+2. Run `migrateAll()`
+3. If timeout: `migrateResume()`
+4. Check Migration Log tab
+5. Run QC consults with orchestra adapters
