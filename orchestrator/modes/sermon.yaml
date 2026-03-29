@@ -41,8 +41,8 @@ pipeline:
     role: expand
     optional: true
     description: >
-      Verify cross-references and historical claims with sourced research.
-      Return citations for any factual assertions. Flag anything unverifiable.
+      Verify cross-references and historical claims with web-grounded research.
+      Return cited sources for any factual assertions. Flag anything unverifiable.
 
   - step: integrate
     model: claude

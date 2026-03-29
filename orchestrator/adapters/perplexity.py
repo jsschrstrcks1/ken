@@ -1,56 +1,73 @@
-"""Perplexity Sonar adapter — OpenAI-compatible API with search citations."""
+"""Perplexity Sonar adapter — web-grounded answers with cited sources."""
 
 import json
 import os
-from openai import OpenAI
+import urllib.request
+import urllib.error
 
-MODEL = "sonar-pro"
-BASE_URL = "https://api.perplexity.ai"
+RESPONSES_URL = "https://api.perplexity.ai/v1/responses"
+PRESET = "fast-search"
 
-# Pricing per 1M tokens (USD) — plus $5/1K searches (~$0.005/request)
-COST_PER_1M = {"input": 3.00, "output": 15.00}
-COST_PER_SEARCH = 0.005
+# Pricing: ~$0.006 per request (input + output + search)
+COST_PER_REQUEST = 0.006
 
 
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
-    """Send a prompt to Perplexity Sonar and return structured response with citations."""
-    client = OpenAI(
-        api_key=os.environ["PERPLEXITY_API_KEY"],
-        base_url=BASE_URL,
+    """Send a prompt to Perplexity Responses API and return structured response with citations."""
+    api_key = os.environ["PERPLEXITY_API_KEY"]
+
+    # Prepend system context to the prompt
+    full_prompt = f"{system}\n\n{prompt}" if system else prompt
+
+    payload = json.dumps({
+        "preset": PRESET,
+        "input": full_prompt,
+        "max_output_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        RESPONSES_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
 
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": prompt},
-    ]
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+    # Extract text from output blocks
+    content = ""
+    citations = []
+    for block in data.get("output", []):
+        if block.get("type") == "search_results":
+            for result in block.get("results", []):
+                url = result.get("url", "")
+                if url:
+                    citations.append(url)
+        elif block.get("type") == "message":
+            for part in block.get("content", []):
+                if part.get("type") == "output_text":
+                    content += part.get("text", "")
 
-    choice = response.choices[0]
-    usage = response.usage
-
-    input_tokens = getattr(usage, "prompt_tokens", 0)
-    output_tokens = getattr(usage, "completion_tokens", 0)
-
-    input_cost = (input_tokens / 1_000_000) * COST_PER_1M["input"]
-    output_cost = (output_tokens / 1_000_000) * COST_PER_1M["output"]
-
-    # Extract citations if present (Perplexity-specific)
-    citations = getattr(response, "citations", None) or []
+    # Extract usage/cost from response
+    usage_data = data.get("usage", {})
+    cost_data = usage_data.get("cost", {})
+    input_tokens = usage_data.get("input_tokens", 0)
+    output_tokens = usage_data.get("output_tokens", 0)
+    total_cost = cost_data.get("total_cost", COST_PER_REQUEST)
 
     result = {
-        "response": _parse_json(choice.message.content),
-        "raw": choice.message.content,
+        "response": _parse_json(content),
+        "raw": content,
         "usage": {
-            "model": MODEL,
+            "model": data.get("model", "perplexity"),
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "estimated_cost_usd": round(input_cost + output_cost + COST_PER_SEARCH, 4),
+            "estimated_cost_usd": round(total_cost, 4),
         },
     }
 
