@@ -38,11 +38,20 @@ pipeline:
 
   - step: consult_verify
     model: perplexity
+    role: critique
+    optional: true
+    description: >
+      Fast web-grounded verification. Check cross-references, historical claims,
+      and attributed quotes against live sources. Flag anything unverifiable.
+
+  - step: consult_research
+    model: youdotcom
     role: expand
     optional: true
     description: >
-      Verify cross-references and historical claims with web-grounded research.
-      Return cited sources for any factual assertions. Flag anything unverifiable.
+      Deep web-grounded research — last word before Claude integrates.
+      Expand theological context with cited sources. Surface scholarly nuance,
+      cross-references, and historical background that earlier steps may have missed.
 
   - step: integrate
     model: claude

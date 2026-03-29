@@ -38,7 +38,7 @@ def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temper
         method="POST",
     )
 
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     output = data.get("output", {})
