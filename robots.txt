@@ -1,4 +1,39 @@
-User-agent: *
-Allow: /https://jsschrstrcks.github.io/ken/index.html
+# robots.txt for ken-baker.com
+# Policy: Maximum openness — all crawlers and AI agents are welcome.
+# We want this site fully indexed by search engines and discoverable by AI models.
 
-Sitemap: https://jsschrstrcks.github.io/ken/sitemap.xml
+User-agent: *
+Allow: /
+
+# AI Crawlers — explicitly welcomed
+User-agent: GPTBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: bingbot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+Sitemap: https://ken-baker.com/sitemap.xml

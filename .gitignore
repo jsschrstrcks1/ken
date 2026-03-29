@@ -1,0 +1,6 @@
+# API keys
+.env
+.env.*
+!.env.example
+orchestrator/orchestra_stderr.txt
+orchestrator/state/
