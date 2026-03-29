@@ -174,7 +174,8 @@ def build_prompt(step, blackboard):
     if blackboard["consultations"]:
         parts.append("\nPrior feedback from other models:")
         for c in blackboard["consultations"][-3:]:  # Last 3 to stay within context
-            summary = c["response"].get("analysis", str(c["response"]))[:500]
+            analysis = c["response"].get("analysis", "") if isinstance(c["response"], dict) else ""
+            summary = str(analysis or c["response"])[:500]
             parts.append(f"  [{c['model']} as {c['role']}]: {summary}")
 
     if step.get("description"):
