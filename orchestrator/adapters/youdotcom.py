@@ -1,54 +1,57 @@
-"""You.com Search adapter — web search results with snippets and sources."""
+"""You.com adapter — research endpoint with web-grounded, cited answers."""
 
 import json
 import os
 import urllib.request
 import urllib.error
-import urllib.parse
 
-SEARCH_URL = "https://ydc-index.io/v1/search"
+RESEARCH_URL = "https://api.you.com/v1/research"
+RESEARCH_EFFORT = "standard"
 
-# Pricing: $5 per 1,000 searches
-COST_PER_REQUEST = 0.005
+# Pricing: ~$6.50 per 1,000 requests
+COST_PER_REQUEST = 0.0065
+
+# Cloudflare on api.you.com blocks Python's default User-Agent (error 1010).
+_HEADERS_BASE = {
+    "Content-Type": "application/json",
+    "User-Agent": "orchestrator/1.0",
+}
 
 
 def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temperature=0.7):
-    """Send a search query to You.com and return results with sources."""
+    """Send a prompt to You.com Research API and return response with sources."""
     api_key = os.environ["YDC_API_KEY"]
 
-    params = urllib.parse.urlencode({"query": prompt})
-    url = f"{SEARCH_URL}?{params}"
+    full_prompt = f"{system}\n\n{prompt}" if system else prompt
+
+    payload = json.dumps({
+        "input": full_prompt,
+        "research_effort": RESEARCH_EFFORT,
+    }).encode("utf-8")
+
+    headers = {**_HEADERS_BASE, "X-API-Key": api_key}
 
     req = urllib.request.Request(
-        url,
-        headers={"X-API-Key": api_key},
-        method="GET",
+        RESEARCH_URL,
+        data=payload,
+        headers=headers,
+        method="POST",
     )
 
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
-    web_results = data.get("results", {}).get("web", [])
+    output = data.get("output", {})
+    content = output.get("content", "")
+    sources = output.get("sources", [])
 
-    # Build a readable summary from snippets
-    lines = []
-    citations = []
-    for i, r in enumerate(web_results[:8], 1):
-        title = r.get("title", "")
-        url = r.get("url", "")
-        snippets = r.get("snippets", [])
-        snippet_text = " ".join(snippets[:2]) if snippets else r.get("description", "")
-        lines.append(f"[{i}] {title}\n{snippet_text}")
-        if url:
-            citations.append(url)
-
-    content = "\n\n".join(lines)
+    citations = [s.get("url", "") for s in sources if s.get("url")]
 
     result = {
-        "response": {"raw_text": content, "result_count": len(web_results)},
+        "response": _parse_json(content),
         "raw": content,
         "usage": {
-            "model": "you.com-search",
+            "model": "you.com-research",
             "input_tokens": 0,
             "output_tokens": 0,
             "estimated_cost_usd": COST_PER_REQUEST,
@@ -59,3 +62,11 @@ def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temper
         result["citations"] = citations
 
     return result
+
+
+def _parse_json(text):
+    """Try to parse JSON; return raw text in a wrapper if it fails."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return {"raw_text": text}
