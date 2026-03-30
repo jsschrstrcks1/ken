@@ -58,6 +58,34 @@
       },
       "activationMessage": "Consultation ready. One model, one question, structured feedback."
     },
+    "person-page": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Build or rebuild person pages section-by-section using the v2 template. Prevents timeout on data-rich pages by writing incrementally.",
+      "promptTriggers": {
+        "keywords": [
+          "person page",
+          "person-page",
+          "rebuild page",
+          "flagship page",
+          "write page for",
+          "build page for"
+        ],
+        "intentPatterns": [
+          "(build|write|rebuild|create).*?person.*?page",
+          "(flagship|full).*?page.*?(for|about)",
+          "person-page.*?(rebuild|new|verify)"
+        ]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/person-page/SKILL.md",
+        "maxLines": 200,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Person Page Builder active. Will write section-by-section to prevent timeout."
+    },
     "icp-2": {
       "enabled": true,
       "type": "guardrail",
@@ -97,7 +125,8 @@
       "sermon",
       "sheep",
       "cruising",
-      "recipe"
+      "recipe",
+      "family-history"
     ]
   }
 }
