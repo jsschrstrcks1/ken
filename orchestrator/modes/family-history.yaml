@@ -1,0 +1,156 @@
+# Family History Mode — Genealogy Research & Documentation
+# Ken Baker's family archaeology project (Family-History repo)
+
+name: family-history
+lead: claude  # Claude has file access to person pages, sources, CLAUDE.md
+
+pipeline:
+  - step: load_context
+    model: claude
+    description: >
+      Load relevant person pages from people/, source files from sources/,
+      and the ancestral sub-graph for the query focus. Read CLAUDE.md for
+      project conventions, source hierarchy, and session handoff notes.
+      Identify which branches/lineages are relevant to the task.
+    notes: >
+      This happens in Claude Code directly via file access.
+      For person-focused tasks, load the person page + parents + spouse + children pages.
+      For lineage tasks, load the relevant ancestral chain from sources/ancestral-chains.md.
+
+  - step: extract_and_draft
+    model: claude
+    description: >
+      Extract data from screenshots, records, or research findings.
+      Draft person page updates following the people/ markdown template.
+      Identify gaps in the record — missing dates, unverified claims,
+      conflicting sources. Update FamilySearch IDs where known.
+    notes: >
+      Claude writes because Claude has the codebase context and knows
+      the markdown template, cross-linking conventions, and source hierarchy.
+
+  - step: verify_claims
+    model: gpt
+    role: structure
+    optional: true
+    description: >
+      Cross-reference genealogical claims against known records and patterns.
+      Source reliability scoring (primary > secondary > tertiary).
+      Temporal consistency checks: do dates make sense across generations?
+      (Parent born before child, marriage before death, plausible age gaps.)
+      Flag discrepancies with severity index:
+        CRITICAL = wrong parent in a major lineage, broken ancestral chain
+        HIGH = conflicting dates from primary sources, death year discrepancy
+        MEDIUM = census age vs. Bible date mismatch, spelling variations
+        LOW = minor inconsistency, indexing artifact
+      For royal/ancient lineage claims (Plantagenet, Charlemagne, etc.):
+      note where the "gateway ancestor" connection is and whether it's
+      documented step-by-step or has gaps.
+
+  - step: expand_research
+    model: gemini
+    role: expand
+    optional: true
+    description: >
+      Suggest missing connections and additional research avenues.
+      Identify related records: census years not yet checked, probate
+      records, military service files, newspaper obituaries, land grants.
+      Citation provenance: for every new fact, specify the exact source
+      (collection name, record ID, page number, archive location).
+      Check for collateral relatives who might unlock new information.
+      Suggest FamilySearch record hints or Ancestry collections to search.
+
+  - step: challenge_assumptions
+    model: grok
+    role: challenge
+    optional: true
+    description: >
+      Challenge lineage claims — especially royal descent, Native American
+      ancestry, and deep Spanish colonial connections. Ask: "What's the
+      weakest link in this chain?" Identify where family tradition diverges
+      from documented evidence. Flag potential genealogical myths
+      (e.g., every Southern family claims Cherokee ancestry).
+      Check for privacy concerns with living individuals.
+      Identify cultural sensitivity issues (Native American lineages,
+      enslaved ancestors, mixed-race families in colonial records).
+      Push back on unsourced claims that have propagated through
+      FamilySearch user-submitted trees without primary documentation.
+
+  - step: synthesize
+    model: claude
+    description: >
+      Integrate all feedback. Update person pages and source files.
+      Every claim must have a source citation. Uncertain data gets
+      explicit confidence markers (e.g., "likely", "per family tradition",
+      "unverified FamilySearch claim"). Commit changes to repo.
+      Update ancestors-by-nation.md if new nations/categories are touched.
+      Update session handoff notes in CLAUDE.md.
+
+constraints:
+  # Source hierarchy (from CLAUDE.md)
+  - "Family Bible takes precedence over ALL other sources"
+  - "Ken's direct family knowledge (from Velma, other living relatives) ranks second"
+  - "Primary records (certificates, census, probate, military) rank third"
+  - "Secondary sources (obituaries, Find a Grave, FamilySearch trees) rank fourth"
+  - "Book sources (Piney Wood Rooters, Early History of Frostproof) are primary for local history"
+  # Data integrity
+  - "Every factual claim must be traceable to a source"
+  - "Conflicting sources must be noted explicitly, not silently resolved"
+  - "FamilySearch user-submitted trees are SECONDARY — do not treat as primary evidence"
+  - "Date discrepancies between sources must be flagged with all variants shown"
+  # Writing style
+  - "Tell stories, don't just list facts — connect dates into life narratives"
+  - "Don't sanitize — record hard truths (alcoholism, abuse, poverty, etc.)"
+  - "Use the person's own words when available from transcripts"
+  - "Ken explicitly requested: results should NOT be condensed"
+  # Privacy and sensitivity
+  - "Living individuals: use discretion, omit sensitive details unless Ken approves"
+  - "Native American ancestry claims: note where documentation is solid vs. family tradition"
+  - "Colonial racial categories: present historical context without modern judgment"
+
+context_boundary:
+  send_externally:
+    - person names, dates, locations, relationships
+    - research questions and specific claims to verify
+    - source citations and record identifiers
+    - ancestral chain summaries (not full files)
+    - FamilySearch IDs for cross-referencing
+  keep_local:
+    - full person page markdown files
+    - transcript content (Velma's recordings)
+    - living individuals' personal details
+    - full source files (send summaries or excerpts)
+    - session handoff notes and internal project state
+
+output_schema:
+  person_update:
+    name: ""
+    familysearch_id: ""
+    dates_updated: []
+    relationships_added: []
+    sources_cited: []
+    confidence: "HIGH | MEDIUM | LOW"
+    discrepancies_flagged: []
+  research_findings:
+    new_facts: []
+    new_sources: []
+    gaps_identified: []
+    suggested_next_steps: []
+  verification_report:
+    claims_verified: []
+    claims_challenged: []
+    severity_index: []
+    temporal_consistency: "PASS | WARNINGS | FAIL"
+
+data_sources:
+  - "Family-History repository (people/, sources/, data/)"
+  - "FamilySearch.org (free, Ken has account)"
+  - "Ancestry.com (Ken has subscription)"
+  - "Find a Grave"
+  - "FloridaMemory.com (Florida state archives)"
+  - "Newspapers.com"
+  - "Polk County Clerk of Court online records"
+  - "Hardee County OCRS"
+  - "American State Papers (LOC/HeinOnline)"
+  - "NARA Record Groups 49 and 233"
+
+max_loops: 1
