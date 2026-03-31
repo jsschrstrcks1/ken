@@ -154,3 +154,47 @@ data_sources:
   - "NARA Record Groups 49 and 233"
 
 max_loops: 1
+
+# Orchestra configuration — fan-out + deliberation architecture
+orchestra:
+  # All models respond independently to Claude's R1 (no groupthink)
+  fan_out:
+    - model: gpt
+      role: structure
+      description: >
+        Cross-reference genealogical claims, check temporal consistency
+        (parent born before child, plausible age gaps), suggest prioritized
+        task ordering. Flag discrepancies with severity index.
+    - model: gemini
+      role: expand
+      description: >
+        Suggest missing connections, related records (census, probate,
+        military, newspapers), citation provenance, collateral relatives.
+        Identify FamilySearch/Ancestry collections worth searching.
+    - model: perplexity
+      role: research
+      description: >
+        Search the web for specific records, archives, and databases
+        relevant to the genealogical research. Find digitized records,
+        academic papers, and archive catalog entries. Cite every source
+        with a URL. Focus on primary source discovery.
+    - model: youdotcom
+      role: research
+      description: >
+        Conduct deep web research synthesis. Find historical context,
+        migration patterns, and scholarly sources. Cross-reference
+        multiple web sources for reliability. Provide source attribution
+        for every claim.
+    - model: grok
+      role: challenge
+      description: >
+        Challenge lineage claims — especially royal descent, Native
+        American ancestry, and deep colonial connections. Ask "what's
+        the weakest link?" Flag potential genealogical myths. Push back
+        on unsourced FamilySearch user-submitted claims.
+
+  # Claude and GPT deliberate with full fan-out context
+  deliberation_rounds: 2
+
+  # Final contrarian check
+  blind_spot_model: grok
