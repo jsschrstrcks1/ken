@@ -77,6 +77,12 @@ ROLES = {
         "You are a helpful assistant. Respond thoughtfully to the prompt. "
         "Respond in JSON with keys: analysis, proposed_update, risks, confidence (0.0-1.0)."
     ),
+    "research": (
+        "You are a web research specialist. Find and cite specific records, databases, "
+        "and primary sources. Every claim must include a source URL or record identifier. "
+        "Respond in JSON with keys: analysis, claims (array of {type, claim, source, url}), "
+        "proposed_update, risks, confidence (0.0-1.0)."
+    ),
 }
 
 
