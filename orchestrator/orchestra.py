@@ -25,6 +25,10 @@ import sys
 import time
 import yaml
 
+from iteration import (
+    IterationController, validate_response, build_format_retry_prompt,
+)
+
 # Load .env
 _env_candidates = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
@@ -208,22 +212,52 @@ def recall_memories(mode_name):
     return "(no relevant memories found)"
 
 
-def call_model(model_name, prompt, role="freestyle"):
-    """Call an external model and return response + usage + citations."""
+def call_model(model_name, prompt, role="freestyle", schema_name=None, controller=None):
+    """Call an external model with format validation and retry."""
     if model_name not in ADAPTERS:
         return None, None, []
 
     adapter = ADAPTERS[model_name]
     from consult import ROLES
     system_prompt = ROLES.get(role, ROLES["freestyle"])
+    current_prompt = prompt
+    total_usage = None
 
-    try:
-        result = adapter.query(prompt=prompt, system=system_prompt)
-        citations = result.get("citations", [])
-        return result["response"], result["usage"], citations
-    except Exception as e:
-        print(f"  → {model_name} failed: {e}", file=sys.stderr)
-        return None, {"model": model_name, "tokens_in": 0, "tokens_out": 0, "estimated_cost_usd": 0}, []
+    for attempt in range(1 + (controller.max_format_retries if controller else 2)):
+        try:
+            result = adapter.query(prompt=current_prompt, system=system_prompt)
+            response = result["response"]
+            usage = result["usage"]
+            citations = result.get("citations", [])
+
+            if total_usage is None:
+                total_usage = usage
+            elif usage:
+                for k in ("tokens_in", "tokens_out", "input_tokens", "output_tokens"):
+                    if k in usage and k in total_usage:
+                        total_usage[k] = total_usage.get(k, 0) + usage.get(k, 0)
+                total_usage["estimated_cost_usd"] = total_usage.get("estimated_cost_usd", 0) + usage.get("estimated_cost_usd", 0)
+
+            if schema_name:
+                is_valid, issues = validate_response(response, schema_name)
+                if not is_valid:
+                    can_retry = controller.can_format_retry(model_name) if controller else (attempt < 2)
+                    if can_retry:
+                        if controller:
+                            controller.record_format_retry(model_name)
+                        print(f"  → Format issues: {'; '.join(issues)}. Retrying ({attempt+1})...", file=sys.stderr)
+                        current_prompt = build_format_retry_prompt(prompt, response, issues, schema_name)
+                        continue
+                    else:
+                        print(f"  → Format issues (max retries): {'; '.join(issues)}", file=sys.stderr)
+
+            return response, total_usage, citations
+
+        except Exception as e:
+            print(f"  → {model_name} failed: {e}", file=sys.stderr)
+            return None, {"model": model_name, "tokens_in": 0, "tokens_out": 0, "estimated_cost_usd": 0}, []
+
+    return response, total_usage, citations
 
 
 def format_fan_out_summary(fan_out_responses):
