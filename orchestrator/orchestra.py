@@ -269,7 +269,7 @@ def format_fan_out_summary(fan_out_responses):
     parts = []
     for entry in fan_out_responses:
         model = entry["model"].upper()
-        role = entry["role"]
+        role = entry.get("role", entry.get("phase", "?"))
         resp = entry["response"]
         citations = entry.get("citations", [])
 
@@ -302,6 +302,8 @@ def run_orchestra(mode_name, task):
     ])
     deliberation_rounds = orchestra_config.get("deliberation_rounds", 2)
     blind_spot_model = orchestra_config.get("blind_spot_model", "grok")
+
+    controller = IterationController(max_format_retries=2, cost_ceiling=0.50)
 
     state = {
         "mode": mode_name,
@@ -449,7 +451,7 @@ Focus on the triggers. Respond in JSON with:
 - "confidence": 0.0-1.0"""
 
             rr_resp, rr_usage, rr_cit = call_model(model, rr_prompt, entry.get("role", "freestyle"),
-                                                     schema_name="fan_out", controller=controller)
+                                                     schema_name="round_robin", controller=controller)
 
             rr_entry = {"model": model, "phase": "round_robin",
                         "response": rr_resp, "usage": rr_usage, "citations": rr_cit}
