@@ -37,6 +37,10 @@ from iteration import (
     IterationController, validate_response, build_format_retry_prompt,
     extract_gaps, extract_new_threads, build_refined_query,
 )
+from smart_routing import (
+    detect_triggers, route_models, assess_task_complexity,
+    record_model_performance, weighted_synthesis, get_model_weights,
+)
 
 # Load .env
 _env_candidates = [
@@ -171,6 +175,32 @@ Then add your own assessments:
 - BIGGEST_RISK: [single most important concern]
 
 Respond in JSON with "verdicts" array, "assessments" array, "rescued" array, and "biggest_risk" string."""
+
+ROUND_ROBIN_PROMPT = """You are {model_name} in a CROSS-EXAMINATION round. You've already given your independent response. Now you can see what the OTHER models said. Challenge their findings, verify their citations, rescue ideas you agree with, and revise your own position if warranted.
+
+TASK: {task}
+
+YOUR ORIGINAL RESPONSE:
+{own_response}
+
+OTHER MODELS' RESPONSES (summaries):
+{other_summaries}
+
+TRIGGERS THAT ACTIVATED THIS ROUND:
+{trigger_reasons}
+
+YOUR ROLE: Focus on the trigger reasons above. Specifically:
+1. CHALLENGE — Point out errors, unsupported claims, or weak citations from other models
+2. VERIFY — Confirm or contradict specific claims with your own evidence
+3. RESCUE — Bring back good ideas that others dismissed
+4. REVISE — Update your own position based on what you've learned
+
+Respond in JSON with:
+- "challenges": array of {{model, claim, challenge, evidence}}
+- "verifications": array of {{model, claim, status: CONFIRMED|CONTRADICTED|UNCERTAIN, evidence}}
+- "rescued": array of {{model, idea, justification}}
+- "revised_position": your updated findings/proposals
+- "confidence": 0.0-1.0"""
 
 CLAUDE_FINAL_PROMPT = """You are CLAUDE producing the FINAL SYNTHESIS. You've been through the full staged pipeline:
 - Stage 1: Your initial analysis
@@ -417,6 +447,18 @@ def run_staged_orchestra(mode_name, task, deep=False, parent_controller=None):
     claude_r1_text = json.dumps(claude_r1, indent=2)
     print(f"  → Claude R1 recorded", file=sys.stderr)
 
+    # ── Intelligent Routing ──
+    complexity = assess_task_complexity(task)
+    research_models = route_models(task, research_models, mode=mode_name)
+    analytical_models = route_models(task, analytical_models, mode=mode_name)
+
+    state["routing"] = {
+        "complexity": complexity,
+        "research_models_selected": [m["model"] for m in research_models],
+        "analytical_models_selected": [m["model"] for m in analytical_models],
+    }
+    print(f"  → Task complexity: {complexity} — routing {len(research_models)}R + {len(analytical_models)}A models", file=sys.stderr)
+
     # ── Stage 2: Research Models (with iteration) ──
     print(f"\n{'─'*60}", file=sys.stderr)
     print(f"STAGE 2: RESEARCH — {len(research_models)} models{' (deep mode: iteration enabled)' if deep else ''}", file=sys.stderr)
@@ -467,6 +509,82 @@ def run_staged_orchestra(mode_name, task, deep=False, parent_controller=None):
                 "iteration": iteration, "gaps_targeted": all_gaps[:5],
                 "responses": research_responses,
             })
+
+    # ── Conditional Round-Robin (between research and synthesis) ──
+    trigger_result = detect_triggers(all_research_responses, mode=mode_name)
+    state["trigger_detection"] = trigger_result
+
+    if trigger_result["should_trigger"] and not controller.is_over_budget():
+        print(f"\n{'─'*60}", file=sys.stderr)
+        print(f"ROUND-ROBIN TRIGGERED — {len(trigger_result['triggers_fired'])} conditions met", file=sys.stderr)
+        for t in trigger_result["triggers_fired"]:
+            print(f"  → [{t['id']}] {t['reason']}", file=sys.stderr)
+
+        trigger_reasons = "\n".join(f"- [{t['id']}] {t['reason']}" for t in trigger_result["triggers_fired"])
+        round_robin_responses = []
+
+        for entry in all_research_responses:
+            model = entry["model"]
+            if entry["response"] is None:
+                continue
+
+            if controller.is_over_budget():
+                print(f"  → Cost ceiling reached, stopping round-robin", file=sys.stderr)
+                break
+
+            # Build summaries of OTHER models' responses (not full text — sparse topology)
+            other_summaries = []
+            for other in all_research_responses:
+                if other["model"] != model and other["response"]:
+                    summary = json.dumps(other["response"], default=str)[:1500]
+                    other_summaries.append(f"--- {other['model'].upper()} ---\n{summary}")
+
+            print(f"\n  Round-robin: {model.upper()}", file=sys.stderr)
+            rr_prompt = ROUND_ROBIN_PROMPT.format(
+                model_name=model.upper(),
+                task=task,
+                own_response=json.dumps(entry["response"], indent=2, default=str)[:2000],
+                other_summaries="\n".join(other_summaries),
+                trigger_reasons=trigger_reasons,
+            )
+
+            rr_response, rr_usage, rr_citations = call_model(
+                model, rr_prompt, entry.get("role", "research"),
+                controller=controller)
+
+            rr_entry = {
+                "model": model, "phase": "round_robin",
+                "response": rr_response, "usage": rr_usage, "citations": rr_citations,
+            }
+            round_robin_responses.append(rr_entry)
+
+            cost = track_cost(rr_usage)
+            print(f"  → Cost: ${cost:.4f}", file=sys.stderr)
+            if rr_response and isinstance(rr_response, dict):
+                challenges = len(rr_response.get("challenges", []))
+                verifications = len(rr_response.get("verifications", []))
+                print(f"  → {challenges} challenges, {verifications} verifications", file=sys.stderr)
+
+            # Record performance
+            record_model_performance(
+                model, mode_name,
+                success=rr_response is not None,
+                cost=cost,
+                response_valid=rr_response is not None and isinstance(rr_response, dict),
+            )
+
+        state["round_robin"] = {
+            "triggered": True,
+            "triggers": trigger_result["triggers_fired"],
+            "responses": round_robin_responses,
+        }
+
+        # Append round-robin findings to research pool for synthesis
+        all_research_responses.extend(round_robin_responses)
+    else:
+        reason = "no triggers fired" if not trigger_result["should_trigger"] else "cost ceiling"
+        print(f"\n  Round-robin: NOT triggered ({reason})", file=sys.stderr)
+        state["round_robin"] = {"triggered": False, "reason": reason}
 
     # ── Stage 3: Claude Synthesizes Research ──
     print(f"\n{'─'*60}", file=sys.stderr)
