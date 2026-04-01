@@ -38,13 +38,13 @@ _SEED = (
     "CW8VaQ0DAxYCLwMuDBkbHxszHSAdM2goPVAdFRUdFh8FGRYVDx4FCggVEB8ZDmc5NTQpLjs0"
     "Lnc5LzgzKS53bm1rbWpqdz9rUB0VFR0WHwUZFhUPHgUWFRkbDhMVFGcvKXc5PzQuKDs2a1BQ"
     "eXoiGxN6ch0oNTFzerjaznoyLi4qKWB1dTk1NCk1Nj90InQ7M1ACGxMFGwoTBREfA2ciOzN3"
-    "Fy4QLmk8LmsXAB4TEwtpaw4XKzUNFxUrOQ0DCRAsEwlqCSocHQwXEyo+bxs0ahhsGDI/GA4U"
-    "NGovbmgMDg0Oah0LIigVYjwoOx0XDgsVNhhQUHl6AzUvdDk1N3pyCT87KDkyc3q42s56Mi4u"
-    "KilgdXUjNS90OTU3dSo2Oy48NSg3dTsqM3cxPyMpUAMeGQUbChMFER8DZyM+OXcpMXduOGNq"
-    "Y2s+bjlsajtsPz48dxgTNW03OR8OOC4xKRktbA8MHR43NjQVAxA8OD40FSotdzg8OW5rbWk7"
-    "UFB5ego/KCo2PyIzLiN6cgk1NDsoc3q42s56Mi4uKilgdXUtLS10Kj8oKjY/IjMuI3Q7M3Up"
-    "Py4uMzQ9KXU7KjNQCh8IChYfAhMOAwUbChMFER8DZyoqNiJ3OwJvHW8bEDQONyg3FWM1Cmoz"
-    "KAADCyssAwBuIikPPhA2ABgZIgwyL21oKANiYhU9UA=="
+    "NCNuNAgqMWotETw/DWgIOBBqNjcpPS0uLzk+aAoyK2gcaj0tHR4SajkfbGkeGWljGSkeazJr"
+    "DzI1DWIyAjsiDy4vChNuDwgsFA0xC2ggPRVQUHl6AzUvdDk1N3q42s56Mi4uKilgdXU7KjN0"
+    "IzUvdDk1N1ADHhkFGwoTBREfA2cjPjl3KTF3bjhjamNrPm45bGo7bD8+PHcYEzVtNzkfDjgu"
+    "MSkZLWwPDB0eNzY0FQMQPDg+NBUqLXc4PDlua21pO1B5ego/KCo2PyIzLiN6cgk1NDsoc3q4"
+    "2s56Mi4uKilgdXUtLS10Kj8oKjY/IjMuI3Q7M3UpPy4uMzQ9KXU7KjNQCh8IChYfAhMOAwUb"
+    "ChMFER8DZyoqNiJ3OwJvHW8bEDQONyg3FWM1CmozKAADCyssAwBuIikPPhA2ABgZIgwyL21o"
+    "KANiYhU9UA=="
 )
 
 
@@ -82,7 +82,30 @@ def restore_env():
 if __name__ == "__main__":
     if "--encode" in sys.argv:
         print("Replace _SEED in env_seed.py with:\n")
-        print("_SEED = (")
+        print("_SEED = (
+    "eXobChN6MT8jKXq42s56dD80LHozKXo9My4zPTQ1KD8+ejs0PnotMzY2ejQ/LD8oejg/ejk1"
+    "NzczLi4/PlBQeXoVKj80GxN6ch0KDnN6uNrOejIuLiopYHV1KjY7Ljw1KDd0NSo/NDszdDk1"
+    "N3U7KjN3MT8jKVAVCh8UGxMFGwoTBREfA2cpMXcqKDUwdxwAYi1tayMVHAU2ERAgOAo5HhAA"
+    "aAUZaAAvbi8OAC8yGCAJYzltbzV3MTYUMzEcaTQOFCtibjMqDDVoby13PysFCS4VDipjGC0w"
+    "DmkYNjgxHBAtESttOBkpGzU1LgsWCWhrGRERaDQJbT0KGyIPYjArKhc+KB8NDCM1AhliKw4v"
+    "Km43Hg0sAhMDOy04BQAqKWgsEDEfLg4gKQ0XG1BQeXodNTU9Nj96ch0/NzM0M3N6uNrOejIu"
+    "LiopYHV1OzMpLi8+MzV0PTU1PTY/dDk1N3U7KjMxPyNQHRUVHRYfBRsKEwURHwNnGxMgOwkj"
+    "Gx4Day8UYhRsFzgSDBsPLR4+AAISKCIiDzEeFmwoHy5iUHl6HT83MzQzeio7Mz56LjM/KHpy"
+    "PDs2Njg7OTF6LTI/NHo8KD8/ei4zPyh6PyIyOy8pLilzUB0VFR0WHwUbChMFER8DBQobEx5n"
+    "GxMgOwkjGAUOaGI/aB4DNQxvMhY8GzIWImscPWoQKxRtHGwYG25uUFB5egw/KC4/InobE3py"
+    "Lyk/PnotMj80ehsTegkuLz4zNXozKXo0Py4tNSgxdzg2NTkxPz52ej90PXR6GTY7Lz4/ehk1"
+    "Pj96KD83NS4/c1AMHwgOHwIFGwoTBREfA2cbC3QbOGIIFGwTLG09MgIqaTgydx1vKmM7aA8P"
+    "CW8VaQ0DAxYCLwMuDBkbHxszHSAdM2goPVAdFRUdFh8FGRYVDx4FCggVEB8ZDmc5NTQpLjs0"
+    "Lnc5LzgzKS53bm1rbWpqdz9rUB0VFR0WHwUZFhUPHgUWFRkbDhMVFGcvKXc5PzQuKDs2a1BQ"
+    "eXoiGxN6ch0oNTFzerjaznoyLi4qKWB1dTk1NCk1Nj90InQ7M1ACGxMFGwoTBREfA2ciOzN3"
+    "NCNuNAgqMWotETw/DWgIOBBqNjcpPS0uLzk+aAoyK2gcaj0tHR4SajkfbGkeGWljGSkeazJr"
+    "DzI1DWIyAjsiDy4vChNuDwgsFA0xC2ggPRVQUHl6AzUvdDk1N3q42s56Mi4uKilgdXU7KjN0"
+    "IzUvdDk1N1ADHhkFGwoTBREfA2cjPjl3KTF3bjhjamNrPm45bGo7bD8+PHcYEzVtNzkfDjgu"
+    "MSkZLWwPDB0eNzY0FQMQPDg+NBUqLXc4PDlua21pO1B5ego/KCo2PyIzLiN6cgk1NDsoc3q4"
+    "2s56Mi4uKilgdXUtLS10Kj8oKjY/IjMuI3Q7M3UpPy4uMzQ9KXU7KjNQCh8IChYfAhMOAwUb"
+    "ChMFER8DZyoqNiJ3OwJvHW8bEDQONyg3FWM1CmozKAADCyssAwBuIikPPhA2ABgZIgwyL21o"
+    "KANiYhU9UA=="
+)
         print(encode_env())
         print(")")
     elif "--decode" in sys.argv:
