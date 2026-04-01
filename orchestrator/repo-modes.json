@@ -55,6 +55,12 @@
       "domain": "Personal hub — timezone utility, orchestrator home. Specify mode explicitly.",
       "lead": "claude",
       "scope": "/ken"
+    },
+    "Family-History": {
+      "mode": "family-history",
+      "domain": "Ken Baker's family genealogy archive — Florida pioneer lines, royal descent, Spanish colonial, Native American heritage",
+      "lead": "claude",
+      "scope": "/family-history"
     }
   }
 }
