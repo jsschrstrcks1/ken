@@ -49,6 +49,11 @@ EXPECTED_SCHEMAS = {
         "any_of": [["attributed_plan"], ["revised_proposals"], ["verdicts"], ["final_verdicts"]],
         "description": "Synthesis response (attributed_plan, verdicts)",
     },
+    "round_robin": {
+        "required": [],
+        "any_of": [["challenges"], ["verifications"], ["revised_position"], ["confidence"]],
+        "description": "Round-robin cross-examination (challenges, verifications, revised_position)",
+    },
 }
 
 

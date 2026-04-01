@@ -28,6 +28,10 @@ import yaml
 from iteration import (
     IterationController, validate_response, build_format_retry_prompt,
 )
+from smart_routing import (
+    detect_triggers, route_models, assess_task_complexity,
+    record_model_performance, get_model_weights,
+)
 
 # Load .env
 _env_candidates = [
@@ -265,7 +269,7 @@ def format_fan_out_summary(fan_out_responses):
     parts = []
     for entry in fan_out_responses:
         model = entry["model"].upper()
-        role = entry["role"]
+        role = entry.get("role", entry.get("phase", "?"))
         resp = entry["response"]
         citations = entry.get("citations", [])
 
@@ -298,6 +302,8 @@ def run_orchestra(mode_name, task):
     ])
     deliberation_rounds = orchestra_config.get("deliberation_rounds", 2)
     blind_spot_model = orchestra_config.get("blind_spot_model", "grok")
+
+    controller = IterationController(max_format_retries=2, cost_ceiling=0.50)
 
     state = {
         "mode": mode_name,
@@ -400,6 +406,74 @@ def run_orchestra(mode_name, task):
             print(f"  → Failed (continuing)", file=sys.stderr)
 
     state["phases"].append({"phase": "fan_out", "models_called": len(fan_out_responses)})
+
+    # ── Conditional Round-Robin (between fan-out and deliberation) ──
+    trigger_result = detect_triggers(fan_out_responses, mode=mode_name)
+    state["trigger_detection"] = trigger_result
+
+    if trigger_result["should_trigger"]:
+        print(f"\n{'─'*60}", file=sys.stderr)
+        print(f"ROUND-ROBIN TRIGGERED — {len(trigger_result['triggers_fired'])} conditions met", file=sys.stderr)
+        for t in trigger_result["triggers_fired"]:
+            print(f"  → [{t['id']}] {t['reason']}", file=sys.stderr)
+
+        trigger_reasons = "\n".join(f"- [{t['id']}] {t['reason']}" for t in trigger_result["triggers_fired"])
+        rr_responses = []
+
+        for entry in fan_out_responses:
+            if entry["response"] is None:
+                continue
+
+            model = entry["model"]
+            other_summaries = []
+            for other in fan_out_responses:
+                if other["model"] != model and other["response"]:
+                    summary = json.dumps(other["response"], default=str)[:1500]
+                    other_summaries.append(f"--- {other['model'].upper()} ---\n{summary}")
+
+            print(f"\n  Round-robin: {model.upper()}", file=sys.stderr)
+            rr_prompt = f"""You are {model.upper()} in a CROSS-EXAMINATION round. You've already given your independent response. Now see what others said. Challenge, verify, rescue, revise.
+
+TASK: {task}
+
+YOUR ORIGINAL RESPONSE:
+{json.dumps(entry["response"], indent=2, default=str)[:2000]}
+
+OTHER MODELS' RESPONSES (summaries):
+{chr(10).join(other_summaries)}
+
+TRIGGERS: {trigger_reasons}
+
+Focus on the triggers. Respond in JSON with:
+- "challenges": array of {{model, claim, challenge}}
+- "verifications": array of {{model, claim, status: CONFIRMED|CONTRADICTED}}
+- "revised_position": your updated proposals
+- "confidence": 0.0-1.0"""
+
+            rr_resp, rr_usage, rr_cit = call_model(model, rr_prompt, entry.get("role", "freestyle"),
+                                                     schema_name="round_robin", controller=controller)
+
+            rr_entry = {"model": model, "phase": "round_robin",
+                        "response": rr_resp, "usage": rr_usage, "citations": rr_cit}
+            rr_responses.append(rr_entry)
+
+            if rr_usage:
+                cost = rr_usage.get("estimated_cost_usd", 0) or 0
+                state["cost_log"].append(rr_usage)
+                state["total_cost_usd"] += cost
+                if controller:
+                    controller.record_cost(cost)
+                print(f"  → Cost: ${cost:.4f}", file=sys.stderr)
+
+            record_model_performance(model, mode_name,
+                                      success=rr_resp is not None, cost=cost)
+
+        state["round_robin"] = {"triggered": True, "responses": rr_responses}
+        # Merge round-robin responses into fan-out for deliberation
+        fan_out_responses.extend(rr_responses)
+    else:
+        print(f"\n  Round-robin: NOT triggered ({trigger_result['summary']})", file=sys.stderr)
+        state["round_robin"] = {"triggered": False, "reason": trigger_result["summary"]}
 
     # ── Phase 4: DELIBERATION (Claude ↔ GPT) ──
     print(f"\n{'─'*60}", file=sys.stderr)
