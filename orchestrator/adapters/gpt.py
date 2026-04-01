@@ -15,7 +15,7 @@ def query(prompt, system="You are a helpful assistant.", max_tokens=4096, temper
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
     messages = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": system + "\nRespond in valid JSON format."},
         {"role": "user", "content": prompt},
     ]
 
