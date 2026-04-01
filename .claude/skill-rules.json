@@ -83,6 +83,7 @@
         "loadOnFirstFileEdit": false
       },
       "activationMessage": "Google Sheets migration skill active. Apps Script at .claude/skills/google-sheets-migration/migration.gs"
+    },
     "person-page": {
       "enabled": true,
       "type": "domain",
