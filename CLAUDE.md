@@ -22,6 +22,44 @@ This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, or `
 - **Memory scope:** `/ken`
 - **Orchestrator:** `/home/user/ken/orchestrator/`
 
+---
+
+## Handoff Protocol
+
+This project uses **handoff files** to survive session timeouts and rate limits. Every Claude Code session that does significant work must maintain a handoff file.
+
+### How It Works
+
+1. **At session start**: Check for `HANDOFF.md` in the relevant skill or project directory. Read it before doing anything else.
+2. **During work**: After each logical milestone, update the handoff file with current state.
+3. **On timeout/rate limit**: The handoff file already has the latest state. Next session reads it and continues.
+4. **On completion**: Mark the handoff as complete with final status.
+
+### Handoff File Format
+
+Every `HANDOFF.md` must contain:
+- **What Was Done** — completed steps, in order
+- **What Still Needs Doing** — remaining work, prioritized
+- **Key Decisions** — architecture choices that shouldn't be revisited
+- **Files Created/Modified** — so the next session knows what exists
+- **How to Resume** — exact first step for the next session
+
+### Handoff Locations
+
+| Scope | Location |
+|-------|----------|
+| Skill work | `.claude/skills/<skill-name>/HANDOFF.md` |
+| Orchestrator work | `orchestrator/HANDOFF.md` |
+| General repo work | `HANDOFF.md` (repo root) |
+
+### Rules
+- **Write the handoff BEFORE the work that might timeout** — not after
+- Keep it under 100 lines — handoffs are for the next session, not documentation
+- Include IDs, paths, and exact values — not vague descriptions
+- Delete the handoff when the work is fully complete
+
+---
+
 ### First-Time Setup (Per Session)
 
 Before first use of `/consult` or `/orchestrate` in a session, install dependencies:

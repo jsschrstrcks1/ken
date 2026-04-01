@@ -58,6 +58,31 @@
       },
       "activationMessage": "Consultation ready. One model, one question, structured feedback."
     },
+    "google-sheets-migration": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Migrate real data from old 113-tab Manatee Creek spreadsheet to new 26-tab Flock Manager. Chunked execution with checkpoint/resume.",
+      "promptTriggers": {
+        "keywords": [
+          "google sheets",
+          "migrate spreadsheet",
+          "flock manager",
+          "old spreadsheet",
+          "sheet migration"
+        ],
+        "intentPatterns": [
+          "(migrate|move|transfer).*?(sheet|spreadsheet|data)",
+          "(google sheets|flock manager).*?(migration|sync)"
+        ]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/google-sheets-migration/SKILL.md",
+        "maxLines": 100,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Google Sheets migration skill active. Apps Script at .claude/skills/google-sheets-migration/migration.gs"
     "person-page": {
       "enabled": true,
       "type": "domain",
