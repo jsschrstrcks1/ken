@@ -216,8 +216,13 @@ def recall_memories(mode_name):
     return "(no relevant memories found)"
 
 
+import concurrent.futures
+
+_MODEL_CALL_TIMEOUT = 90  # seconds per API call
+
+
 def call_model(model_name, prompt, role="freestyle", schema_name=None, controller=None):
-    """Call an external model with format validation and retry."""
+    """Call an external model with format validation, retry, and timeout."""
     if model_name not in ADAPTERS:
         return None, None, []
 
@@ -229,7 +234,10 @@ def call_model(model_name, prompt, role="freestyle", schema_name=None, controlle
 
     for attempt in range(1 + (controller.max_format_retries if controller else 2)):
         try:
-            result = adapter.query(prompt=current_prompt, system=system_prompt)
+            # Run the API call with a timeout to prevent hangs
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(adapter.query, prompt=current_prompt, system=system_prompt)
+                result = future.result(timeout=_MODEL_CALL_TIMEOUT)
             response = result["response"]
             usage = result["usage"]
             citations = result.get("citations", [])
@@ -256,6 +264,10 @@ def call_model(model_name, prompt, role="freestyle", schema_name=None, controlle
                         print(f"  → Format issues (max retries): {'; '.join(issues)}", file=sys.stderr)
 
             return response, total_usage, citations
+
+        except concurrent.futures.TimeoutError:
+            print(f"  → {model_name} TIMEOUT after {_MODEL_CALL_TIMEOUT}s (continuing)", file=sys.stderr)
+            return None, {"model": model_name, "tokens_in": 0, "tokens_out": 0, "estimated_cost_usd": 0}, []
 
         except Exception as e:
             print(f"  → {model_name} failed: {e}", file=sys.stderr)
