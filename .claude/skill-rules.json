@@ -7,7 +7,7 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Full multi-LLM pipeline orchestration. This is the hub \u2014 no default mode. Specify sermon, sheep, cruising, or recipe explicitly.",
+      "description": "Full multi-LLM pipeline orchestration. This is the hub \u2014 no default mode. Specify sermon, sheep, cruising, recipe, or family-history explicitly.",
       "promptTriggers": {
         "keywords": [
           "orchestrate",
@@ -15,10 +15,11 @@
           "multi-model",
           "multi-llm",
           "full pipeline",
-          "run pipeline"
+          "run pipeline",
+          "family-history"
         ],
         "intentPatterns": [
-          "(orchestrate|run pipeline|full pipeline).*?(sermon|sheep|cruising|recipe)",
+          "(orchestrate|run pipeline|full pipeline).*?(sermon|sheep|cruising|recipe|family-history)",
           "(coordinate|consult).*?(multiple|all).*?model"
         ]
       },
@@ -27,7 +28,7 @@
         "maxLines": 200,
         "loadOnFirstFileEdit": false
       },
-      "activationMessage": "Orchestrator hub active. Specify mode: sermon, sheep, cruising, or recipe."
+      "activationMessage": "Orchestrator hub active. Specify mode: sermon, sheep, cruising, recipe, or family-history."
     },
     "consult": {
       "enabled": true,
@@ -111,6 +112,62 @@
         "loadOnFirstFileEdit": false
       },
       "activationMessage": "Person Page Builder active. Will write section-by-section to prevent timeout."
+    },
+    "investigate": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "4-phase chained investigation pipeline: reconnaissance \u2192 triage \u2192 deep research \u2192 synthesis. Produces content pages from thorough multi-LLM research across all modes.",
+      "promptTriggers": {
+        "keywords": [
+          "investigate",
+          "investigation",
+          "deep research",
+          "genealogy research",
+          "family history",
+          "family-history",
+          "research pipeline",
+          "reconnaissance"
+        ],
+        "intentPatterns": [
+          "(investigate|investigation|deep research).*?(family|genealogy|history|ship|port|question)",
+          "(family history|genealogy).*?(research|investigate|dig|explore)",
+          "investigate\\s+\\w+"
+        ]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/investigate/SKILL.md",
+        "maxLines": 200,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Investigation pipeline ready. Specify mode and subject."
+    },
+    "orchestra": {
+      "enabled": true,
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Round-robin multi-LLM debate with full-context chain. Fan-out to all models, Claude+GPT deliberation, blind spot check.",
+      "promptTriggers": {
+        "keywords": [
+          "orchestra",
+          "debate",
+          "round-robin",
+          "fan-out",
+          "full debate"
+        ],
+        "intentPatterns": [
+          "(orchestra|debate|round.robin).*?(model|llm|consult)",
+          "(let them|models).*?(debate|argue|discuss)"
+        ]
+      },
+      "autoLoad": {
+        "mainFile": ".claude/skills/orchestra/SKILL.md",
+        "maxLines": 200,
+        "loadOnFirstFileEdit": false
+      },
+      "activationMessage": "Orchestra ready. Full-context multi-model debate."
     },
     "icp-2": {
       "enabled": true,

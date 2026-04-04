@@ -13,11 +13,13 @@ This repository **hosts** the orchestrator at `orchestrator/`. It is the hub for
 | Skill | Usage | Purpose |
 |-------|-------|---------|
 | `/consult` | `/consult <model> <role> "<prompt>"` | Quick single-model second opinion |
-| `/orchestrate` | `/orchestrate <mode> "<task>"` | Full multi-model pipeline |
+| `/orchestrate` | `/orchestrate <mode> "<task>"` | Full multi-model linear pipeline |
+| `/orchestra` | `/orchestra "<task>"` | Fan-out + deliberation debate |
+| `/investigate` | `/investigate <mode> "<subject>"` | 4-phase deep research → content page |
 | Cognitive Memory | Automatic on session start | Cross-session knowledge persistence |
 
 ### Mode: *(specify explicitly)*
-This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, or `recipe` when running `/orchestrate`.
+This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, `recipe`, or `family-history` when running `/orchestrate` or `/investigate`.
 
 - **Memory scope:** `/ken`
 - **Orchestrator:** `/home/user/ken/orchestrator/`
@@ -97,13 +99,18 @@ This re-decodes the `.env` from the committed seed. The seed must contain the XA
 
 ```
 orchestrator/
-├── orchestrate.py      ← Pipeline runner
-├── consult.py          ← Quick consultation CLI
-├── verify.py           ← Claim verification
-├── memory_ops.py       ← Cognitive memory system
-├── adapters/           ← GPT, Gemini, Grok wrappers
-├── modes/              ← sermon.yaml, sheep.yaml, cruising.yaml, recipe.yaml
-├── state/              ← Runtime blackboard state
-├── repo-modes.json     ← Repository-to-mode mapping
-└── .env                ← API keys (gitignored)
+├── orchestrate.py         ← Linear pipeline runner (/orchestrate)
+├── orchestra.py           ← Fan-out + deliberation (/orchestra)
+├── investigate.py         ← 4-phase investigation (/investigate)
+├── research_orchestra.py  ← Staged research (used by investigate)
+├── consult.py             ← Quick consultation CLI (/consult)
+├── verify.py              ← Claim verification
+├── iteration.py           ← Iteration control, format validation
+├── smart_routing.py       ← Trigger detection, weighted voting
+├── memory_ops.py          ← Cognitive memory (semantic search, TF-IDF)
+├── adapters/              ← GPT, Gemini, Grok, Perplexity, You.com
+├── modes/                 ← sermon, sheep, cruising, recipe, family-history
+├── state/                 ← Runtime state (JSON output)
+├── repo-modes.json        ← Repository-to-mode mapping
+└── .env                   ← API keys (gitignored)
 ```

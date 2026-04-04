@@ -85,3 +85,45 @@ data_sources:
   - Port database (ken repo)
 
 max_loops: 1
+
+# Orchestra configuration — fan-out + deliberation architecture
+# Used by /investigate and /orchestra (not by /orchestrate linear pipeline)
+orchestra:
+  fan_out:
+    - model: gpt
+      role: structure
+      description: >
+        Review page structure, suggest content organization,
+        SEO improvements, section ordering. For ships: verify stats,
+        check dining venue accuracy, suggest FAQ topics. For ports:
+        validate logistics, transport costs, excursion recommendations.
+    - model: gemini
+      role: expand
+      description: >
+        Add missing travel data: seasonal info, accessibility notes,
+        historical context, dining details, cross-references to other
+        ports/ships. Fill gaps in coverage.
+    - model: perplexity
+      role: research
+      description: >
+        Search for current data: ship specs, deck plans, refurb info,
+        port infrastructure changes, cruise line announcements, IMO
+        registry data. Cite every source with URL.
+    - model: youdotcom
+      role: research
+      description: >
+        Deep web research: port guides, excursion reviews, local
+        transport, restaurant reviews, safety advisories, accessibility
+        reports. Cross-reference multiple sources. Cite everything.
+    - model: grok
+      role: challenge
+      description: >
+        Challenge content assumptions. Flag outdated info, missing
+        accessibility notes, oversimplified descriptions, generic copy.
+        Push for honest, experience-based content.
+
+  # Claude and GPT deliberate with full fan-out context
+  deliberation_rounds: 2
+
+  # Final contrarian check
+  blind_spot_model: grok
