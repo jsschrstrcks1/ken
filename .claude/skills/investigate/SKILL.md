@@ -57,6 +57,46 @@ Output: `state/investigate.json` — structured synthesis with all findings and 
 
 ---
 
+## Merge-Not-Replace Rule (CRITICAL)
+
+**Before generating any content page, check if it already exists.**
+
+```
+Does the target file exist?
+  → YES: Merge Mode — enrich the existing page with investigation findings
+  → NO:  New Page — build from reference template + investigation output
+```
+
+### Merge Mode
+
+When the page already exists, the investigation **enriches** — it does not replace.
+
+**Always preserve (never drop):**
+- User-curated images (carousel photos, hero images)
+- Authentic logbook/narrative entries (real voices, real names)
+- Internal links already wired to other pages
+- Sister/sibling lists the existing page already maintains
+- Attribution sections (legal obligations)
+- Author-curated ordering (pill order, section arrangement)
+
+**Update only where investigation found fresher data:**
+- Stats (corrected specs, crew counts, tonnage)
+- FAQ answers (stale info, missing amplification/refit details)
+- Metadata (ai-summary, answer-first, description)
+- JSON-LD schemas (new data available)
+
+**Flag conflicts** — "Existing says X, investigation found Y" — don't silently overwrite.
+
+### Pre-Generation Verification (all modes)
+
+Before writing ANY page:
+1. **File existence** — verify every referenced asset path resolves to a real file
+2. **Database consistency** — check that entities mentioned in content exist in the relevant data files
+3. **Sibling/related completeness** — cross-reference investigation output against existing pages in the repo
+4. **Link target consistency** — skip links, anchor refs, internal navigation all resolve
+
+---
+
 ## Research Pipeline Methodology
 
 ### Source Hierarchy (per mode)
