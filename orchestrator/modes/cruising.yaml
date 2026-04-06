@@ -127,3 +127,47 @@ orchestra:
 
   # Final contrarian check
   blind_spot_model: grok
+
+  # Required queries — injected into fan-out when subject is a ship
+  # These ensure critical data is ALWAYS researched, not left to model discretion
+  ship_required_queries:
+    perplexity: >
+      REQUIRED RESEARCH for {ship} as of {year}:
+      1. SPECS: gross tonnage, guest capacity (double AND max), crew count,
+         length, beam, decks, IMO number, MMSI, flag/registry, year built,
+         shipyard, ship class, and all sister ships by name.
+      2. DINING: List EVERY restaurant and bar by name — main dining rooms
+         (each named MDR), specialty restaurants, casual/complimentary venues,
+         and bars/lounges. Check official cruise line dining page and
+         CruiseMapper. Flag any venues added or removed in recent refurbishments.
+      3. ENTERTAINMENT: List signature shows by name (theater productions,
+         ice shows, aqua shows). List key attractions (water slides, zip lines,
+         observation capsules, sports facilities) by name.
+      4. REFURBISHMENT: Any dry dock or amplification in the last 3 years?
+         What was added, removed, or changed? Date and shipyard.
+      Cite every source with URL.
+    youdotcom: >
+      REQUIRED RESEARCH for {ship} as of {year}:
+      1. DINING: Search for current restaurant and bar list. Name every
+         specialty restaurant, complimentary dining option, and bar.
+         Verify which are currently operating. Check Cruise Critic forums
+         and official cruise line pages. Flag any closed or renamed venues.
+      2. STATEROOMS: Cabin categories available (interior, ocean view,
+         balcony, suite types). Any unique cabin features (virtual balconies,
+         loft suites, etc.)?
+      3. ITINERARIES: Where is {ship} currently deployed? What regions?
+         Home port(s)? Any recent cancellations or route changes?
+      4. REVIEWS: What do recent passengers say? Common praise and complaints?
+      Cite every source with URL.
+    gemini: >
+      REQUIRED RESEARCH for {ship} as of {year}:
+      1. SISTER SHIPS: List every ship in the same class by name and year
+         built. Note any differences between sisters (different venues,
+         refurb status, deployment regions).
+      2. DINING: What dining venues are currently on {ship}? List every
+         restaurant and bar by name. Have any been added or removed in the
+         last 2 years? Cross-reference with sister ships.
+      3. HISTORY: Build year, shipyard, maiden voyage, notable events,
+         any name changes, any class reclassifications.
+      4. ACCESSIBILITY: What accessibility features does {ship} have?
+         Accessible cabins, mobility aids, dietary accommodations?
