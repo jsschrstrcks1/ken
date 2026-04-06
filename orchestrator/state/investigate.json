@@ -1,0 +1,610 @@
+{
+  "pipeline": "investigate",
+  "mode": "cruising",
+  "task": "Brilliance of the Seas",
+  "config": {
+    "max_threads": 3,
+    "parallel": false,
+    "budget": 1.5,
+    "min_score": 0.3
+  },
+  "started_at": "2026-04-06T00:35:02Z",
+  "phases": {
+    "reconnaissance": {
+      "cost": 0.17320000000000002,
+      "models_responded": 5,
+      "models_total": 5
+    },
+    "triage": {
+      "candidates": 23,
+      "selected": 3,
+      "dropped": 0,
+      "decisions": [
+        {
+          "hypothesis": "Update Brilliance of the Seas specs: Gross tonnage 90,090 GT[5], length 293.2 m[5], beam 32.2 m[5], ",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Build a structured, source\u2011linked Brilliance of the Seas venue registry (restaurants, bars, lounges)",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Create a stateroom matrix summarizing Brilliance of the Seas cabin categories vertically (Interior, ",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Add a deployment timeline view for 2025\u20132027 showing seasonal homeports (e.g., Tampa/Boston/San Juan",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "[WHEAT_WITH_REFINEMENT] Retain Claude\u2019s structural narrative about ship class, size, onboard experie",
+          "action": "KEEP",
+          "score": 0.64,
+          "type": "VERIFY",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Dining venues: Main - Minstrel Dining Room (decks 4/5)[6]; Complimentary - Windjammer, Park Caf\u00e9[1];",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Refurbishment: April-May 2025 drydock (minor changes per deck plans valid 2025-2027)[4]; possible pr",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Synthesize a sentiment\u2011coded review summary that distinguishes between long\u2011term structural feedback",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Layer in accessibility and demographic suitability information\u2014Solarium age restrictions, accessible",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Entertainment: Water slide for kids[7]. No signature shows (ice/aqua/theater) detailed in results; c",
+          "action": "KEEP",
+          "score": 0.5,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Conduct a deep dive into passenger reviews and firsthand accounts of Brilliance of the Seas to ident",
+          "action": "KEEP",
+          "score": 0.44,
+          "type": "EXPLORE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "Obtain IMO/MMSI/flag from official registry (e.g., Equasis or IMO GISIS database).",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Full dining/entertainment lists from CruiseMapper venues page or RC official 2026 deck plans.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Post-2025 refurb details: added/removed features from RC announcements.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Sister ships confirmation and complete specs table.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Normalize and de\u2011duplicate the dining/bar lists: CruiseTimetables, CruiseTurtle, CruiseAstute, Gangw",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Extract deck\u2011by\u2011deck positions for key venues (e.g., Minstrel Dining Room Decks 4\u20135, Windjammer Deck",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Pull the latest Royal Caribbean deployment brochure PDFs (e.g., 2025\u20132026 Europe deployment sheet fo",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Add a compact \u2018review snapshot\u2019 showing the numerical average ratings from U.S. News (4/5 over 1,785",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Include a short \u2018who this ship is best for\u2019 box anchored explicitly in reviews and expert commentary",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "{'id': 'lhf_1', 'issue': 'Lack of basic ship specifications and recent refurbishment history.', 'opp",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "{'id': 'lhf_2', 'issue': 'No mention of common complaints or known issues.', 'opportunity': 'A curso",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "Analyze the ship\u2019s itinerary history and port accessibility for passengers with mobility challenges.",
+          "action": "KEEP",
+          "score": 0.32,
+          "type": "EXPLORE",
+          "source_models": [
+            "grok"
+          ]
+        }
+      ],
+      "threads": [
+        {
+          "hypothesis": "Update Brilliance of the Seas specs: Gross tonnage 90,090 GT[5], length 293.2 m[5], beam 32.2 m[5], 15 decks[5], guest capacity 2150 double/2580 max[4], crew 860[4], IMO not specified in results but d",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "perplexity"
+          ],
+          "citation_count": 7
+        },
+        {
+          "hypothesis": "Build a structured, source\u2011linked Brilliance of the Seas venue registry (restaurants, bars, lounges) keyed by deck and type (complimentary vs. specialty vs. loyalty/suite access), referencing Royal Ca",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "youdotcom"
+          ],
+          "citation_count": 36
+        },
+        {
+          "hypothesis": "Create a stateroom matrix summarizing Brilliance of the Seas cabin categories vertically (Interior, Oceanview, Ultra Spacious Oceanview, Balcony, Spacious Balcony, Junior Suite, Grand Suite 1BR/2BR, O",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "youdotcom"
+          ],
+          "citation_count": 36
+        }
+      ]
+    },
+    "deep_research": {
+      "threads_run": 3,
+      "execution_mode": "sequential",
+      "total_cost": 0.9954000000000001,
+      "per_thread": [
+        {
+          "idx": 0,
+          "hypothesis": "Update Brilliance of the Seas specs: Gross tonnage 90,090 GT[5], length 293.2 m[5], beam 32.2 m[5], ",
+          "cost": 0.3195
+        },
+        {
+          "idx": 1,
+          "hypothesis": "Build a structured, source\u2011linked Brilliance of the Seas venue registry (restaurants, bars, lounges)",
+          "cost": 0.34240000000000004
+        },
+        {
+          "idx": 2,
+          "hypothesis": "Create a stateroom matrix summarizing Brilliance of the Seas cabin categories vertically (Interior, ",
+          "cost": 0.3335
+        }
+      ]
+    },
+    "synthesis": {
+      "investigation_summary": {
+        "threads_explored": 3,
+        "total_cost": 1.1686
+      },
+      "threads": [
+        {
+          "idx": 0,
+          "hypothesis": "Update Brilliance of the Seas specs: Gross tonnage 90,090 GT[5], length 293.2 m[5], beam 32.2 m[5], 15 decks[5], guest capacity 2150 double/2580 max[4], crew 860[4], IMO not specified in results but d",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "perplexity"
+          ],
+          "findings_count": 11,
+          "citations_count": 28,
+          "cost": 0.3195
+        },
+        {
+          "idx": 1,
+          "hypothesis": "Build a structured, source\u2011linked Brilliance of the Seas venue registry (restaurants, bars, lounges) keyed by deck and type (complimentary vs. specialty vs. loyalty/suite access), referencing Royal Ca",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "youdotcom"
+          ],
+          "findings_count": 20,
+          "citations_count": 39,
+          "cost": 0.34240000000000004
+        },
+        {
+          "idx": 2,
+          "hypothesis": "Create a stateroom matrix summarizing Brilliance of the Seas cabin categories vertically (Interior, Oceanview, Ultra Spacious Oceanview, Balcony, Spacious Balcony, Junior Suite, Grand Suite 1BR/2BR, O",
+          "type": "EXPLORE",
+          "composite_score": 0.74,
+          "source_models": [
+            "youdotcom"
+          ],
+          "findings_count": 13,
+          "citations_count": 27,
+          "cost": 0.3335
+        }
+      ],
+      "cross_thread_conflicts": [],
+      "all_citations": [
+        "https://www.meyerwerft.de/en/ships/brilliance_of_the_seas.jsp",
+        "https://www.vesselfinder.com/vessels/details/9195200",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/things-to-do/bars/sky-bar",
+        "https://www.cruisetimetables.com/cruise-ship-brilliance-of-the-seas.html",
+        "https://www.cruisedeckplans.com/ships/stateroom-details.php?ship=Brilliance-of-the-Seas&cabin=1602",
+        "https://www.cruisedeckplans.com/ships/category-detail.php?c=56",
+        "https://www.travelweekly.com/Cruise/Royal-Caribbean-International/Brilliance-of-the-Seas",
+        "https://www.ship-technology.com/projects/brilliance/",
+        "https://www.cruisedeckplans.com/ships/Brilliance-of-the-Seas",
+        "http://cruiseastute.com/ship.php?ship=Brilliance+Of+The+Seas&feature=dining",
+        "https://www.beyondships2.com/brilliance-of-the-seas-menus.html",
+        "https://www.meyerwerft.de/en/press/press_detail/brilliance_of_the_seas_delivered.jsp",
+        "https://cruisespotlight.com/ship/royal-caribbean/brilliance-of-the-seas/bars/ [2]",
+        "https://www.cruiseturtle.com/cruise-ships/brilliance-of-the-seas/brilliance-of-the-seas-gastronomy",
+        "https://www.vesselfinder.com/pl/vessels/details/9195200",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/things-to-do/bars/diamond-club",
+        "https://www.royalcaribbeanblog.com/2022/03/03/all-about-radiance-class-cruise-ships",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/things-to-do/bars/suite-lounge",
+        "https://www.cruisedeckplans.com/ships/stateroom-details.php?ship=Brilliance-of-the-Seas&cabin=2018",
+        "https://www.cruisedeckplans.com/DP/deckplans/Brilliance-of-the-Seas",
+        "https://www.cruisemapper.com/deckplans/Brilliance-Of-The-Seas-720/deck03-1145",
+        "https://www.bolsovercruiseclub.com/cruise-lines/royal-caribbean/brilliance-of-the-seas",
+        "https://cruisespotlight.com/ship/royal-caribbean/brilliance-of-the-seas/bars/",
+        "https://www.cruisemapper.com/cabins/Brilliance-Of-The-Seas-720",
+        "https://www.royalcaribbean.com/cruise-ships/brilliance-of-the-seas/itineraries, General observation across cruise industry practices.",
+        "https://cruiseline.com/ship/brilliance-of-the-seas/cabin/8116",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/2025-05-23/7-nights",
+        "https://www.nauticexpo.com/prod/meyer-werft/product-31356-370910.html",
+        "https://www.cruisemapper.com/deckplans/Brilliance-Of-The-Seas-720 [3]",
+        "https://www.royalcaribbean.com/cruise-ships/brilliance-of-the-seas [1]",
+        "https://cruiseline.com/ship/brilliance-of-the-seas/features/bar",
+        "https://www.reddit.com/r/royalcaribbean/comments/1irkx20/brilliance_of_the_seas_food/",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/venues/main-dining-room",
+        "https://www.cruisemummy.co.uk/brilliance-of-the-seas-cabins-to-avoid/",
+        "https://www.icruise.com/ships/royal-caribbean-cruises-brilliance-of-the-seas-staterooms.html",
+        "https://www.cruisedeckplans.com/ships/category-detail.php?c=54",
+        "https://www.royalcaribbeanincentives.com/ship/brilliance-of-the-seas/dining/",
+        "https://www.cruisedeckplans.com/ships/info.php?ship=Brilliance-of-the-Seas",
+        "https://commons.wikimedia.org/wiki/Category:Brilliance_of_the_Seas_(ship,_2002)",
+        "https://cruiseindustrynews.com/cruise-news/2025/05/royal-caribbeans-brilliance-kicks-off-european-season-after-drydock/",
+        "https://cruiseable.com/visual-list/brilliance-of-the-seas",
+        "https://www.royalcaribbean.com/cruise-ships/brilliance-of-the-seas/things-to-do",
+        "https://www.reddit.com/r/royalcaribbean/comments/1cityri/confused_about_dining_options/",
+        "https://cruiseline.com/advice/before-you-cruise/what-to-know/return-to-cruising-ship-guide-brilliance-of-the-seas",
+        "https://boards.cruisecritic.com/forum/354-royal-caribbean-international/, https://www.royalcaribbeanblog.com/boards/, YouTube (search for 'Brilliance of the Seas review [current year]')",
+        "https://www.cruisedeckplans.com/DP/ships/Brilliance-of-the-Seas/factsheet.pdf",
+        "https://www.royalcaribbean.com/cruise-ships/brilliance-of-the-seas/deck-plans",
+        "https://travel.usnews.com/cruises/royal-caribbean-international-300/brilliance-of-the-seas-405/",
+        "https://www.seascanner.com/deckplan-brilliance-of-the-seas",
+        "https://www.cruisedeckplans.com/ships/category-detail.php?c=55",
+        "https://www.cruisingearth.com/info/royal-caribbean-international/dry-dock-schedule/",
+        "https://www.travelweekly.com/Cruise/Royal-Caribbean-International/Brilliance-of-the-Seas; https://www.cruisingearth.com/info/royal-caribbean-international/dry-dock-schedule/",
+        "https://www.cruisecritic.com/cruise/royal-caribbean/brilliance-of-the-seas/dining",
+        "https://www.royalcaribbean.com/cruise-ships/amplified, https://www.cruisecritic.com/reviews/cruise-ship-review.cfm?shipID=293",
+        "https://www.royalcaribbean.com/guides/brilliance-of-the-seas-restaurants",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas",
+        "https://www.globaljourneys.com/ship/royal-caribbean-brilliance-seas",
+        "https://www.cruisemapper.com/deckplans/Brilliance-Of-The-Seas-720",
+        "https://www.cruisemapper.com/ships/Brilliance-Of-The-Seas-720",
+        "https://www.royalcaribbeanpresscenter.com/press-release/997/brilliance-of-the-seas-emerges-from-a-three-week-revitalization/",
+        "https://en.wikipedia.org/wiki/Brilliance_of_the_Seas",
+        "https://www.royalcaribbean.com/cruise-ships/brilliance-of-the-seas",
+        "https://gangwaze.com/cruise-lines/royal-caribbean/brilliance-of-the-seas/things-to-do/bars/singapore-slings",
+        "https://www.cruisedeckplans.com/ships/category-detail.php?c=49",
+        "http://www.cruiseastute.com/ship.php?ship=Brilliance+Of+The+Seas&feature=relaxation",
+        "http://www.cruiseastute.com/ship.php?ship=Brilliance+Of+The+Seas&feature=bars",
+        "https://www.cruisedeckplans.com/ships/category-detail.php?c=58"
+      ],
+      "triage_log": [
+        {
+          "hypothesis": "Update Brilliance of the Seas specs: Gross tonnage 90,090 GT[5], length 293.2 m[5], beam 32.2 m[5], ",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Build a structured, source\u2011linked Brilliance of the Seas venue registry (restaurants, bars, lounges)",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Create a stateroom matrix summarizing Brilliance of the Seas cabin categories vertically (Interior, ",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Add a deployment timeline view for 2025\u20132027 showing seasonal homeports (e.g., Tampa/Boston/San Juan",
+          "action": "KEEP",
+          "score": 0.74,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "[WHEAT_WITH_REFINEMENT] Retain Claude\u2019s structural narrative about ship class, size, onboard experie",
+          "action": "KEEP",
+          "score": 0.64,
+          "type": "VERIFY",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Dining venues: Main - Minstrel Dining Room (decks 4/5)[6]; Complimentary - Windjammer, Park Caf\u00e9[1];",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Refurbishment: April-May 2025 drydock (minor changes per deck plans valid 2025-2027)[4]; possible pr",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Synthesize a sentiment\u2011coded review summary that distinguishes between long\u2011term structural feedback",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Layer in accessibility and demographic suitability information\u2014Solarium age restrictions, accessible",
+          "action": "KEEP",
+          "score": 0.62,
+          "type": "EXPLORE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Entertainment: Water slide for kids[7]. No signature shows (ice/aqua/theater) detailed in results; c",
+          "action": "KEEP",
+          "score": 0.5,
+          "type": "EXPLORE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Conduct a deep dive into passenger reviews and firsthand accounts of Brilliance of the Seas to ident",
+          "action": "KEEP",
+          "score": 0.44,
+          "type": "EXPLORE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "Obtain IMO/MMSI/flag from official registry (e.g., Equasis or IMO GISIS database).",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Full dining/entertainment lists from CruiseMapper venues page or RC official 2026 deck plans.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Post-2025 refurb details: added/removed features from RC announcements.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Sister ships confirmation and complete specs table.",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "perplexity"
+          ]
+        },
+        {
+          "hypothesis": "Normalize and de\u2011duplicate the dining/bar lists: CruiseTimetables, CruiseTurtle, CruiseAstute, Gangw",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Extract deck\u2011by\u2011deck positions for key venues (e.g., Minstrel Dining Room Decks 4\u20135, Windjammer Deck",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Pull the latest Royal Caribbean deployment brochure PDFs (e.g., 2025\u20132026 Europe deployment sheet fo",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Add a compact \u2018review snapshot\u2019 showing the numerical average ratings from U.S. News (4/5 over 1,785",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "Include a short \u2018who this ship is best for\u2019 box anchored explicitly in reviews and expert commentary",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "youdotcom"
+          ]
+        },
+        {
+          "hypothesis": "{'id': 'lhf_1', 'issue': 'Lack of basic ship specifications and recent refurbishment history.', 'opp",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "{'id': 'lhf_2', 'issue': 'No mention of common complaints or known issues.', 'opportunity': 'A curso",
+          "action": "KEEP",
+          "score": 0.37999999999999995,
+          "type": "TRACE",
+          "source_models": [
+            "grok"
+          ]
+        },
+        {
+          "hypothesis": "Analyze the ship\u2019s itinerary history and port accessibility for passengers with mobility challenges.",
+          "action": "KEEP",
+          "score": 0.32,
+          "type": "EXPLORE",
+          "source_models": [
+            "grok"
+          ]
+        }
+      ]
+    }
+  },
+  "status": "completed",
+  "total_cost_usd": 1.1686,
+  "completed_at": "2026-04-06T00:59:45Z"
+}
