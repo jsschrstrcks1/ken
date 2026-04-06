@@ -95,6 +95,17 @@ Before writing ANY page:
 3. **Sibling/related completeness** — cross-reference investigation output against existing pages in the repo
 4. **Link target consistency** — skip links, anchor refs, internal navigation all resolve
 
+### Post-Edit Validation (MANDATORY — before every commit)
+
+**After every edit — before `git add` — run the validator:**
+```bash
+bash admin/validate-ship-page.sh ships/[line]/[slug].html  # cruising mode
+```
+
+**Do NOT commit if the validator reports errors.** Fix first, then commit.
+
+The validator catches what regex fixes miss: broken carousel HTML (missing `</div>` on slides, orphaned slides outside swiper-wrapper), Swiper lazy conflicts, missing noscript fallbacks, stale venue refs, wrong skip link targets, attributions outside col-1. A Python script can silently break HTML structure in ways that look correct in a diff but render as garbage in a browser. The validator is the last gate.
+
 ---
 
 ## Research Pipeline Methodology
