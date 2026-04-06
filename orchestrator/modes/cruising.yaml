@@ -145,6 +145,10 @@ orchestra:
          observation capsules, sports facilities) by name.
       4. REFURBISHMENT: Any dry dock or amplification in the last 3 years?
          What was added, removed, or changed? Date and shipyard.
+      5. CURRENT DEPLOYMENT: Where is {ship} sailing RIGHT NOW in {year}?
+         What region? What home port? What itineraries are scheduled for
+         the current and next season? Check CruiseMapper, Royal Caribbean
+         schedule pages, and VesselFinder current position.
       Cite every source with URL.
     youdotcom: >
       REQUIRED RESEARCH for {ship} as of {year}:
@@ -171,3 +175,6 @@ orchestra:
          any name changes, any class reclassifications.
       4. ACCESSIBILITY: What accessibility features does {ship} have?
          Accessible cabins, mobility aids, dietary accommodations?
+      5. CURRENT DEPLOYMENT: Where is {ship} deployed in {year}? What
+         region/season? Has deployment changed recently from a different
+         region? (e.g., moved from Alaska to Caribbean)
