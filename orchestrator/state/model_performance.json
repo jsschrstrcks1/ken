@@ -2,54 +2,54 @@
   "models": {
     "gpt": {
       "cruising": {
-        "total_calls": 7,
-        "successful_responses": 7,
+        "total_calls": 12,
+        "successful_responses": 12,
         "format_failures": 0,
-        "total_cost": 0.071,
+        "total_cost": 0.1288,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "gemini": {
       "cruising": {
-        "total_calls": 24,
-        "successful_responses": 24,
+        "total_calls": 40,
+        "successful_responses": 40,
         "format_failures": 0,
-        "total_cost": 0.028,
+        "total_cost": 0.0457,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "perplexity": {
       "cruising": {
-        "total_calls": 24,
-        "successful_responses": 24,
+        "total_calls": 40,
+        "successful_responses": 40,
         "format_failures": 0,
-        "total_cost": 0.1776,
+        "total_cost": 0.2953,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "youdotcom": {
       "cruising": {
-        "total_calls": 24,
-        "successful_responses": 24,
+        "total_calls": 39,
+        "successful_responses": 39,
         "format_failures": 0,
-        "total_cost": 0.156,
+        "total_cost": 0.2535,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "grok": {
       "cruising": {
-        "total_calls": 7,
-        "successful_responses": 6,
+        "total_calls": 12,
+        "successful_responses": 11,
         "format_failures": 0,
-        "total_cost": 0.1503,
+        "total_cost": 0.2726,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     }
   },
-  "runs": 86
+  "runs": 143
 }
