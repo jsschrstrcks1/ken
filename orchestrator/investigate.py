@@ -366,6 +366,22 @@ def run_investigation(mode_name, task, max_threads=3, parallel=False,
         "status": "running",
     }
 
+    try:
+        return _run_investigation_inner(state, mode_name, task, max_threads, parallel, budget, min_score)
+    except Exception as e:
+        print(f"\n{'!'*60}", file=sys.stderr)
+        print(f"PIPELINE CRASHED: {e}", file=sys.stderr)
+        print(f"{'!'*60}", file=sys.stderr)
+        state["status"] = f"crashed: {str(e)[:200]}"
+        state["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _save_state(state)
+        print(f"  → Partial state saved to state/investigate.json", file=sys.stderr)
+        return state
+
+
+def _run_investigation_inner(state, mode_name, task, max_threads, parallel, budget, min_score):
+    """Inner pipeline logic — wrapped by run_investigation for crash recovery."""
+
     per_thread_budget = budget / (max_threads + 1)  # +1 for recon phase
 
     # ══════════════════════════════════════════
