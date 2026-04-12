@@ -390,6 +390,16 @@ def run_orchestra(mode_name, task):
             role_description=role_desc,
         )
 
+        # Inject required queries from mode config (e.g. ship dining verification)
+        import datetime
+        current_year = datetime.datetime.now().year
+        for query_key in ["ship_required_queries", "port_required_queries"]:
+            required_queries = orchestra_config.get(query_key, {})
+            model_query = required_queries.get(model, "")
+            if model_query:
+                formatted_query = model_query.replace("{ship}", task).replace("{port}", task).replace("{year}", str(current_year))
+                prompt += f"\n\nADDITIONAL REQUIRED RESEARCH:\n{formatted_query}"
+
         response, usage, citations = call_model(model, prompt, role)
 
         entry = {

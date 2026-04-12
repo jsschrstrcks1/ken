@@ -384,137 +384,160 @@ def _run_investigation_inner(state, mode_name, task, max_threads, parallel, budg
 
     per_thread_budget = budget / (max_threads + 1)  # +1 for recon phase
 
-    # ══════════════════════════════════════════
-    # PHASE 1: RECONNAISSANCE (fan-out orchestra)
-    # ══════════════════════════════════════════
-    print(f"\n{'═'*60}", file=sys.stderr)
-    print(f"PHASE 1: RECONNAISSANCE — Fan-out orchestra", file=sys.stderr)
-    print(f"{'═'*60}", file=sys.stderr)
+    try:
+        # ══════════════════════════════════════════
+        # PHASE 1: RECONNAISSANCE (fan-out orchestra)
+        # ══════════════════════════════════════════
+        print(f"\n{'═'*60}", file=sys.stderr)
+        print(f"PHASE 1: RECONNAISSANCE — Fan-out orchestra", file=sys.stderr)
+        print(f"{'═'*60}", file=sys.stderr)
 
-    recon_state = run_orchestra(mode_name, task)
-    recon_cost = recon_state.get("total_cost_usd", 0)
-    state["phases"]["reconnaissance"] = {
-        "cost": recon_cost,
-        "models_responded": sum(1 for e in recon_state.get("fan_out", []) if e.get("response")),
-        "models_total": len(recon_state.get("fan_out", [])),
-    }
+        recon_state = run_orchestra(mode_name, task)
+        recon_cost = recon_state.get("total_cost_usd", 0)
+        state["phases"]["reconnaissance"] = {
+            "cost": recon_cost,
+            "models_responded": sum(1 for e in recon_state.get("fan_out", []) if e.get("response")),
+            "models_total": len(recon_state.get("fan_out", [])),
+        }
 
-    print(f"\n  Recon cost: ${recon_cost:.4f}", file=sys.stderr)
-    remaining_budget = budget - recon_cost
+        print(f"\n  Recon cost: ${recon_cost:.4f}", file=sys.stderr)
+        remaining_budget = budget - recon_cost
 
-    # ══════════════════════════════════════════
-    # PHASE 2: TRIAGE — Structured thread extraction + filtering
-    # ══════════════════════════════════════════
-    print(f"\n{'═'*60}", file=sys.stderr)
-    print(f"PHASE 2: TRIAGE — Extract and rank research threads", file=sys.stderr)
-    print(f"{'═'*60}", file=sys.stderr)
+        # ══════════════════════════════════════════
+        # PHASE 2: TRIAGE — Structured thread extraction + filtering
+        # ══════════════════════════════════════════
+        print(f"\n{'═'*60}", file=sys.stderr)
+        print(f"PHASE 2: TRIAGE — Extract and rank research threads", file=sys.stderr)
+        print(f"{'═'*60}", file=sys.stderr)
 
-    threads = extract_threads_from_fanout(recon_state)
-    print(f"\n  Extracted {len(threads)} candidate threads", file=sys.stderr)
+        threads = extract_threads_from_fanout(recon_state)
+        print(f"\n  Extracted {len(threads)} candidate threads", file=sys.stderr)
 
-    selected, decisions = triage_threads(threads, max_threads=max_threads, min_score=min_score)
-    print(f"  Selected {len(selected)} for deep research", file=sys.stderr)
+        selected, decisions = triage_threads(threads, max_threads=max_threads, min_score=min_score)
+        print(f"  Selected {len(selected)} for deep research", file=sys.stderr)
 
-    for i, t in enumerate(selected):
-        print(f"  [{i+1}] {t['type']:7s} | score={t['composite_score']:.2f} | "
-              f"models={','.join(t['source_models'])} | {t['hypothesis'][:80]}", file=sys.stderr)
+        for i, t in enumerate(selected):
+            print(f"  [{i+1}] {t['type']:7s} | score={t['composite_score']:.2f} | "
+                  f"models={','.join(t['source_models'])} | {t['hypothesis'][:80]}", file=sys.stderr)
 
-    kept_count = sum(1 for d in decisions if d["action"] == "KEEP")
-    dropped_count = sum(1 for d in decisions if d["action"] == "DROP")
-    print(f"  Kept: {kept_count} | Dropped: {dropped_count}", file=sys.stderr)
+        kept_count = sum(1 for d in decisions if d["action"] == "KEEP")
+        dropped_count = sum(1 for d in decisions if d["action"] == "DROP")
+        print(f"  Kept: {kept_count} | Dropped: {dropped_count}", file=sys.stderr)
 
-    state["phases"]["triage"] = {
-        "candidates": len(threads),
-        "selected": len(selected),
-        "dropped": dropped_count,
-        "decisions": decisions,
-        "threads": [
-            {
-                "hypothesis": t["hypothesis"][:200],
-                "type": t["type"],
-                "composite_score": t["composite_score"],
-                "source_models": t["source_models"],
-                "citation_count": t["citation_count"],
-            }
-            for t in selected
-        ],
-    }
+        state["phases"]["triage"] = {
+            "candidates": len(threads),
+            "selected": len(selected),
+            "dropped": dropped_count,
+            "decisions": decisions,
+            "threads": [
+                {
+                    "hypothesis": t["hypothesis"][:200],
+                    "type": t["type"],
+                    "composite_score": t["composite_score"],
+                    "source_models": t["source_models"],
+                    "citation_count": t["citation_count"],
+                }
+                for t in selected
+            ],
+        }
 
-    if not selected:
-        print(f"\n  No threads above threshold. Investigation complete.", file=sys.stderr)
-        state["status"] = "completed_no_threads"
-        _save_state(state)
-        return state
+        if not selected:
+            print(f"\n  No threads above threshold. Investigation complete.", file=sys.stderr)
+            state["status"] = "completed_no_threads"
+            _save_state(state)
+            return state
 
-    # ══════════════════════════════════════════
-    # PHASE 3: DEEP RESEARCH — Staged pipeline per thread
-    # ══════════════════════════════════════════
-    print(f"\n{'═'*60}", file=sys.stderr)
-    exec_mode = "PARALLEL" if parallel else "SEQUENTIAL"
-    print(f"PHASE 3: DEEP RESEARCH — {len(selected)} threads, {exec_mode}", file=sys.stderr)
-    print(f"  Remaining budget: ${remaining_budget:.2f} (${remaining_budget/len(selected):.2f}/thread)", file=sys.stderr)
-    print(f"{'═'*60}", file=sys.stderr)
+        # ══════════════════════════════════════════
+        # PHASE 3: DEEP RESEARCH — Staged pipeline per thread
+        # ══════════════════════════════════════════
+        print(f"\n{'═'*60}", file=sys.stderr)
+        exec_mode = "PARALLEL" if parallel else "SEQUENTIAL"
+        print(f"PHASE 3: DEEP RESEARCH — {len(selected)} threads, {exec_mode}", file=sys.stderr)
+        print(f"  Remaining budget: ${remaining_budget:.2f} (${remaining_budget/len(selected):.2f}/thread)", file=sys.stderr)
+        print(f"{'═'*60}", file=sys.stderr)
 
-    thread_budget = remaining_budget / len(selected)
-    deep_dive_results = []
+        thread_budget = remaining_budget / len(selected)
+        deep_dive_results = []
 
-    if parallel and len(selected) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected)) as executor:
-            futures = {
-                executor.submit(run_deep_dive, t, mode_name, thread_budget, i): i
-                for i, t in enumerate(selected)
-            }
-            for future in concurrent.futures.as_completed(futures):
+        if parallel and len(selected) > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected)) as executor:
+                futures = {
+                    executor.submit(run_deep_dive, t, mode_name, thread_budget, i): i
+                    for i, t in enumerate(selected)
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        result = future.result()
+                        deep_dive_results.append(result)
+                        print(f"\n  Thread {result['thread_idx']+1} complete | cost: ${result['cost']:.4f}", file=sys.stderr)
+                    except Exception as e:
+                        idx = futures[future]
+                        print(f"\n  Thread {idx+1} FAILED: {e}", file=sys.stderr)
+                        deep_dive_results.append({
+                            "thread_idx": idx,
+                            "thread": selected[idx],
+                            "research_state": {"error": str(e), "total_cost_usd": 0},
+                            "cost": 0,
+                        })
+        else:
+            for i, thread in enumerate(selected):
                 try:
-                    result = future.result()
+                    result = run_deep_dive(thread, mode_name, thread_budget, i)
                     deep_dive_results.append(result)
-                    print(f"\n  Thread {result['thread_idx']+1} complete | cost: ${result['cost']:.4f}", file=sys.stderr)
                 except Exception as e:
-                    idx = futures[future]
-                    print(f"\n  Thread {idx+1} FAILED: {e}", file=sys.stderr)
+                    print(f"\n  Thread {i+1} FAILED: {e}", file=sys.stderr)
                     deep_dive_results.append({
-                        "thread_idx": idx,
-                        "thread": selected[idx],
+                        "thread_idx": i,
+                        "thread": thread,
                         "research_state": {"error": str(e), "total_cost_usd": 0},
                         "cost": 0,
                     })
-    else:
-        for i, thread in enumerate(selected):
-            result = run_deep_dive(thread, mode_name, thread_budget, i)
-            deep_dive_results.append(result)
 
-    # Sort by thread index for consistent output
-    deep_dive_results.sort(key=lambda r: r["thread_idx"])
+        # Sort by thread index for consistent output
+        deep_dive_results.sort(key=lambda r: r["thread_idx"])
 
-    total_deep_cost = sum(r["cost"] for r in deep_dive_results)
-    state["phases"]["deep_research"] = {
-        "threads_run": len(deep_dive_results),
-        "execution_mode": exec_mode.lower(),
-        "total_cost": total_deep_cost,
-        "per_thread": [
-            {
-                "idx": r["thread_idx"],
-                "hypothesis": r["thread"]["hypothesis"][:100],
-                "cost": r["cost"],
-            }
-            for r in deep_dive_results
-        ],
-    }
+        total_deep_cost = sum(r["cost"] for r in deep_dive_results)
+        state["phases"]["deep_research"] = {
+            "threads_run": len(deep_dive_results),
+            "execution_mode": exec_mode.lower(),
+            "total_cost": total_deep_cost,
+            "per_thread": [
+                {
+                    "idx": r["thread_idx"],
+                    "hypothesis": r["thread"]["hypothesis"][:100],
+                    "cost": r["cost"],
+                }
+                for r in deep_dive_results
+            ],
+        }
 
-    # ══════════════════════════════════════════
-    # PHASE 4: CROSS-THREAD SYNTHESIS
-    # ══════════════════════════════════════════
-    print(f"\n{'═'*60}", file=sys.stderr)
-    print(f"PHASE 4: SYNTHESIS — Cross-thread integration", file=sys.stderr)
-    print(f"{'═'*60}", file=sys.stderr)
+        # ══════════════════════════════════════════
+        # PHASE 4: CROSS-THREAD SYNTHESIS
+        # ══════════════════════════════════════════
+        print(f"\n{'═'*60}", file=sys.stderr)
+        print(f"PHASE 4: SYNTHESIS — Cross-thread integration", file=sys.stderr)
+        print(f"{'═'*60}", file=sys.stderr)
 
-    synthesis = synthesize_results(deep_dive_results, recon_state, decisions)
-    state["phases"]["synthesis"] = synthesis
+        synthesis = synthesize_results(deep_dive_results, recon_state, decisions)
+        state["phases"]["synthesis"] = synthesis
 
-    # ── Finalize ──
-    state["total_cost_usd"] = recon_cost + total_deep_cost
-    state["status"] = "completed"
-    state["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # ── Finalize ──
+        state["total_cost_usd"] = recon_cost + total_deep_cost
+        state["status"] = "completed"
+        state["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    except Exception as e:
+        # Save partial state so next session can see what happened
+        import traceback
+        state["status"] = "failed"
+        state["error"] = str(e)
+        state["traceback"] = traceback.format_exc()
+        state["failed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        print(f"\n{'!'*60}", file=sys.stderr)
+        print(f"INVESTIGATION FAILED: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+        print(f"Partial state saved to state/investigate.json", file=sys.stderr)
+        print(f"{'!'*60}", file=sys.stderr)
 
     _save_state(state)
     return state
@@ -615,14 +638,22 @@ def main():
     print(f"Task: {task}", file=sys.stderr)
     print(f"Config: threads={max_threads}, parallel={parallel}, budget=${budget:.2f}", file=sys.stderr)
 
-    state = run_investigation(
-        mode_name, task,
-        max_threads=max_threads,
-        parallel=parallel,
-        budget=budget,
-    )
-    print_report(state)
-    print(json.dumps(state, indent=2, default=str))
+    try:
+        state = run_investigation(
+            mode_name, task,
+            max_threads=max_threads,
+            parallel=parallel,
+            budget=budget,
+        )
+        print_report(state)
+        print(json.dumps(state, indent=2, default=str))
+        if state.get("status") == "failed":
+            sys.exit(2)
+    except Exception as e:
+        import traceback
+        print(f"\nFATAL: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
