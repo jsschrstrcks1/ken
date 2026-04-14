@@ -18,8 +18,19 @@ R2 wins because the site is image-heavy (4,486 WebP + 835 JPG) and scales withou
 
 1. **Cloudflare account** — sign up at cloudflare.com (free plan is fine)
 2. **Domain on Cloudflare** — move `cruisinginthewake.com` DNS to Cloudflare (free). Verify `CNAME cruisinginthewake.com → jsschrstrcks1.github.io` stays resolvable after the move.
-3. **`wrangler` CLI** — `npm install -g wrangler` (used to create and deploy the Worker)
+3. **`wrangler` CLI** — see [`02-wrangler-eli5.md`](./02-wrangler-eli5.md) for an explanation and install walkthrough. TL;DR: `npm install -g wrangler` (needs Node.js first).
 4. **`rclone`** — `brew install rclone` or equivalent (used to sync images into R2)
+
+> **Path convention used below.** The runbook assumes two local checkouts:
+> - `$KEN_DIR` = your local clone of the `ken` repo (this one)
+> - `$INTHEWAKE_DIR` = your local clone of the `InTheWake` repo
+>
+> Set them once in your shell so the copy-paste commands just work:
+> ```bash
+> export KEN_DIR="$HOME/path/to/ken"
+> export INTHEWAKE_DIR="$HOME/path/to/InTheWake"
+> ```
+> (On most Macs that's somewhere under `~/Documents/GitHub/`.)
 
 ## Step 1: Create the R2 bucket
 
@@ -29,12 +40,23 @@ wrangler login
 
 # Create the bucket
 wrangler r2 bucket create inthewake-media
-
-# Enable versioning for safety (so accidental deletes are recoverable)
-wrangler r2 bucket lifecycle add inthewake-media \
-  --name "keep-versions-30d" \
-  --condition "object-version-age-greater-than=30"
 ```
+
+### Optional: enable versioning + 30-day retention (safety net)
+
+Versioning keeps a copy of every overwritten or deleted object for a retention window, so accidental deletes are recoverable. **This is optional** — skip it if you want to keep things simple. The dashboard is the right place for it; `wrangler`'s lifecycle CLI doesn't support the combined "version age" rule we want here.
+
+1. Cloudflare dashboard → **R2** → click the `inthewake-media` bucket.
+2. Click the **Settings** tab.
+3. Scroll to **Object Versioning** → toggle **Enable versioning**.
+4. Still in Settings, scroll to **Object Lifecycle Rules** → **Add rule**.
+   - Name: `expire-noncurrent-30d`
+   - Scope: **Apply to all objects in the bucket**
+   - Under **Delete noncurrent versions**, check the box and set age to **30 days**.
+   - Leave other actions unchecked.
+5. Save.
+
+Net effect: if you overwrite or delete a file, the old version stays recoverable for 30 days, then R2 cleans it up automatically.
 
 ## Step 2: Configure rclone for R2
 
@@ -55,10 +77,11 @@ rclone config
 
 ## Step 3: Sync images to R2
 
-Run from the InTheWake repository root:
+Run from the `InTheWake` repository root, invoking the helper script from your `ken` checkout:
 
 ```bash
-bash ../ken/admin/inthewake/r2-migration/rclone-sync.sh
+cd "$INTHEWAKE_DIR"
+bash "$KEN_DIR/admin/inthewake/r2-migration/rclone-sync.sh"
 ```
 
 Or manually, one tree at a time:
@@ -84,10 +107,17 @@ Expected upload size: ~2GB.
 ## Step 4: Deploy the Worker
 
 ```bash
-cd ../ken/admin/inthewake/r2-migration/
+cd "$KEN_DIR/admin/inthewake/r2-migration/"
 # Edit wrangler.toml to set your account_id and route pattern
 wrangler deploy
 ```
+
+> **First time editing `wrangler.toml`?** Find your Cloudflare Account ID at dashboard → right sidebar → Account ID, then replace the placeholder in one shot:
+> ```bash
+> sed -i '' 's/REPLACE_WITH_YOUR_ACCOUNT_ID/<your-account-id>/' wrangler.toml   # macOS
+> sed -i    's/REPLACE_WITH_YOUR_ACCOUNT_ID/<your-account-id>/' wrangler.toml   # Linux
+> ```
+> If you hand-edited the file in `vi` and broke the TOML syntax, restore it first with `git checkout -- wrangler.toml` and then run the `sed` above.
 
 The Worker intercepts image paths and serves from R2 with aggressive caching. See `worker.js` for the route list.
 
@@ -100,10 +130,11 @@ Before flipping production DNS, test on a preview subdomain:
 wrangler deploy --route "preview.cruisinginthewake.com/*"
 ```
 
-Then run the automated check:
+Then run the automated check (from the `InTheWake` repo root, invoking the verifier from your `ken` checkout):
 
 ```bash
-bash ../ken/admin/inthewake/r2-migration/verify-images.sh preview.cruisinginthewake.com
+cd "$INTHEWAKE_DIR"
+bash "$KEN_DIR/admin/inthewake/r2-migration/verify-images.sh" preview.cruisinginthewake.com
 ```
 
 This crawls a sample of 50 pages across port/ship/restaurant types, fetches every image URL from both production and preview, and compares HTTP 200 rates + byte counts.
@@ -119,7 +150,7 @@ This crawls a sample of 50 pages across port/ship/restaurant types, fetches ever
 Once R2 is verified as the live source:
 
 ```bash
-cd InTheWake
+cd "$INTHEWAKE_DIR"
 git rm -r assets/ships/ ports/img/ assets/social/ assets/images/ \
          assets/venues/ assets/articles/ assets/brand/ assets/icons/ \
          assets/img/ authors/img/ authors/ico/ solo/images/ images/
