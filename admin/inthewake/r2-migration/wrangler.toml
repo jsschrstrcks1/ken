@@ -1,0 +1,84 @@
+# Cloudflare Worker configuration for InTheWake R2 image serving
+#
+# Before deploying, set:
+#   - account_id: your Cloudflare account ID (from Cloudflare dashboard)
+#
+# Deploy:
+#   wrangler deploy
+#
+# Preview deploy (tests on a preview subdomain before production):
+#   wrangler deploy --route "preview.cruisinginthewake.com/*"
+
+name = "inthewake-r2-images"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# TODO: Set your Cloudflare account ID here
+# Find at https://dash.cloudflare.com → right sidebar → Account ID
+account_id = "REPLACE_WITH_YOUR_ACCOUNT_ID"
+
+# R2 bucket binding
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "inthewake-media"
+
+# Production routes — the Worker will only execute on requests matching these.
+# Keep this narrow to avoid proxying HTML through the Worker unnecessarily.
+# The Worker itself decides whether to serve from R2 (by path prefix) or fall
+# back to the origin, but limiting the route pattern at the edge reduces
+# billable Worker invocations.
+[[routes]]
+pattern = "cruisinginthewake.com/assets/ships/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/ports/img/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/social/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/images/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/venues/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/articles/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/brand/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/icons/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/assets/img/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/authors/img/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/authors/ico/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/authors/tinas-images/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/solo/images/*"
+zone_name = "cruisinginthewake.com"
+
+[[routes]]
+pattern = "cruisinginthewake.com/images/*"
+zone_name = "cruisinginthewake.com"
