@@ -1,5 +1,7 @@
 # Cloudflare R2 Migration Runbook
 
+> **New to Cloudflare?** Start with [`01-cloudflare-github-setup.md`](./01-cloudflare-github-setup.md) — it walks through connecting Cloudflare to your GitHub Pages site in plain language. Come back here once that's done.
+
 Moves all InTheWake image content off GitHub Pages and onto Cloudflare R2, served through a Cloudflare Worker at the current canonical paths. **Zero HTML changes, zero broken URLs.**
 
 ## Why R2 (vs. alternatives)
