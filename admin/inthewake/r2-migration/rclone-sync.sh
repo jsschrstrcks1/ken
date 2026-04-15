@@ -15,7 +15,7 @@
 #
 # Soli Deo Gloria.
 
-set -euo pipefail
+set -uo pipefail
 
 DRY_RUN=""
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -42,6 +42,8 @@ SOURCES=(
   "images"
 )
 
+FAILED_SOURCES=()
+
 for src in "${SOURCES[@]}"; do
   if [[ ! -d "$src" ]]; then
     echo "[SKIP] $src (not present)"
@@ -52,15 +54,28 @@ for src in "${SOURCES[@]}"; do
   size=$(du -sh "$src" | cut -f1)
   echo "[SYNC] $src ($count files, $size) → $REMOTE/$src"
 
-  rclone sync $DRY_RUN \
+  # Allow individual directory failures (e.g. broken symlinks in one tree)
+  # without aborting the rest of the sync. rclone already retries 3 times
+  # internally and prints its own error summary.
+  if ! rclone sync $DRY_RUN \
     --progress \
     --copy-links \
     --transfers 16 \
     --checkers 32 \
     "$src/" \
-    "$REMOTE/$src/"
+    "$REMOTE/$src/"; then
+    echo "[WARN] $src reported errors — continuing with remaining sources"
+    FAILED_SOURCES+=("$src")
+  fi
 done
 
 echo
-echo "Sync complete."
-echo "Verify with: rclone size $REMOTE"
+if [[ ${#FAILED_SOURCES[@]} -eq 0 ]]; then
+  echo "Sync complete — no errors."
+else
+  echo "Sync complete with errors in ${#FAILED_SOURCES[@]} source(s):"
+  for src in "${FAILED_SOURCES[@]}"; do
+    echo "  - $src"
+  done
+fi
+echo "Verify total with: rclone size $REMOTE"
