@@ -1,0 +1,123 @@
+{
+  "pipeline": "investigate",
+  "mode": "manual-fill-in-for-grok",
+  "task": "Identify the makers of the four antique cast-iron desk seal presses in the user-supplied photograph.",
+  "config": {
+    "max_threads": 5,
+    "parallel": false,
+    "budget": 0.0,
+    "min_score": 0.3,
+    "note": "Python pipeline not executed; .env absent. Grok rate-limited, so Claude served as Grok and as proxy for the other API-gated models, using WebSearch/WebFetch for real grounding."
+  },
+  "started_at": "2026-04-17T00:00:00Z",
+  "phases": {
+    "reconnaissance": {
+      "cost": 0,
+      "models_responded": 1,
+      "models_total": 6,
+      "claude_r1_summary": "Devices are screw-driven cast-iron C-scroll desk embossers, c.1850-1910. ChatGPT candidates suspect — Evens & Watson is Philadelphia stove maker, not seal press. Push primary sources: officemuseum.com, norcalseals.weebly.com, Crider/Grampp/Gonty."
+    },
+    "triage": {
+      "candidates": 7,
+      "selected": 5,
+      "dropped": 2,
+      "threads": [
+        {
+          "id": "T1",
+          "hypothesis": "Screw-with-return-spring form is NOT Platt Evens percussion and NOT B.B. Hill lever-cam — ChatGPT category-errored",
+          "type": "VERIFY",
+          "composite_score": 0.88,
+          "source_models": ["claude", "patent_record", "officemuseum"]
+        },
+        {
+          "id": "T2",
+          "hypothesis": "Lowell & Senter (Portland ME, 1837-1866) is a real candidate for the ornate top-left press",
+          "type": "VERIFY",
+          "composite_score": 0.72,
+          "source_models": ["officemuseum", "mainememory", "websearch"]
+        },
+        {
+          "id": "T3",
+          "hypothesis": "Merriam & Co. Boston (Joseph H. Merriam diesinker) is strongest candidate for ornate gilt examples",
+          "type": "EXPLORE",
+          "composite_score": 0.70,
+          "source_models": ["officemuseum", "norcalseals", "collectors_universe"]
+        },
+        {
+          "id": "T6",
+          "hypothesis": "ChatGPT's 'Evens & Watson (Philadelphia)' is a hallucination — conflating the stove co. with Cincinnati's Platt Evens Jr.",
+          "type": "VERIFY",
+          "composite_score": 0.90,
+          "source_models": ["officemuseum", "cincinnati_library", "sealpressinformation"]
+        },
+        {
+          "id": "T7",
+          "hypothesis": "The four presses share form but not maker — attribution-by-image is impossible without maker's marks",
+          "type": "EXPLORE",
+          "composite_score": 0.75,
+          "source_models": ["claude", "crider_grampp_gonty"]
+        }
+      ]
+    },
+    "deep_research": {
+      "threads_run": 5,
+      "execution_mode": "sequential",
+      "total_cost": 0,
+      "findings": [
+        "Patent US 47,821 (B.B. Hill, Chicopee MA, May 23 1865) is a LEVER-CAM press with fly-leaf + spindle + cam + spring — NOT the screw form pictured.",
+        "Platt Evens Jr. (Cincinnati) patented 1854 percussion press jointly with Charles Francis Hall after Foster/Cranch dispute — all three made percussion, none made screw.",
+        "Lowell & Senter exhibited seal presses at 1839 Boston MCMA; primary business was silverware/jewelry/nautical instruments; 1866 fire destroyed Portland store; firm dissolved ~1869.",
+        "Merriam & Co. (Boston) = Joseph H. Merriam, die-sinker; known for figural presses (Toad 1863, Eagle 1865, Lion 1869 via Carsley patent D3363). Plain C-scroll bodies also likely sold.",
+        "C.H. Morse Stamp Co., Rochester NY, founded 1863, still operating as NY Marking Devices Corp.",
+        "Reference bible: 'Fancy, Figural and Unusual Seal Presses: A Collector's Guide' — Crider, Grampp & Gonty, 2nd ed. 240+ body styles. CGG body-style numbers used for ID.",
+        "Don Grampp dating method: flat base (pre-1860), single pour hole (1860+), double pour hole (later 19th c.), large indentations (late 19th-20th c.)."
+      ]
+    },
+    "synthesis": {
+      "threads_explored": 5,
+      "total_cost": 0,
+      "provisional_attributions": {
+        "top_left": {
+          "period_fit": "1855-1880",
+          "top_candidates": ["Lowell & Senter", "Merriam & Co.", "Cutter Tower & Co.", "Bigelow & Hardy"],
+          "confidence": "LOW",
+          "note": "Heavy gold-on-black floral japanning matches mid-Victorian Boston/Portland tradition."
+        },
+        "top_right": {
+          "period_fit": "1880-1910",
+          "top_candidates": ["C.H. Morse (Rochester)", "Pettibone Mfg.", "Power & Wallwork", "generic unmarked foundry"],
+          "confidence": "LOW",
+          "note": "Plainer cast, thick base — later Industrial-era form."
+        },
+        "bottom_left": {
+          "period_fit": "1870-1895",
+          "top_candidates": ["Merriam & Co.", "A.G. Mead", "Boston-tradition unmarked"],
+          "confidence": "LOW"
+        },
+        "bottom_right": {
+          "period_fit": "ambiguous",
+          "top_candidates": ["polished cast iron of same family", "solid-bronze variant", "continental European (Jarrett London, or French unmarked)"],
+          "confidence": "LOW",
+          "note": "Brass/bronze appearance is the most distinctive clue and the least diagnostic."
+        }
+      },
+      "corrections_to_chatgpt": [
+        "Evens & Watson (Philadelphia) is a stove foundry, not a seal press maker. The real firm is Platt Evens Jr. of Cincinnati (percussion, not screw).",
+        "Illinois Iron & Bolt Company — no primary-source evidence for seal presses.",
+        "Adam Ramage, George E. Clymer — printing/hand-press inventors, not in the seal-press lineage.",
+        "B.B. Hill patent is for a lever-cam mechanism, not the screw press pictured."
+      ],
+      "grok_blind_spot": "Treating four distinct presses as one identification problem. They share a FORM, not a MAKER. ChatGPT's confident attributions are model hallucinations that must not propagate.",
+      "definitive_attribution_requires": [
+        "underside-of-base photograph",
+        "die-plate engraving",
+        "patent-date casting",
+        "pour-hole pattern (dating)",
+        "overall-height + base-length measurements (CGG body-style match)"
+      ]
+    }
+  },
+  "total_cost_usd": 0,
+  "status": "completed",
+  "completed_at": "2026-04-17T00:00:00Z"
+}
