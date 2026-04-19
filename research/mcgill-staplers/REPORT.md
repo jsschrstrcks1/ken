@@ -1,11 +1,14 @@
-# McGill Staple Press Attribution — 7 Devices (Round 4)
+# McGill Staple Press Attribution — 7 Devices (Rounds 4 + 5)
 
 **Commissioned by:** Curtis A. Scaglione (Scaglione's Antique and Vintage
 Office Museum; Smithsonian Learning Lab partner; author, *Guide to Antique
 and Vintage Fasteners*, 2012) via the user.
 **Subject:** 7 cast-iron tabletop fastener/staple-press devices (2 photo sets).
-**Date:** 2026-04-19
+**Date:** 2026-04-19 (Rounds 4 + 5)
 **Branch:** `claude/research-devices-pipeline-1BDdv`
+
+**Round 5 additions are at the end of this document — §§ 9–11.**
+Round-4 body preserved unchanged below for audit trail.
 
 ---
 
@@ -243,3 +246,166 @@ written record:
 - officemuseum.com (Grampp-derived)
 - American Stationer blog (useful background; not primary)
 - norcalseals.weebly.com (retained only for direct period advertisements)
+
+---
+
+# Round 5 — deeper dig
+
+Round 5 pushes past Round 4 on five specific threads the user asked to go
+deeper on. Findings below are upstream of Scaglione's published *Guide to
+Antique and Vintage Fasteners* (2012), which contains a single one-line
+McGill entry — "Single Stroke Staple Press circa 1879."
+
+## 9. Expanded McGill patent portfolio (13 patents, not 5)
+
+Round 4 worked from the canonical five McGill patents. Round 5 adds eight
+more, most of them fastener pieces rather than presses but relevant to
+dating and to the 1891 / 1893 invalidation litigation:
+
+| Patent | Date | Device | Notes |
+|---|---|---|---|
+| US 56,587 | Jul 24 1866 | Brass paper fastener (split-pin) | — |
+| US 67,665 | Aug 13 1867 | **Fastener Press** (tabletop) | Press #1 |
+| US 151,236 | May 26 1874 | Paper Fastener Punch (handheld brass) | — |
+| **US 162,183** | **1875** | **Metallic paper-fastener improvement** | **Voided 1891** |
+| US 212,316 | Feb 18 1879 | **Single-Stroke Staple Press No. 1** — 4 embodiments | Press #2 |
+| US 252,841 | Jan 24 1882 | **Staple Press No. 2** — octagonal removable case | Press #3 |
+| US 285,640 | Sep 25 1883 | Staple fastener piece | For No. 1 machine |
+| **US 337,182** | **1886** | **Regular flathead "T" paper fastener** | **Voided 1891** |
+| USD 19,220 | Jul 23 1889 | **Design patent** — fastener for papers | Prong-type ornamental |
+| US 429,943 | Jun 10 1890 | Ring-loop display fastener | For merchandise display cards |
+| US 498,138 | May 23 1893 | T-shaped brad fastener with looped bends | Riverdale NY address |
+| US 731,598 | Jun 23 1903 | Spring Clip ("Rinklip") — J. B. Hale credited as actual inventor | — |
+| US 857,748 | Jun 25 1907 | Trough-shaped blade fastener | Late career |
+
+Three distinct presses across his career: **1867 Fastener Press**,
+**1879 Single-Stroke Staple Press No. 1**, **1882 Staple Press No. 2**.
+Everything else is a fastener piece, a design patent on a fastener, or
+a punch. There is **no documented fourth press form** in McGill's
+patent record.
+
+## 10. Patent-expiration anchors and the 1891 invalidation
+
+Under the 1861 Patent Act, US utility patents ran 17 years from issue.
+So:
+
+- **US 212,316** (Feb 18 1879) expires **Feb 18 1896**
+- **US 252,841** (Jan 24 1882) expires **Jan 24 1899**
+
+Meaning: **after Feb 1896 any foundry could legally cast the No. 1 form**;
+after Jan 1899, the No. 2.
+
+The earlier invalidation was *McGill Fastener Company v. Universal Paper
+Fastener Co.* (1891), which voided **US 162,183** (1875) and **US 337,182**
+(1886) for "want of novelty" (per Smithsonian Lemelson Center, Alison
+Oswald, 2014). That invalidation hit McGill's *fastener-piece* patents,
+not the press patents — but signaled that the "McGill-pattern" designs
+were becoming fair game for copyists.
+
+The compound effect: by the end of 1899, *every* McGill press form was
+out of patent protection. Competitors could cast copies. Non-McGill
+foundries could put their own decoration on the same frame and sell it
+legally. **Post-1899, unmarked tabletop McGill-pattern staplers can't
+be assumed to be McGill production.**
+
+### Implications for P1–P7 dating
+
+1. **If a device bears clear McGill base-lettering** ("MCGILL'S PATENT
+   SINGLE STROKE STAPLE PRESS PATD FEB 18 1879") — high confidence
+   authentic McGill production.
+2. **If decoration suggests post-1896 production and no base-lettering
+   is visible** — could be authentic McGill Fastener Co. (1899+), a
+   competitor copy, or an unmarked HBH run-off.
+3. **P5's S-scroll+ball-finial frame is a plausible post-1896 copyist
+   variant** — worth specifically testing: if the base has no McGill
+   lettering, it may be a post-expiration unmarked foundry casting,
+   not a McGill.
+
+## 11. Corrected manufacturing / business / legal timeline
+
+Round 4 described an HBH→McGill Fastener Co. transition in 1899. Round 5
+corrects and expands this:
+
+| Year | Event | Primary source |
+|---|---|---|
+| 1844 Mar 9 | G. W. McGill born, Lancaster, Ohio | Smithsonian Lemelson |
+| 1866 | First brass paper fastener patented (US 56,587) | USPTO |
+| 1876 | 20-year manufacturing contract with Holmes, Booth & Haydens | American Stationer |
+| 1876 | Won first-prize medal at Philadelphia Centennial — for the **1867 Fastener Press + 1874 Punch + 1866 fastener**, NOT the Staple Press (which didn't exist yet) | Timing logic |
+| 1878 | Single-Stroke Staple Press No. 1 introduced | American Stationer |
+| 1879 Feb 18 | Staple Press No. 1 patented (US 212,316) | USPTO |
+| 1881 Mar | McGill files UK Chancery Court action against Novelty Paper Fastener in England | American Stationer |
+| 1881–1882 | US litigation peak against Philadelphia Novelty Mfg. Co. | American Stationer |
+| 1882 Jan 24 | Staple Press No. 2 patented (US 252,841) | USPTO |
+| 1891 | **McGill Fastener Co. v. Universal Paper Fastener** — US 162,183 and US 337,182 voided for "want of novelty" | Smithsonian Lemelson |
+| 1893 | **Lawrence v. McGill** — Lawrence defends on "invented in England" prior-art grounds; outcome not found in open sources | Smithsonian Lemelson |
+| **1896 Feb 18** | **US 212,316 Staple Press No. 1 patent expires** (17-year term) | USPTO term rules |
+| ~1896 | HBH 20-year contract expires | Contract arithmetic |
+| **1899 Jan** | **McGill Fastener Company incorporated** in New York; McGill sues HBH for unpaid contract royalties, wins **$20,315.96**; ends the HBH relationship | American Stationer |
+| **1899 Jan 24** | **US 252,841 Staple Press No. 2 patent expires** | USPTO term rules |
+| 1899+ | **McGill Fastener Co.** (McGill's own firm) manufactures fasteners/presses directly | Company incorporation record |
+| 1903 | Rinklip / Spring Clip patent (US 731,598) | USPTO |
+| 1913 | Staple Press No. 1 still advertised — 34 years after introduction | Period advertising |
+| 1917 | George W. McGill dies | Smithsonian Lemelson |
+
+### UK Chancery 1881 — new research thread
+
+The March 1881 UK Chancery filing against the Novelty Paper Fastener in
+England is the clearest documented UK-legal-proceeding record for McGill.
+Searching the **UK National Archives Chancery records (C-series)** for
+*McGill v. ?* (the defendant name would be the UK importer of the US-made
+Novelty device, or the UK partner) around March 1881 would likely surface
+the **UK manufacturer of the Eagle Staple Press** as part of the pleadings —
+since McGill's case would have had to name his own UK-licensed producer
+in establishing his market interest.
+
+## 12. Final per-press attribution — Round-5 refinement
+
+Unchanged from Round 4 except where new evidence bears:
+
+| ID | Round-4 attribution | Round-5 refinement |
+|---|---|---|
+| P1 | McGill No. 1 "fancy" variant, 1879–1885 | Unchanged; decoration consistent with pre-1891 HBH "exhibition-grade" Waterbury japanning shop work |
+| P2 | McGill No. 2 candidate | Unchanged; octagonal-plunger-case test still diagnostic |
+| P3 | McGill No. 1 standard | Unchanged |
+| P4 | McGill No. 1 with stripped japan OR HBH brass premium OR UK Eagle | **New possibility: post-1899 McGill Fastener Co. production** (different aesthetic from HBH-era). A brass-bodied McGill Fastener Co. variant would fit the 1899–1917 McGill's-own-factory period. Magnet test still diagnostic first |
+| P5 | McGill No. 1 ornate variant OR 1867 Fastener Press | **Strong possibility: post-1896 patent-expired foundry copy**, non-McGill, using the same spring-plunger mechanism. The S-scroll+ball-finial frame does not appear in McGill's 4 documented 1879 embodiments, Scaglione's guide, or any trade-catalog image I can locate. Base-lettering absence would corroborate |
+| P6 | McGill No. 1 standard, HBH | Unchanged — high confidence |
+| P7 | McGill No. 1 standard, HBH, Scaglione provenance | Unchanged — high confidence |
+
+**Confidence calibration:** P6 and P7 HIGH. P1–P3 MEDIUM. P4 and P5 are the
+genuinely interesting cases — both could be post-expiration, post-HBH
+productions, which would be the most historically-interesting finding of
+the exercise.
+
+## 13. Round-5 research gaps worth directing Scaglione to
+
+1. **UK National Archives — Chancery Division** — *McGill v. ?* March 1881
+   (Class C14 or C15 depending on exact filing). Would identify the
+   UK manufacturer of the Eagle Staple Press.
+2. **Federal Reporter** — *McGill Fastener Co. v. Universal Paper
+   Fastener* (1891) and *Lawrence v. McGill* (1893) — physical
+   Federal Reporter volumes. Would give the specific English
+   prior-art patent citation and the invalidation grounds.
+3. **McGill Fastener Company 1899–1917 advertising** — was there a
+   post-1899 catalog or trade-journal spread? A brass-finish or
+   differently-decorated variant would corroborate P4.
+4. **1876 Centennial Commission judges' reports** — the specific
+   McGill entry; would also confirm the medal was for the Fastener
+   Press, not the Staple Press.
+5. **Patent USD 19,220 (1889)** drawing — is this a fastener-piece
+   design or could it relate to press ornament?
+
+---
+
+## Round-5 sources (net-new)
+
+- [US 162,183 — McGill metallic paper-fastener improvement, 1875 (voided 1891)](https://patents.google.com/patent/US162183)
+- [US 337,182 — McGill regular flathead "T" paper fastener, 1886 (voided 1891)](https://patents.google.com/patent/US337182)
+- [USD 19,220 — McGill design patent for a fastener, 1889](https://patents.google.com/patent/USD19220)
+- [US 429,943 — McGill ring-loop display fastener, 1890](https://patents.google.com/patent/US429943)
+- [US 498,138 — McGill T-shaped brad fastener, 1893 (Riverdale NY)](https://patents.google.com/patent/US498138)
+- [US 731,598 — McGill spring clip (Rinklip), 1903 (J.B. Hale credited)](https://patents.google.com/patent/US731598)
+- [US 857,748 — McGill trough-shaped blade fastener, 1907](https://patents.google.com/patent/US857748)
+- [Smithsonian Lemelson Center — Alison Oswald, "Fascinating Fasteners" 2014-08-07](https://invention.si.edu/invention-stories/fascinating-fasteners) (source for 1891 *McGill v. Universal* invalidation and 1901 *Holmes v. McGill* royalties case)
+- [Ballotpedia — Supreme Court cases 1890–1899](https://ballotpedia.org/Cases_decided_by_the_Supreme_Court_of_the_United_States,_1890-1899) (context for the Federal Reporter and patent-law environment McGill was operating in)
