@@ -73,9 +73,28 @@ def validate_response(response, schema_name):
     if not isinstance(response, dict):
         return False, [f"Response is {type(response).__name__}, expected dict"]
 
-    # Check for raw_text wrapper (adapter couldn't parse JSON)
+    # Check for raw_text wrapper (adapter couldn't parse JSON).
+    # Salvage attempt: some models (Gemini, You.com) return valid JSON inside raw_text
+    # wrapped in markdown fences. Parse and promote before rejecting.
     if "raw_text" in response and len(response) == 1:
-        return False, ["Response is unparsed raw_text — model didn't return valid JSON"]
+        raw = str(response.get("raw_text", "")).strip()
+        if raw.startswith("```"):
+            parts = raw.split("```", 2)
+            raw = parts[1] if len(parts) > 1 else parts[0]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip().rstrip("`").strip()
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                # Mutate in place — promote parsed content to top level
+                response.clear()
+                response.update(parsed)
+                # Fall through to schema check below
+            else:
+                return False, ["Response raw_text parsed but not a dict"]
+        except (json.JSONDecodeError, ValueError):
+            return False, ["Response is unparsed raw_text — model didn't return valid JSON"]
 
     schema = EXPECTED_SCHEMAS.get(schema_name)
     if not schema:
