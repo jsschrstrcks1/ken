@@ -2,40 +2,40 @@
   "models": {
     "gpt": {
       "cruising": {
-        "total_calls": 12,
-        "successful_responses": 12,
+        "total_calls": 14,
+        "successful_responses": 14,
         "format_failures": 0,
-        "total_cost": 0.1288,
+        "total_cost": 0.1488,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "gemini": {
       "cruising": {
-        "total_calls": 40,
-        "successful_responses": 40,
+        "total_calls": 42,
+        "successful_responses": 42,
         "format_failures": 0,
-        "total_cost": 0.0457,
+        "total_cost": 0.0503,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "perplexity": {
       "cruising": {
-        "total_calls": 40,
-        "successful_responses": 40,
+        "total_calls": 42,
+        "successful_responses": 42,
         "format_failures": 0,
-        "total_cost": 0.2953,
+        "total_cost": 0.3108,
         "avg_quality": 0.5,
         "quality_samples": []
       }
     },
     "youdotcom": {
       "cruising": {
-        "total_calls": 39,
-        "successful_responses": 39,
+        "total_calls": 41,
+        "successful_responses": 41,
         "format_failures": 0,
-        "total_cost": 0.2535,
+        "total_cost": 0.2795,
         "avg_quality": 0.5,
         "quality_samples": []
       }
@@ -51,5 +51,5 @@
       }
     }
   },
-  "runs": 143
+  "runs": 151
 }
