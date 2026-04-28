@@ -129,7 +129,8 @@ def test_takeover_warns_about_unclean_previous(tmp_repo):
 
 def test_takeover_no_warning_after_complete(tmp_repo):
     join("ports", root=tmp_repo)
-    complete("ports", summary="done", root=tmp_repo)
+    # Bypass the quality gate; we're testing takeover semantics, not handoff quality.
+    complete("ports", summary="done", force=True, root=tmp_repo)
     s2 = join("ports", force=True, root=tmp_repo)
     assert not any("uncleanly" in w for w in s2["warnings"])
 
@@ -206,14 +207,15 @@ def test_beat_consumes_precompact_marker(tmp_repo):
 def test_complete_sets_ended_cleanly(tmp_repo):
     join("ports", root=tmp_repo)
     beat("ports", action="x", root=tmp_repo)
-    s = complete("ports", summary="done", root=tmp_repo)
+    # Bypass quality gate; this test is about the cycle, not the gate.
+    s = complete("ports", summary="done", force=True, root=tmp_repo)
     assert s["ended_cleanly"] is True
     assert "completed_at" in s
 
 
 def test_complete_archives_markdown(tmp_repo):
     join("ports", root=tmp_repo)
-    complete("ports", summary="finished work", root=tmp_repo)
+    complete("ports", summary="finished work", force=True, root=tmp_repo)
     cdir = family_dir("ports", tmp_repo) / "completed"
     archives = list(cdir.glob("ports_*_complete.md"))
     assert len(archives) == 1
@@ -433,7 +435,10 @@ def test_cli_new_id(capsys):
 def test_cli_join_then_beat_then_complete(tmp_repo, capsys):
     assert main(["join", "--family", "ports", "--goal", "hi"]) == 0
     assert main(["beat", "--family", "ports", "--action", "did stuff"]) == 0
-    assert main(["complete", "--family", "ports", "--summary", "fin"]) == 0
+    # --force bypasses the quality gate (this test exercises the cycle,
+    # not the gate; see test_complete_blocks_on_low_quality below).
+    assert main(["complete", "--family", "ports", "--summary", "fin",
+                 "--force"]) == 0
     state = read_state("ports", tmp_repo)
     assert state["ended_cleanly"] is True
 
@@ -537,3 +542,208 @@ def test_cli_recover_brief_flag(tmp_repo, capsys):
     parsed = json.loads(capsys.readouterr().out)
     assert "session_id" not in parsed
     assert parsed["next_step"] == "do X"
+
+
+# ─── Validate (Stage 1.5) ───────────────────────────────────────────────
+
+from keeper.checkpoint import validate
+
+
+def _populate_quality_state(family: str, root: Path) -> None:
+    """Bring quality from ~25 to ~100 for tests that need a passing state.
+
+    Creates a real file inside tmp_repo so the files_in_play lint passes.
+    """
+    real_file = root / "fake_module.py"
+    real_file.write_text("# placeholder for tests\n")
+    join(family, goal="ship Stage 1.5", root=root)
+    beat(family,
+         action="implemented validate",
+         phase="implementation",
+         next_step="run tests",
+         files=["fake_module.py"],
+         decision=("rubric matches CONTINUITY", "validated by orchestra"),
+         root=root)
+
+
+def test_validate_empty_state_low_score(tmp_repo):
+    join("ports", root=tmp_repo)  # only goal=""; no beats
+    r = validate("ports", root=tmp_repo)
+    # Branch likely auto-set by git; everything else missing.
+    assert r["score"] <= 25
+    assert r["ok"] is False
+
+
+def test_validate_full_state_passes(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    r = validate("ports", root=tmp_repo)
+    assert r["score"] >= 90
+    assert r["ok"] is True
+    assert all(l["ok"] for l in r["lints"])
+
+
+def test_validate_missing_family(tmp_repo):
+    r = validate("nope", root=tmp_repo)
+    assert r["missing"] is True
+    assert r["ok"] is False
+
+
+def test_validate_threshold_configurable(tmp_repo):
+    join("ports", root=tmp_repo)  # low quality
+    r_low = validate("ports", threshold=20, root=tmp_repo)
+    r_high = validate("ports", threshold=80, root=tmp_repo)
+    # All lints should pass (fresh state); score difference matters
+    assert r_low["score"] == r_high["score"]
+    # Lower threshold may pass; higher will fail
+    assert r_high["ok"] is False
+
+
+def test_validate_lint_branch_drift(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    # Tamper: change the branch in family.json
+    p = family_json_path("ports", tmp_repo)
+    state = json.loads(p.read_text())
+    state["branch"] = "definitely-not-the-current-branch"
+    p.write_text(json.dumps(state))
+    r = validate("ports", root=tmp_repo)
+    drift = next(l for l in r["lints"] if l["name"] == "branch drift")
+    assert drift["ok"] is False
+    assert "definitely-not-the-current-branch" in drift["detail"]
+
+
+def test_validate_lint_files_missing(tmp_repo):
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", files=["does-not-exist.py"], root=tmp_repo)
+    r = validate("ports", root=tmp_repo)
+    f = next(l for l in r["lints"] if l["name"] == "files_in_play exist")
+    assert f["ok"] is False
+    assert "does-not-exist.py" in f["detail"]
+
+
+def test_validate_lint_journal_state_synced(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    r = validate("ports", root=tmp_repo)
+    j = next(l for l in r["lints"] if l["name"] == "journal/state synced")
+    assert j["ok"] is True
+    # Tamper: write the wrong last_event_id
+    p = family_json_path("ports", tmp_repo)
+    state = json.loads(p.read_text())
+    state["last_event_id"] = "deadbeef"
+    p.write_text(json.dumps(state))
+    r2 = validate("ports", root=tmp_repo)
+    j2 = next(l for l in r2["lints"] if l["name"] == "journal/state synced")
+    assert j2["ok"] is False
+
+
+def test_validate_lint_heartbeat_stale(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    hb = heartbeat_path("ports", tmp_repo)
+    old = hb.stat().st_mtime - (2 * 3600)
+    os.utime(hb, (old, old))
+    r = validate("ports", root=tmp_repo)
+    h = next(l for l in r["lints"] if l["name"] == "heartbeat fresh")
+    assert h["ok"] is False
+
+
+def test_validate_lint_completed_archive_integrity(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    # Drop a malformed file in completed/
+    cdir = family_dir("ports", tmp_repo) / "completed"
+    cdir.mkdir(parents=True, exist_ok=True)
+    (cdir / "junk.md").write_text("no header here at all", encoding="utf-8")
+    r = validate("ports", root=tmp_repo)
+    a = next(l for l in r["lints"] if l["name"] == "completed/ archives")
+    assert a["ok"] is False
+    assert "junk.md" in a["detail"]
+
+
+def test_validate_breakdown_includes_hints(tmp_repo):
+    join("ports", root=tmp_repo)
+    r = validate("ports", root=tmp_repo)
+    next_step = next(b for b in r["breakdown"] if b["key"] == "next_step")
+    assert next_step["ok"] is False
+    assert "next-step" in next_step["hint"]
+
+
+# ─── Complete strict-by-default gate ────────────────────────────────────
+
+def test_complete_blocks_on_low_quality(tmp_repo, capsys):
+    join("ports", root=tmp_repo)  # too sparse
+    with pytest.raises(SystemExit) as exc_info:
+        complete("ports", root=tmp_repo)
+    assert exc_info.value.code != 0
+    err = capsys.readouterr().err
+    assert "refusing to complete" in err
+
+
+def test_complete_passes_when_quality_high(tmp_repo):
+    _populate_quality_state("ports", tmp_repo)
+    s = complete("ports", summary="done", root=tmp_repo)
+    assert s["ended_cleanly"] is True
+
+
+def test_complete_force_bypasses_gate(tmp_repo):
+    join("ports", root=tmp_repo)  # too sparse
+    s = complete("ports", summary="emergency", force=True, root=tmp_repo)
+    assert s["ended_cleanly"] is True
+
+
+def test_complete_threshold_lowering_passes(tmp_repo):
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", action="x", root=tmp_repo)
+    # Default threshold (60) would fail; lower it to 25 to pass
+    s = complete("ports", summary="ok", threshold=25, root=tmp_repo)
+    assert s["ended_cleanly"] is True
+
+
+# ─── CLI for validate ───────────────────────────────────────────────────
+
+def test_cli_validate_text_output(tmp_repo, capsys):
+    _populate_quality_state("ports", tmp_repo)
+    capsys.readouterr()
+    rc = main(["validate", "--family", "ports"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Quality:" in out
+    assert "Lint:" in out
+    assert "OK" in out
+
+
+def test_cli_validate_json_output(tmp_repo, capsys):
+    _populate_quality_state("ports", tmp_repo)
+    capsys.readouterr()
+    rc = main(["validate", "--family", "ports", "--json"])
+    assert rc == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert "score" in parsed
+    assert "lints" in parsed
+    assert parsed["ok"] is True
+
+
+def test_cli_validate_strict_exits_nonzero_on_fail(tmp_repo, capsys):
+    join("ports", root=tmp_repo)  # too sparse
+    rc = main(["validate", "--family", "ports", "--strict"])
+    assert rc != 0
+
+
+def test_cli_validate_strict_exits_zero_on_pass(tmp_repo, capsys):
+    _populate_quality_state("ports", tmp_repo)
+    rc = main(["validate", "--family", "ports", "--strict"])
+    assert rc == 0
+
+
+def test_cli_complete_strict_blocks(tmp_repo, capsys):
+    main(["join", "--family", "ports"])
+    main(["beat", "--family", "ports", "--action", "x"])
+    capsys.readouterr()
+    rc = main(["complete", "--family", "ports", "--summary", "fin"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "refusing to complete" in err
+
+
+def test_cli_complete_force_bypasses(tmp_repo, capsys):
+    main(["join", "--family", "ports"])
+    main(["beat", "--family", "ports", "--action", "x"])
+    rc = main(["complete", "--family", "ports", "--summary", "fin", "--force"])
+    assert rc == 0

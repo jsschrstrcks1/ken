@@ -608,10 +608,16 @@ def complete(
     family: str,
     *,
     summary: str = "",
+    force: bool = False,
+    threshold: int | None = None,
     root: Path | None = None,
 ) -> dict:
-    """Graceful end. Sets ended_cleanly=true; archives a markdown
-    summary; releases the family for the next session."""
+    """Graceful end. Sets ended_cleanly=true; archives a markdown summary.
+
+    Runs `validate --strict` first by default: refuses to complete if
+    quality < threshold OR any lint fails. Use force=True to bypass
+    (equivalent to `keeper complete --force`).
+    """
     _validate_family(family)
     root = root or repo_root()
     state = read_state(family, root)
@@ -620,6 +626,20 @@ def complete(
             f"[keeper] no family '{family}' to complete in this repo.\n"
         )
         raise SystemExit(EXIT_NOT_FOUND)
+
+    if threshold is None:
+        threshold = QUALITY_THRESHOLD_DEFAULT
+    if not force:
+        report = validate(family, threshold=threshold, root=root)
+        if not report["ok"]:
+            sys.stderr.write(
+                f"[keeper] refusing to complete: quality {report['score']}/100 "
+                f"(threshold {threshold}) or a lint failed.\n"
+                f"  Run `keeper validate --family {family}` to see details.\n"
+                f"  Bypass with `keeper complete --force`.\n"
+            )
+            raise SystemExit(EXIT_USAGE)
+
     sess = state["session_id"]
     token = state["instance_token"]
     eid = journal_append(family, "complete",
@@ -800,6 +820,226 @@ def _render_recovery_text(state: dict) -> str:
     return "\n".join(L)
 
 
+# ─── Validate: quality score + lint checks (Stage 1.5) ─────────────────
+
+QUALITY_RUBRIC = (
+    # (key, points, predicate, hint_when_missing)
+    ("goal",          20, lambda s: bool(s.get("goal", "").strip()),
+        'set with `keeper join --goal "..."` (or beat --next-step then re-join)'),
+    ("next_step",     20, lambda s: bool(s.get("next_step", "").strip()),
+        'set with `keeper beat --next-step "..."`'),
+    ("decisions",     15, lambda s: bool(s.get("decisions") or []),
+        'log one with `keeper beat --decision "what" "why"`'),
+    ("status_arrays", 15, lambda s: bool(
+        (s.get("working") or []) or (s.get("broken") or []) or (s.get("blocked") or [])
+    ), 'record progress with `keeper beat --action "..."`'),
+    ("files_in_play", 10, lambda s: bool(s.get("files_in_play") or []),
+        'set with `keeper beat --files a.py b.py`'),
+    ("phase",         10, lambda s: bool(s.get("phase", "").strip()),
+        'set with `keeper beat --phase "..."`'),
+    ("branch",        10, lambda s: bool(s.get("branch")),
+        '(auto-detected if cwd is a git checkout)'),
+)
+QUALITY_THRESHOLD_DEFAULT = 60
+
+
+def _score_quality(state: dict) -> tuple[int, list[dict]]:
+    breakdown = []
+    total = 0
+    for key, pts, pred, hint in QUALITY_RUBRIC:
+        ok = pred(state)
+        if ok:
+            total += pts
+        breakdown.append({
+            "key": key, "points": pts, "ok": ok,
+            "hint": hint if not ok else None,
+        })
+    return total, breakdown
+
+
+def _lint_branch_drift(family: str, state: dict, root: Path) -> dict:
+    expected = state.get("branch")
+    actual = detect_branch(root)
+    ok = (expected is None) or (actual == expected)
+    return {
+        "name": "branch drift",
+        "ok": ok,
+        "detail": None if ok else f"family.json says {expected!r} but git HEAD is {actual!r}",
+    }
+
+
+def _lint_files_in_play_exist(family: str, state: dict, root: Path) -> dict:
+    files = state.get("files_in_play") or []
+    missing = [f for f in files if not (root / f).exists()]
+    return {
+        "name": "files_in_play exist",
+        "ok": not missing,
+        "detail": None if not missing else f"missing: {', '.join(missing)}",
+    }
+
+
+def _lint_journal_state_synced(family: str, state: dict, root: Path) -> dict:
+    last_in_state = state.get("last_event_id")
+    last_in_journal = _last_event_id(family, root)
+    ok = last_in_state == last_in_journal
+    return {
+        "name": "journal/state synced",
+        "ok": ok,
+        "detail": None if ok else (
+            f"state.last_event_id={last_in_state!r} but "
+            f"journal tail is {last_in_journal!r}"
+        ),
+    }
+
+
+def _lint_heartbeat_fresh(family: str, state: dict, root: Path) -> dict:
+    age = heartbeat_age(family, root)
+    if age is None:
+        return {"name": "heartbeat fresh", "ok": False,
+                "detail": "no heartbeat file"}
+    ok = age <= STALE_WALL_SECONDS
+    return {
+        "name": "heartbeat fresh",
+        "ok": ok,
+        "detail": None if ok else f"{age/60:.1f}min ago (stale at {STALE_WALL_SECONDS/60:.0f}min)",
+    }
+
+
+def _lint_worktree_match(family: str, state: dict, root: Path) -> dict:
+    expected = state.get("worktree")
+    actual = detect_worktree(root)
+    # Both None is fine (not in a worktree).
+    if expected is None and actual is None:
+        return {"name": "worktree match", "ok": True, "detail": None}
+    ok = expected == actual
+    return {
+        "name": "worktree match",
+        "ok": ok,
+        "detail": None if ok else f"family.json says {expected!r}, current is {actual!r}",
+    }
+
+
+def _lint_instance_token_consistent(family: str, state: dict, root: Path) -> dict:
+    """Latest journal entry's instance_token must match family.json (i.e.,
+    nobody appended journal entries with a different token after the
+    current generation took over)."""
+    state_token = state.get("instance_token")
+    state_gen = state.get("generation")
+    tail = journal_tail(family, n=20, root=root)
+    # Only entries from the current generation matter (a takeover legitimately
+    # bumps the token). We approximate by looking at entries since the latest
+    # `forced_takeover` event.
+    cutoff = -1
+    for i, e in enumerate(tail):
+        if e.get("type") == "forced_takeover":
+            cutoff = i
+    relevant = tail[cutoff + 1:] if cutoff >= 0 else tail
+    bad = [e for e in relevant if e.get("instance_token") != state_token]
+    return {
+        "name": "instance_token consistent",
+        "ok": not bad,
+        "detail": None if not bad else (
+            f"{len(bad)} journal entry(ies) in current generation "
+            f"have a token != family.json:instance_token"
+        ),
+    }
+
+
+def _lint_completed_archive_integrity(family: str, state: dict, root: Path) -> dict:
+    cdir = completed_dir(family, root)
+    if not cdir.exists():
+        return {"name": "completed/ archives", "ok": True,
+                "detail": "no archives yet"}
+    bad = []
+    for md in sorted(cdir.glob("*.md")):
+        try:
+            head = md.read_text(encoding="utf-8")[:500]
+        except OSError:
+            bad.append(md.name + " (unreadable)")
+            continue
+        if not head.startswith("# "):
+            bad.append(md.name + " (missing H1)")
+        elif "**Session:**" not in head:
+            bad.append(md.name + " (missing **Session:** header)")
+    return {
+        "name": "completed/ archives",
+        "ok": not bad,
+        "detail": None if not bad else f"malformed: {', '.join(bad)}",
+    }
+
+
+# Two lint checks from the plan that are deferred:
+#   • family.json checksum: the schema doesn't carry a checksum field.
+#     Atomic writes + the .backup safety net cover the same failure mode
+#     in practice. Add only if a real corruption is observed in the wild.
+#   • orphan decisions referencing missing files: the decision schema
+#     {what, why, ...} doesn't have explicit file refs. Reinterpreting as
+#     "files_in_play that don't exist" is already covered above.
+LINTS = (
+    _lint_branch_drift,
+    _lint_files_in_play_exist,
+    _lint_journal_state_synced,
+    _lint_heartbeat_fresh,
+    _lint_worktree_match,
+    _lint_instance_token_consistent,
+    _lint_completed_archive_integrity,
+)
+
+
+def validate(
+    family: str,
+    *,
+    threshold: int = QUALITY_THRESHOLD_DEFAULT,
+    root: Path | None = None,
+) -> dict:
+    """Score quality + run lint checks. Returns
+    {score, threshold, breakdown, lints, ok}.
+    `ok` is True iff score >= threshold AND every lint passed.
+    """
+    _validate_family(family)
+    root = root or repo_root()
+    state = read_state(family, root)
+    if state is None:
+        return {
+            "score": 0, "threshold": threshold,
+            "breakdown": [], "lints": [],
+            "ok": False, "missing": True,
+        }
+    score, breakdown = _score_quality(state)
+    lints = [check(family, state, root) for check in LINTS]
+    all_lints_ok = all(l["ok"] for l in lints)
+    return {
+        "score": score,
+        "threshold": threshold,
+        "breakdown": breakdown,
+        "lints": lints,
+        "ok": (score >= threshold) and all_lints_ok,
+        "missing": False,
+    }
+
+
+def _print_validate_report(family: str, report: dict) -> None:
+    print(f"=== keeper validate — family '{family}' ===")
+    print()
+    print(f"Quality: {report['score']}/100  (threshold {report['threshold']})")
+    for b in report["breakdown"]:
+        mark = "✓" if b["ok"] else "✗"
+        line = f"  {mark} {b['key']:<14} ({b['points']:>2})"
+        if b.get("hint"):
+            line += f"  — {b['hint']}"
+        print(line)
+    print()
+    print("Lint:")
+    for l in report["lints"]:
+        mark = "✓" if l["ok"] else "✗"
+        line = f"  {mark} {l['name']}"
+        if l.get("detail"):
+            line += f"  — {l['detail']}"
+        print(line)
+    print()
+    print("OK" if report["ok"] else "FAIL")
+
+
 def status(
     family: str,
     *,
@@ -848,9 +1088,11 @@ USAGE
                   [--decision "what" "why"] [--files a.py b.py]
                   [--next-step "..."] [--phase "..."] [--note "..."]
                   [--auto] [--reason "..."]
-  keeper complete [--family <name>] [--summary "..."]
+  keeper complete [--family <name>] [--summary "..."] [--force]
+                  [--threshold N]
   keeper recover  [--family <name>] [--json] [--brief]
   keeper status   [--family <name>]
+  keeper validate [--family <name>] [--strict] [--threshold N] [--json]
   keeper new-id
   keeper help
 
@@ -942,6 +1184,19 @@ def main(argv: list[str] | None = None) -> int:
     p_complete = sub.add_parser("complete", add_help=False)
     p_complete.add_argument("--family")
     p_complete.add_argument("--summary", default="")
+    p_complete.add_argument("--force", action="store_true",
+                            help="bypass validate --strict gate")
+    p_complete.add_argument("--threshold", type=int,
+                            default=QUALITY_THRESHOLD_DEFAULT,
+                            help=f"quality threshold (default {QUALITY_THRESHOLD_DEFAULT})")
+
+    p_validate = sub.add_parser("validate", add_help=False)
+    p_validate.add_argument("--family")
+    p_validate.add_argument("--strict", action="store_true",
+                            help="exit non-zero if not OK")
+    p_validate.add_argument("--threshold", type=int,
+                            default=QUALITY_THRESHOLD_DEFAULT)
+    p_validate.add_argument("--json", action="store_true")
 
     p_recover = sub.add_parser("recover", add_help=False)
     p_recover.add_argument("--family")
@@ -996,8 +1251,23 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "complete":
             family = _resolve_family(args.family)
-            complete(family, summary=args.summary)
+            complete(family, summary=args.summary,
+                     force=args.force, threshold=args.threshold)
             print(f"[keeper] completed family '{family}'")
+            return EXIT_OK
+
+        if args.cmd == "validate":
+            family = _resolve_family(args.family)
+            report = validate(family, threshold=args.threshold)
+            if report.get("missing"):
+                sys.stderr.write(f"[keeper] no family '{family}'\n")
+                return EXIT_NOT_FOUND
+            if args.json:
+                print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
+            else:
+                _print_validate_report(family, report)
+            if args.strict and not report["ok"]:
+                return EXIT_USAGE
             return EXIT_OK
 
         if args.cmd == "recover":
