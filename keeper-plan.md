@@ -1,6 +1,6 @@
 # keeper — design doc
 
-**Status:** design frozen pending CONTINUITY spike. No code yet.
+**Status:** design frozen post-orchestra. No code yet.
 **Goal:** survive seamless thread handoff across Claude Code sessions; family-scoped, primarily local FS, optional remote later.
 
 ---
@@ -18,7 +18,7 @@ User's specific shape: ~95% laptop, ~5% phone. Sessions group into named familie
 
 ## How we got here (review process)
 
-5-model chain (Gemini → Perplexity → You.com → GPT → Grok) + mclaude code spike. Everything below survived all six rounds.
+9 review rounds: 5-model chain (Gemini → Perplexity → You.com → GPT → Grok) + mclaude spike + CONTINUITY spike + memory-tool spike (5 sources) + orchestra triad. Orchestra delivered an unusually unified verdict: **trim, don't enhance.** Stage 1 is now 4 commands, not 11.
 
 ---
 
@@ -144,7 +144,11 @@ CREDITS.md will reference mclaude (MIT) by name with a one-line explanation per 
 
 ---
 
-## Stage 1 — FS foundation (~3-4 hours)
+## Stage 1 — minimum viable (~2 hours)
+
+**Orchestra-trimmed scope.** Five commands (join/beat/complete/recover/help+new-id), the bare minimum that ships zero-seam thread handoff. Validate / snapshot / install-hooks / families / scan / clean-locks / validate-journal all defer to Stage 1.5. The acceptance test passes with this scope alone.
+
+## Stage 1 (original spec retained for reference) — FS foundation (~3-4 hours)
 
 **New repo** name TBD (candidates: `keeper`, `claude-keeper`, `pulse-keeper`, `tether`, `relay`). Pip-installable. License MIT. Stdlib-only core.
 
@@ -348,11 +352,111 @@ Two new commands:
 9. **Auto-escalation guarantee.** A full snapshot is written to `completed/snapshots/` every N beats (default 15), so crash recovery is bounded.
 10. **Handoff completeness gate.** `keeper complete` checks score; refuses if below threshold unless `--force`.
 11. **`ended_cleanly` flag.** Set true on `complete`; checked on next `join` to log "previous session ended uncleanly" in journal.
+12. **`family.json.backup` safety net.** Before each atomic update, the prior generation's `family.json` is renamed to `family.json.backup`. If the primary fails to parse on read, fall back to `.backup` and log a warning. Bounded to ≤2 KB; only the immediately-prior generation is retained. (Orchestra blind-spot finding.)
+
+---
+
+---
+
+## Memory-tool spike findings (5 sources investigated)
+
+### Strategic finding: Anthropic shipped Auto Memory (Claude Code v2.1.59+)
+
+[Anthropic's official docs](https://code.claude.com/docs/en/memory) confirm a shipped feature: **Auto Memory** writes to `~/.claude/projects/<project>/memory/MEMORY.md` (+ topic files), auto-loaded first 200 lines / 25 KB at session start, persists across `/compact`. **This changes keeper's scope: keeper does NOT compete with Auto Memory.**
+
+| Layer | Owns | Lives at | Lifecycle |
+|---|---|---|---|
+| Anthropic Auto Memory | What Claude has learned about this codebase | `~/.claude/projects/<project>/memory/MEMORY.md` | Persistent, weeks/months |
+| **keeper** | Active state of work in progress (lease, last action, decisions, files in play) | `.claude/state/families/<name>/family.json` (in-repo) | Bounded by session/thread |
+| CLAUDE.md | What user tells Claude to always do | `./CLAUDE.md` | Author-written, persistent |
+
+Keeper coexists; never writes to MEMORY.md. Optional read-only integration: `keeper recover --with-memory` prepends relevant MEMORY.md excerpts to the recovery brief.
+
+### Tools spiked
+
+| Tool | Verdict | What we lift |
+|---|---|---|
+| `adestefa/ccmem` (MCP server, SQLite) | Reject (SQLite path already excluded); pattern noted | Hook-based capture pattern |
+| `thedotmack/claude-mem` (Bun/TS, AGPL-3.0) | Reject (license incompatible) | None |
+| `hanfang/claude-memory-skill` (markdown, MIT) | **Closest philosophical fit** | (a) `me.md` → `~/.config/keeper/profile.json` for cross-family prefs; (b) atomic-entry rule for human-readable notes |
+| `coleam00/claude-memory-compiler` (Python uv, Karpathy LLM-KB) | Architecture overkill for us; hook names + lint pattern useful | (a) Exact hook names `SessionStart` / `PreCompact` / `SessionEnd`; (b) lint health-checks for `keeper validate` |
+| Anthropic Auto Memory (built-in) | **Coexist, do not replace** | (a) Don't duplicate scope; (b) `--with-memory` flag for `keeper recover` |
+
+### Concept #17: Hook integration (lifted from coleam00 + Anthropic docs; orchestra-revised)
+
+| Hook | Behavior |
+|---|---|
+| `SessionStart` | Read `KEEPER_FAMILY` env var. If set, auto-run `keeper join --family $KEEPER_FAMILY`. Else, if a stale family is detected by composed-staleness, prompt user. Else no-op. |
+| `PreCompact` | **Debounced.** Writes `.claude/state/families/<name>/precompact.pending` marker only. Does NOT immediately call `keeper beat`. The next `UserPromptSubmit` hook (or first manual `keeper beat`) consumes the marker and triggers the snapshot. If a second `PreCompact` fires within 10s, the timer resets. (Orchestra: mid-thought capture risks incomplete data.) |
+| `SessionEnd` | Run `keeper beat --auto --reason "session-end"` with retry-on-failure (3 attempts, exponential backoff: 1s/2s/4s). Do NOT auto-`complete` — that requires user intent. Stale family is detected on next session. |
+
+Provided as an installable hook bundle (`keeper install-hooks`) that writes the JSON config under `.claude/settings.json`. Defaults to **manual** invocation; auto-install requires explicit `--auto` flag. Idempotent; never overwrites existing hooks. Available in Stage 1.5, not Stage 1.
+
+### Concept #18: Repo-local default family (orchestra-revised from hanfang's profile pattern)
+
+Single repo-local file `.claude/keeper.conf` (gitignored; or committed if the team agrees on a default family):
+
+```ini
+default_family = ports
+```
+
+Used by `keeper join` — auto-suggest the family for THIS repo (still prompts; never silent).
+
+**No global `~/.config/keeper/profile.json`.** Personal-data fields (name, tz, editor) were dropped per orchestra: privacy concerns, feature creep, no contribution to zero-seam handoff goal.
+
+### Concept #19: Lint health checks for `keeper validate` (lifted from coleam00; orchestra-expanded)
+
+Beyond the 0–100 completeness score, `keeper validate` runs structural checks. Available in Stage 1.5.
+
+| Check | Detects |
+|---|---|
+| Branch drift | `family.json: branch != git rev-parse --abbrev-ref HEAD` (detects mid-session checkout) |
+| Stale `files_in_play` | Files listed but unmodified in last N hours AND not in current diff |
+| Orphan decisions | Decisions referencing files that no longer exist |
+| Journal-vs-state divergence | Journal latest `event_id` != `family.json: last_event_id` |
+| Heartbeat freshness | mtime of heartbeat file > 90 min |
+| Worktree mismatch | `family.json: worktree` differs from current `git rev-parse --git-common-dir` resolution |
+| **family.json corruption** | Computed checksum of canonical-form JSON differs from stored `checksum` field (orchestra add) |
+| **instance_token desync** | `family.json: instance_token` differs from any journal entry's token in current generation (orchestra add) |
+| **completed/ archive integrity** | Files in `completed/` are well-formed markdown with required header fields (orchestra add) |
+
+`keeper validate --strict` exits non-zero on any failure; `keeper complete` invokes `--strict` by default.
+
+---
+
+## CLI
+
+### Stage 1 — minimum viable (~2 hours, 5 commands)
+
+| Command | Purpose |
+|---|---|
+| `keeper join --family <name>` | Acquire lease + family.json + heartbeat. Auto-suggests from `.claude/keeper.conf`. **If a stale family is detected, prompts y/n inline** for takeover (orchestra F2; no separate recover-then-join flow). |
+| `keeper beat [--action] [--working-on] [--decision what why] [--auto] [--reason]` | Touch heartbeat + merge state into family.json. `--auto` used by hooks; consumes any `precompact.pending` marker. |
+| `keeper complete [--summary]` | Archive to completed/, release lease, set `ended_cleanly=true`. |
+| `keeper recover [--family] [--json]` | Recovery brief; `--json` for Claude priming. **No `--with-memory` flag** (orchestra O1). Falls back to `family.json.backup` if primary corrupt. |
+| `keeper help` | Usage + examples (orchestra F1). |
+| `keeper new-id` | Fresh session id (used internally by `join`; surfaced for scripting). |
+
+### Stage 1.5 — operational tooling (~2 hours, deferred)
+
+| Command | Purpose |
+|---|---|
+| `keeper status [--family]` | Current state + time-since-beat. |
+| `keeper scan` | Detect stale families via composed criterion. |
+| `keeper families [--all-repos]` | Active family registry. |
+| `keeper clean-locks` | Orphan-lease cleanup (Git index.lock style, explicit). |
+| `keeper validate [--family] [--strict]` | Quality score + 9 lint checks (incl. 3 orchestra adds). |
+| `keeper snapshot [--label]` | Manual full snapshot. Auto-fires every N beats. |
+| `keeper install-hooks [--auto]` | Hook installation in `.claude/settings.json`. Defaults to printing instructions; `--auto` writes the JSON. |
+| `keeper validate-journal --family <name>` | Linked-log integrity check (subset of `validate`; kept separate for scripting). |
+| `keeper memory-excerpt [--family]` | Optional separate command to fetch Auto Memory excerpts. **Replaces dropped `--with-memory` flag** (orchestra O1). Out of scope for v1; sketch only. |
 
 ---
 
 ## Status of this document
 
-- 7 review rounds applied (5-model chain + mclaude spike + CONTINUITY spike).
-- CREDITS.md will reference both `AnastasiyaW/mclaude` (10 concepts) and `duke-of-beans/CONTINUITY` (6 concepts) by name with one-line attribution per concept.
+- **9 review rounds applied** (5-model chain + mclaude spike + CONTINUITY spike + memory-tool spike covering 5 sources + orchestra triad).
+- **22 concepts lifted with attribution:** 10 from `AnastasiyaW/mclaude`, 6 from `duke-of-beans/CONTINUITY`, 3 from memory-tool spike, **3 from orchestra (backup file, debounced PreCompact, inline-takeover-prompt).**
+- Strategic clarification: keeper is session-continuity, not knowledge-accumulation. Auto Memory owns the latter.
+- **Stage 1 trimmed to 5 commands** per orchestra unanimous verdict (trim, don't enhance).
 - Ready to scaffold `keeper/` locally on user signal.
