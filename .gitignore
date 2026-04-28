@@ -7,3 +7,8 @@ orchestrator/state/
 
 # Per-repo session pulse + stale-session archive (managed by orchestrator/checkpoint.py)
 .claude/state/
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+*.egg-info/
