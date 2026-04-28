@@ -681,10 +681,16 @@ def recover(
     family: str,
     *,
     json_output: bool = False,
+    brief: bool = False,
     root: Path | None = None,
 ) -> dict | None:
-    """Print the recovery brief. JSON mode for Claude priming; text mode
-    for human reading. Falls back to .backup if primary corrupt."""
+    """Print the recovery brief. Falls back to .backup if primary corrupt.
+
+    Output forms:
+      • text (default)        — human reading; content first, metadata footer
+      • --json                — full state + _recovery_meta (incl. journal tail)
+      • --json --brief        — resume-essentials only (~10 fields), Claude-friendly
+    """
     _validate_family(family)
     root = root or repo_root()
     state = read_state(family, root)
@@ -704,29 +710,46 @@ def recover(
     }
 
     if json_output:
-        print(json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True))
+        if brief:
+            out = _brief_state(state)
+        else:
+            out = state
+        print(json.dumps(out, indent=2, ensure_ascii=False, sort_keys=True))
     else:
         print(_render_recovery_text(state))
     return state
 
 
+# Resume-essentials: what Claude needs to keep going. Excludes operator
+# metadata (session_id, instance_token, generation, host, pid, boot_id,
+# git_hash, schema, started_at) and excludes the journal_tail (noise).
+BRIEF_KEYS = (
+    "family", "goal", "phase",
+    "working", "broken", "blocked",
+    "decisions", "next_step", "files_in_play",
+    "ended_cleanly",
+)
+
+
+def _brief_state(state: dict) -> dict:
+    return {k: state.get(k) for k in BRIEF_KEYS}
+
+
 def _render_recovery_text(state: dict) -> str:
+    """Content-first format. Metadata footer at the bottom."""
     meta = state.get("_recovery_meta", {})
-    L = []
-    L.append(f"=== keeper recovery brief — family '{state.get('family')}' ===")
-    L.append(f"Session:    {state.get('session_id')}  (gen {state.get('generation')})")
-    if meta.get("heartbeat_age_seconds") is not None:
-        age_min = meta["heartbeat_age_seconds"] / 60
-        L.append(f"Heartbeat:  {age_min:.1f} min ago"
-                 + ("  [STALE]" if meta.get("stale") else ""))
-    L.append(f"Ended:      {'cleanly' if meta.get('ended_cleanly') else 'unclean / in-progress'}")
-    if state.get("branch"):
-        L.append(f"Branch:     {state.get('branch')}")
-    if state.get("phase"):
-        L.append(f"Phase:      {state['phase']}")
-    if state.get("goal"):
-        L.append(f"Goal:       {state['goal']}")
+    L: list[str] = []
+    L.append(f"=== keeper — family '{state.get('family')}' ===")
     L.append("")
+
+    # Content first
+    if state.get("goal"):
+        L.append(f"Goal:    {state['goal']}")
+    if state.get("phase"):
+        L.append(f"Phase:   {state['phase']}")
+    if state.get("goal") or state.get("phase"):
+        L.append("")
+
     for header, key in (
         ("Working", "working"),
         ("Broken", "broken"),
@@ -738,6 +761,8 @@ def _render_recovery_text(state: dict) -> str:
         L.append(f"{header}:")
         for it in items:
             L.append(f"  • {it}")
+        L.append("")
+
     decisions = state.get("decisions") or []
     if decisions:
         L.append("Decisions:")
@@ -746,15 +771,70 @@ def _render_recovery_text(state: dict) -> str:
                 L.append(f"  • {d.get('what','?')} — {d.get('why','')}")
             elif isinstance(d, list) and len(d) >= 2:
                 L.append(f"  • {d[0]} — {d[1]}")
+        L.append("")
+
     files = state.get("files_in_play") or []
     if files:
         L.append("Files in play:")
         for f in files:
             L.append(f"  • {f}")
-    if state.get("next_step"):
         L.append("")
-        L.append(f"NEXT STEP: {state['next_step']}")
+
+    if state.get("next_step"):
+        L.append(f">>> NEXT STEP: {state['next_step']}")
+        L.append("")
+
+    # Metadata footer
+    L.append("---")
+    L.append(
+        f"session={state.get('session_id')} gen={state.get('generation')} "
+        f"beats={state.get('beat_count', 0)}"
+    )
+    if meta.get("heartbeat_age_seconds") is not None:
+        age_min = meta["heartbeat_age_seconds"] / 60
+        marker = " [STALE]" if meta.get("stale") else ""
+        L.append(f"heartbeat={age_min:.1f}min ago{marker}  "
+                 f"ended_cleanly={meta.get('ended_cleanly')}")
+    if state.get("branch"):
+        L.append(f"branch={state.get('branch')}")
     return "\n".join(L)
+
+
+def status(
+    family: str,
+    *,
+    root: Path | None = None,
+) -> dict | None:
+    """At-a-glance: who holds it, when last beat, what's at risk.
+    Reads family.json. Lighter than `recover`; no journal scan."""
+    _validate_family(family)
+    root = root or repo_root()
+    state = read_state(family, root)
+    if state is None:
+        sys.stderr.write(f"[keeper] no family '{family}' in {root}\n")
+        return None
+    age = heartbeat_age(family, root)
+    stale = is_stale(family, root)
+    age_str = f"{age/60:.1f}min" if age is not None else "?"
+    print(
+        f"family={family} session={state.get('session_id')} "
+        f"gen={state.get('generation')} beats={state.get('beat_count',0)}"
+    )
+    print(
+        f"heartbeat={age_str} ago{'  [STALE]' if stale else ''}  "
+        f"ended_cleanly={state.get('ended_cleanly')}"
+    )
+    if state.get("phase") or state.get("goal"):
+        print(f"phase={state.get('phase','?')!r}  goal={state.get('goal','?')!r}")
+    files = state.get("files_in_play") or []
+    if files:
+        print(f"files={', '.join(files[:5])}{' …' if len(files) > 5 else ''}")
+    last_working = (state.get("working") or [None])[-1]
+    if last_working:
+        print(f"last={last_working!r}")
+    if state.get("next_step"):
+        print(f"next={state['next_step']!r}")
+    return state
 
 
 # ─── CLI ────────────────────────────────────────────────────────────────
@@ -769,7 +849,8 @@ USAGE
                   [--next-step "..."] [--phase "..."] [--note "..."]
                   [--auto] [--reason "..."]
   keeper complete [--family <name>] [--summary "..."]
-  keeper recover  [--family <name>] [--json]
+  keeper recover  [--family <name>] [--json] [--brief]
+  keeper status   [--family <name>]
   keeper new-id
   keeper help
 
@@ -865,6 +946,11 @@ def main(argv: list[str] | None = None) -> int:
     p_recover = sub.add_parser("recover", add_help=False)
     p_recover.add_argument("--family")
     p_recover.add_argument("--json", action="store_true")
+    p_recover.add_argument("--brief", action="store_true",
+                           help="with --json, return resume-essentials only")
+
+    p_status = sub.add_parser("status", add_help=False)
+    p_status.add_argument("--family")
 
     sub.add_parser("new-id", add_help=False)
     sub.add_parser("help", add_help=False)
@@ -916,7 +1002,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "recover":
             family = _resolve_family(args.family)
-            r = recover(family, json_output=args.json)
+            r = recover(family, json_output=args.json, brief=args.brief)
+            return EXIT_OK if r is not None else EXIT_NOT_FOUND
+
+        if args.cmd == "status":
+            family = _resolve_family(args.family)
+            r = status(family)
             return EXIT_OK if r is not None else EXIT_NOT_FOUND
 
         sys.stderr.write(f"unknown command: {args.cmd}\n")

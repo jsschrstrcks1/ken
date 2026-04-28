@@ -23,6 +23,7 @@ import pytest
 
 from keeper import checkpoint as kc
 from keeper.checkpoint import (
+    BRIEF_KEYS,
     SCHEMA_VERSION,
     atomic_write_state,
     beat,
@@ -39,6 +40,7 @@ from keeper.checkpoint import (
     new_id,
     read_state,
     recover,
+    status,
     main,
 )
 
@@ -241,7 +243,64 @@ def test_recover_text_output(tmp_repo, capsys):
     recover("ports", root=tmp_repo)
     out = capsys.readouterr().out
     assert "ports" in out
-    assert "NEXT STEP: ship it" in out
+    assert ">>> NEXT STEP: ship it" in out
+
+
+def test_recover_text_content_first(tmp_repo, capsys):
+    """Goal/Working/Next Step must appear BEFORE the metadata footer."""
+    join("ports", goal="my-goal", root=tmp_repo)
+    beat("ports", action="my-action", next_step="my-next", root=tmp_repo)
+    recover("ports", root=tmp_repo)
+    out = capsys.readouterr().out
+    goal_idx = out.index("my-goal")
+    action_idx = out.index("my-action")
+    next_idx = out.index("my-next")
+    sep_idx = out.index("---")
+    session_idx = out.index("session=")
+    # Content before separator
+    assert goal_idx < sep_idx
+    assert action_idx < sep_idx
+    assert next_idx < sep_idx
+    # Metadata after separator
+    assert sep_idx < session_idx
+
+
+def test_recover_brief_returns_essentials_only(tmp_repo, capsys):
+    """--brief drops operator metadata (session_id, instance_token, etc.)
+    and the journal_tail. Keeps resume-essentials."""
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", action="x", next_step="ship it",
+         files=["a.py"], root=tmp_repo)
+    capsys.readouterr()
+    recover("ports", json_output=True, brief=True, root=tmp_repo)
+    out = capsys.readouterr().out
+    parsed = json.loads(out)
+    # Has resume-essentials
+    assert set(parsed.keys()) == set(BRIEF_KEYS)
+    assert parsed["family"] == "ports"
+    assert parsed["goal"] == "g"
+    assert parsed["next_step"] == "ship it"
+    assert "x" in parsed["working"]
+    assert parsed["files_in_play"] == ["a.py"]
+    # Doesn't have operator metadata
+    assert "session_id" not in parsed
+    assert "instance_token" not in parsed
+    assert "generation" not in parsed
+    assert "host" not in parsed
+    assert "_recovery_meta" not in parsed
+    assert "schema" not in parsed
+
+
+def test_recover_full_json_keeps_everything(tmp_repo, capsys):
+    """Without --brief, the full state dump remains intact."""
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", action="x", root=tmp_repo)
+    capsys.readouterr()
+    recover("ports", json_output=True, brief=False, root=tmp_repo)
+    parsed = json.loads(capsys.readouterr().out)
+    assert "session_id" in parsed
+    assert "instance_token" in parsed
+    assert "_recovery_meta" in parsed
 
 
 def test_recover_missing_family_returns_none(tmp_repo, capsys):
@@ -413,3 +472,68 @@ def test_cli_unspecified_family_errors(tmp_repo, monkeypatch, capsys):
 def test_cli_invalid_family_name(tmp_repo, capsys):
     rc = main(["join", "--family", "BAD_NAME"])
     assert rc != 0
+
+
+# ─── Status (Stage 1.5) ─────────────────────────────────────────────────
+
+def test_status_returns_state(tmp_repo, capsys):
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", action="working on x",
+         files=["a.py", "b.py"], next_step="ship",
+         root=tmp_repo)
+    capsys.readouterr()
+    s = status("ports", root=tmp_repo)
+    assert s is not None
+    assert s["family"] == "ports"
+
+
+def test_status_text_output_contains_essentials(tmp_repo, capsys):
+    join("ports", goal="my-goal", root=tmp_repo)
+    beat("ports", action="my-action", files=["x.py"],
+         next_step="my-next", root=tmp_repo)
+    capsys.readouterr()
+    status("ports", root=tmp_repo)
+    out = capsys.readouterr().out
+    assert "ports" in out
+    assert "my-goal" in out
+    assert "my-action" in out
+    assert "x.py" in out
+    assert "my-next" in out
+    assert "beats=1" in out
+
+
+def test_status_missing_family_returns_none(tmp_repo, capsys):
+    s = status("nope", root=tmp_repo)
+    assert s is None
+    assert "no family" in capsys.readouterr().err
+
+
+def test_status_marks_stale(tmp_repo, capsys):
+    join("ports", root=tmp_repo)
+    hb = heartbeat_path("ports", tmp_repo)
+    old = hb.stat().st_mtime - (2 * 3600)
+    os.utime(hb, (old, old))
+    capsys.readouterr()
+    status("ports", root=tmp_repo)
+    out = capsys.readouterr().out
+    assert "[STALE]" in out
+
+
+def test_cli_status(tmp_repo, capsys):
+    main(["join", "--family", "ports"])
+    main(["beat", "--family", "ports", "--action", "did stuff"])
+    capsys.readouterr()
+    rc = main(["status", "--family", "ports"])
+    assert rc == 0
+    assert "did stuff" in capsys.readouterr().out
+
+
+def test_cli_recover_brief_flag(tmp_repo, capsys):
+    main(["join", "--family", "ports", "--goal", "g"])
+    main(["beat", "--family", "ports", "--next-step", "do X"])
+    capsys.readouterr()
+    rc = main(["recover", "--family", "ports", "--json", "--brief"])
+    assert rc == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert "session_id" not in parsed
+    assert parsed["next_step"] == "do X"
