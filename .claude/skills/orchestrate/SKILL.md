@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Full multi-LLM pipeline orchestration. This is the hub — no default mode. Specify sermon, sheep, cruising, or recipe explicitly."
+description: "Full multi-LLM pipeline orchestration. This is the hub — no default mode. Specify sermon, sheep, cruising, recipe, family-history, or triad explicitly."
 ---
 
 # Orchestrate — Multi-LLM Pipeline (Hub)
@@ -16,9 +16,10 @@ description: "Full multi-LLM pipeline orchestration. This is the hub — no defa
 /orchestrate cruising "Build a new ship page for Norwegian Prima"
 /orchestrate recipe "Generate a classic Southern cornbread recipe"
 /orchestrate family-history "Verify the Baker line from William H. Baker to colonial Virginia"
+/orchestrate triad "Refactor memory_ops.py to support tiered storage cleanly"
 ```
 
-**No default mode.** This is the hub — you must specify `sermon`, `sheep`, `cruising`, `recipe`, or `family-history`.
+**No default mode.** This is the hub — you must specify the mode.
 
 ---
 
@@ -31,6 +32,15 @@ description: "Full multi-LLM pipeline orchestration. This is the hub — no defa
 | cruising | Claude | Read Standards → Generate → Content (GPT) → Completeness (Gemini) → UX (Grok) → Integrate |
 | recipe | GPT | Generate (GPT) → Expand (Gemini) → Safety (Claude) → Creative Variation (Grok) |
 | family-history | Claude | Load Context → Extract/Draft → Verify (GPT) → Expand (Gemini) → Challenge (Grok) → Synthesize |
+| triad | external | Plan (GPT) → Build (Gemini) → Verify (Grok) — verdict-driven, up to 1 revision |
+
+### When to use `triad`
+
+Three different vendors fill three role-disciplined seats. The discipline is the point: the planner cannot write code, the builder cannot redesign, the verifier cannot propose fixes — only judge. The verifier returns one of `pass | revise_plan | revise_build | reject`; on `pass` or `reject` the pipeline stops, otherwise it loops once with the verifier's reasons fed back to the planner.
+
+Use it for: ambiguous specs, large refactors, multi-step tasks where "did we solve the right problem" matters more than speed.
+Skip it for: one-shot edits, trivial generation — overhead isn't worth it.
+
 
 ---
 

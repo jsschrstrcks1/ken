@@ -1,0 +1,85 @@
+# Triad Mode — Planner / Builder / Verifier
+#
+# Three different vendors fill three role-disciplined seats:
+#   GPT plans, Gemini builds, Grok verifies.
+#
+# The discipline is enforced in the role system prompts (see consult.py
+# triad_planner / triad_builder / triad_verifier). Each role is forbidden
+# from doing the others' jobs — the planner cannot write code, the builder
+# cannot redesign, the verifier cannot propose fixes. That discipline is
+# what makes the pattern produce better output than three models freelancing.
+#
+# Vendor diversity is intentional: different training data, different blind
+# spots. Same-vendor triads silently agree.
+#
+# The verifier returns one of four verdicts:
+#   pass         — done, ship.
+#   revise_plan  — plan was wrong; restart from planning with verifier reasons.
+#   revise_build — plan ok, build off; re-build with verifier reasons.
+#   reject       — task is infeasible as stated.
+#
+# Loop control: orchestrate.py sets confidence>=0.95 as the convergence
+# trigger. The verifier prompt is instructed to set confidence=1.0 ONLY on
+# pass, so any non-pass verdict will re-run the pipeline up to max_loops.
+#
+# Use this mode for: ambiguous specs, large refactors, multi-step tasks
+# where "did we actually solve the right problem" matters more than speed.
+# Don't use it for: one-shot edits, trivial generation — the overhead
+# isn't worth it.
+
+name: triad
+lead: external  # No Claude step. Three external vendors do the whole pipeline.
+
+pipeline:
+  - step: plan
+    model: gpt
+    role: triad_planner
+    description: >
+      Produce a numbered ordered plan for the task. Surface assumptions and
+      open questions. Do NOT write the artifact — that's the builder's job.
+      If a prior verifier verdict is present, treat its reasons as binding
+      revisions and revise the plan accordingly.
+
+  - step: build
+    model: gemini
+    role: triad_builder
+    description: >
+      Implement the plan exactly as the planner specified. If the plan is
+      wrong or contradictory, set blocked=true and stop — do not redesign.
+      Produce the actual artifact (code, document, structured content).
+
+  - step: verify
+    model: grok
+    role: triad_verifier
+    description: >
+      Re-derive requirements from the original task text only, then check
+      the build against them. Choose one verdict (pass | revise_plan |
+      revise_build | reject) and list specific failures. Do NOT propose
+      fixes — the planner and builder will respond on the next iteration.
+
+constraints:
+  - Each role is forbidden from doing the others' jobs (enforced by prompts).
+  - Verifier must re-derive requirements from the task, not the plan.
+  - Verifier must not propose fixes; only verdict + failures.
+  - Confidence=1.0 is reserved for verdict=pass.
+  - Vendor diversity is required — do not assign two roles to the same model.
+
+context_boundary:
+  send_externally:
+    - the original task
+    - the planner's plan (to builder + verifier)
+    - the builder's artifact (to verifier)
+    - prior verifier output (to planner on revision)
+  keep_local:
+    - any data the caller marks sensitive in the task description
+
+evaluation:
+  verdict_field: verify.response.verdict
+  pass_value: pass
+  revise_plan_value: revise_plan
+  revise_build_value: revise_build
+  reject_value: reject
+
+# 2 = one initial pass plus up to one revision. Bounded — if the triad
+# can't converge in two rounds, the task itself probably needs a human.
+max_loops: 2
