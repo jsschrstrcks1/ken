@@ -163,6 +163,45 @@ def run_step(step, blackboard):
     return True
 
 
+def _summarize_consultation(c, max_len=1500):
+    """Render a prior consultation as readable context for the next step.
+
+    Includes structured fields (plan, implementation, verdict, failures,
+    reasons) when present so role-pipelines like triad can thread the
+    verifier's verdict back to the planner without losing detail.
+    """
+    resp = c.get("response")
+    if not isinstance(resp, dict):
+        return f"  [{c.get('model')} as {c.get('role')}]: {str(resp)[:max_len]}"
+
+    lines = [f"  [{c.get('model')} as {c.get('role')}]:"]
+    analysis = str(resp.get("analysis", "") or "").strip()
+    if analysis:
+        lines.append(f"    analysis: {analysis[:max_len]}")
+    if isinstance(resp.get("plan"), list) and resp["plan"]:
+        lines.append("    plan:")
+        for i, step in enumerate(resp["plan"], 1):
+            lines.append(f"      {i}. {str(step)[:200]}")
+    if resp.get("implementation"):
+        impl = str(resp["implementation"])
+        lines.append(f"    implementation:\n{impl[:max_len]}")
+    if resp.get("verdict"):
+        lines.append(f"    verdict: {resp['verdict']}")
+    if isinstance(resp.get("failures"), list) and resp["failures"]:
+        lines.append("    failures:")
+        for f in resp["failures"]:
+            if isinstance(f, dict):
+                lines.append(
+                    f"      - [{f.get('severity', '?')}] "
+                    f"{f.get('requirement', '?')}: {f.get('observed', '?')}"
+                )
+            else:
+                lines.append(f"      - {str(f)[:200]}")
+    if isinstance(resp.get("reasons"), list) and resp["reasons"]:
+        lines.append("    reasons: " + "; ".join(str(r) for r in resp["reasons"]))
+    return "\n".join(lines)
+
+
 def build_prompt(step, blackboard):
     """Build a prompt for an external model from blackboard state."""
     parts = [f"Task: {blackboard['task']}"]
@@ -174,9 +213,7 @@ def build_prompt(step, blackboard):
     if blackboard["consultations"]:
         parts.append("\nPrior feedback from other models:")
         for c in blackboard["consultations"][-3:]:  # Last 3 to stay within context
-            analysis = c["response"].get("analysis", "") if isinstance(c["response"], dict) else ""
-            summary = str(analysis or c["response"])[:500]
-            parts.append(f"  [{c['model']} as {c['role']}]: {summary}")
+            parts.append(_summarize_consultation(c))
 
     if step.get("description"):
         parts.append(f"\nYour specific assignment: {step['description']}")
@@ -191,12 +228,18 @@ def check_convergence(blackboard):
     if len(consultations) < 2:
         return False
 
-    last = consultations[-1]["response"]
-    prev = consultations[-2]["response"]
+    last = consultations[-1].get("response", {})
+    if not isinstance(last, dict):
+        return False
 
-    # Simple convergence: if confidence is high and analysis is short
-    last_conf = last.get("confidence", 0)
-    if last_conf >= 0.95:
+    # Triad / role-disciplined modes: terminal verdicts stop the loop.
+    verdict = last.get("verdict")
+    if verdict in ("pass", "reject"):
+        print(f"  → Convergence detected (verdict={verdict}).", file=sys.stderr)
+        return True
+
+    # Generic confidence-based convergence.
+    if last.get("confidence", 0) >= 0.95:
         print("  → Convergence detected (confidence >= 0.95).", file=sys.stderr)
         return True
 
