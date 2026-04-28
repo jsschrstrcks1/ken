@@ -41,6 +41,8 @@ STATE_SIZE_WARN = 2 * 1024            # 2 KB
 STATE_SIZE_FAIL = 8 * 1024            # 8 KB
 JOURNAL_ENTRY_MAX = 4 * 1024          # PIPE_BUF (atomic append)
 COMPLETED_KEEP = 50                   # bound completed/ archive
+AUTO_ESCALATION_INTERVAL = 15         # snapshot every Nth beat (CONTINUITY)
+SNAPSHOT_KEEP_COUNT = 50              # bound completed/snapshots/ ring
 
 FAMILY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
@@ -85,6 +87,10 @@ def journal_path(family: str, root: Path | None = None) -> Path:
 
 def completed_dir(family: str, root: Path | None = None) -> Path:
     return family_dir(family, root) / "completed"
+
+
+def snapshots_dir(family: str, root: Path | None = None) -> Path:
+    return completed_dir(family, root) / "snapshots"
 
 
 def keeper_conf_path(root: Path | None = None) -> Path:
@@ -601,6 +607,16 @@ def beat(
 
     atomic_write_state(family, state, root)
     touch_heartbeat(family, root)
+
+    # CONTINUITY auto-escalation: every Nth beat, write a full snapshot
+    # so crash recovery is bounded by N beats of context.
+    if state["beat_count"] % AUTO_ESCALATION_INTERVAL == 0:
+        try:
+            snapshot(family, trigger="auto-escalation", root=root)
+        except Exception:
+            # Snapshot failure must never break a beat — best-effort only.
+            pass
+
     return state
 
 
@@ -1040,6 +1056,72 @@ def _print_validate_report(family: str, report: dict) -> None:
     print("OK" if report["ok"] else "FAIL")
 
 
+# ─── Snapshot + auto-escalation (Stage 1.5) ─────────────────────────────
+
+def _safe_label(label: str) -> str:
+    """Sanitize a user-supplied label for use in a filename. Strips to
+    [a-z0-9-]; truncates to 32 chars."""
+    cleaned = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return cleaned[:32] or "manual"
+
+
+def snapshot(
+    family: str,
+    *,
+    label: str | None = None,
+    trigger: str = "manual",
+    root: Path | None = None,
+) -> Path | None:
+    """Write a full snapshot of the current family.json into
+    completed/snapshots/<YYYYMMDD-HHMMSS>_<label>.json. Prunes the ring
+    to SNAPSHOT_KEEP_COUNT. Returns the snapshot path, or None if the
+    family doesn't exist."""
+    _validate_family(family)
+    root = root or repo_root()
+    state = read_state(family, root)
+    if state is None:
+        return None
+    sdir = snapshots_dir(family, root)
+    sdir.mkdir(parents=True, exist_ok=True)
+    when = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    safe = _safe_label(label or trigger)
+    # Add a short uuid so two snapshots in the same second don't collide
+    uniq = uuid.uuid4().hex[:4]
+    path = sdir / f"{when}_{safe}_{uniq}.json"
+    body = {
+        **{k: v for k, v in state.items() if k != "_recovery_meta"},
+        "_snapshot": {
+            "trigger": trigger,
+            "label": label or trigger,
+            "captured_at": _now_iso(),
+        },
+    }
+    atomic_write(path, json.dumps(body, indent=2, ensure_ascii=False, sort_keys=True))
+    _prune_snapshots(family, root)
+    return path
+
+
+def _prune_snapshots(family: str, root: Path) -> int:
+    """Trim snapshots/ to SNAPSHOT_KEEP_COUNT newest. Returns the number
+    deleted."""
+    sdir = snapshots_dir(family, root)
+    if not sdir.exists():
+        return 0
+    files = sorted(
+        sdir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        reverse=True,
+    )
+    deleted = 0
+    for old in files[SNAPSHOT_KEEP_COUNT:]:
+        try:
+            old.unlink()
+            deleted += 1
+        except OSError:
+            pass
+    return deleted
+
+
 def status(
     family: str,
     *,
@@ -1093,6 +1175,7 @@ USAGE
   keeper recover  [--family <name>] [--json] [--brief]
   keeper status   [--family <name>]
   keeper validate [--family <name>] [--strict] [--threshold N] [--json]
+  keeper snapshot [--family <name>] [--label "..."]
   keeper new-id
   keeper help
 
@@ -1207,6 +1290,10 @@ def main(argv: list[str] | None = None) -> int:
     p_status = sub.add_parser("status", add_help=False)
     p_status.add_argument("--family")
 
+    p_snap = sub.add_parser("snapshot", add_help=False)
+    p_snap.add_argument("--family")
+    p_snap.add_argument("--label", help="short tag baked into the filename")
+
     sub.add_parser("new-id", add_help=False)
     sub.add_parser("help", add_help=False)
 
@@ -1279,6 +1366,15 @@ def main(argv: list[str] | None = None) -> int:
             family = _resolve_family(args.family)
             r = status(family)
             return EXIT_OK if r is not None else EXIT_NOT_FOUND
+
+        if args.cmd == "snapshot":
+            family = _resolve_family(args.family)
+            p = snapshot(family, label=args.label, trigger="manual")
+            if p is None:
+                sys.stderr.write(f"[keeper] no family '{family}'\n")
+                return EXIT_NOT_FOUND
+            print(f"[keeper] snapshot written: {p}")
+            return EXIT_OK
 
         sys.stderr.write(f"unknown command: {args.cmd}\n")
         return EXIT_USAGE

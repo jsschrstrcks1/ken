@@ -747,3 +747,107 @@ def test_cli_complete_force_bypasses(tmp_repo, capsys):
     main(["beat", "--family", "ports", "--action", "x"])
     rc = main(["complete", "--family", "ports", "--summary", "fin", "--force"])
     assert rc == 0
+
+
+# ─── Snapshot + auto-escalation (Stage 1.5) ─────────────────────────────
+
+from keeper.checkpoint import (
+    AUTO_ESCALATION_INTERVAL,
+    SNAPSHOT_KEEP_COUNT,
+    snapshot,
+    snapshots_dir,
+    _safe_label,
+    _prune_snapshots,
+)
+
+
+def _list_snapshots(family: str, root: Path) -> list[Path]:
+    sd = snapshots_dir(family, root)
+    return sorted(sd.glob("*.json")) if sd.exists() else []
+
+
+def test_snapshot_writes_file(tmp_repo):
+    join("ports", goal="g", root=tmp_repo)
+    p = snapshot("ports", label="midway", root=tmp_repo)
+    assert p is not None
+    assert p.exists()
+    body = json.loads(p.read_text())
+    assert body["family"] == "ports"
+    assert body["_snapshot"]["label"] == "midway"
+    assert body["_snapshot"]["trigger"] == "manual"
+
+
+def test_snapshot_missing_family_returns_none(tmp_repo):
+    assert snapshot("nope", root=tmp_repo) is None
+
+
+def test_safe_label_sanitizes():
+    assert _safe_label("Hello World!!") == "hello-world"
+    assert _safe_label("---") == "manual"
+    assert _safe_label("") == "manual"
+    assert len(_safe_label("a" * 100)) == 32
+
+
+def test_auto_escalation_fires_every_n_beats(tmp_repo):
+    join("ports", goal="g", root=tmp_repo)
+    # No auto-escalation expected before AUTO_ESCALATION_INTERVAL beats.
+    for i in range(AUTO_ESCALATION_INTERVAL - 1):
+        beat("ports", action=f"step {i}", root=tmp_repo)
+    assert _list_snapshots("ports", tmp_repo) == []
+    # Nth beat triggers
+    beat("ports", action="trigger", root=tmp_repo)
+    snaps = _list_snapshots("ports", tmp_repo)
+    assert len(snaps) == 1
+    body = json.loads(snaps[0].read_text())
+    assert body["_snapshot"]["trigger"] == "auto-escalation"
+    assert body["beat_count"] == AUTO_ESCALATION_INTERVAL
+
+
+def test_auto_escalation_fires_repeatedly(tmp_repo):
+    join("ports", goal="g", root=tmp_repo)
+    # Two full intervals
+    for i in range(AUTO_ESCALATION_INTERVAL * 2):
+        beat("ports", action=f"step {i}", root=tmp_repo)
+    snaps = _list_snapshots("ports", tmp_repo)
+    assert len(snaps) == 2
+
+
+def test_snapshot_pruning_bounds_ring(tmp_repo, monkeypatch):
+    # Lower the cap for a tractable test
+    monkeypatch.setattr(kc, "SNAPSHOT_KEEP_COUNT", 3)
+    join("ports", goal="g", root=tmp_repo)
+    for i in range(5):
+        snapshot("ports", label=f"manual-{i}", root=tmp_repo)
+    snaps = _list_snapshots("ports", tmp_repo)
+    assert len(snaps) == 3
+
+
+def test_snapshot_failure_does_not_break_beat(tmp_repo, monkeypatch):
+    """Snapshot writes are best-effort; a failure must not prevent the
+    beat from succeeding."""
+    join("ports", goal="g", root=tmp_repo)
+    # Make snapshot raise; verify the (Nth) beat still completes
+    def boom(*a, **kw):
+        raise OSError("disk full")
+    monkeypatch.setattr(kc, "snapshot", boom)
+    for i in range(AUTO_ESCALATION_INTERVAL):
+        s = beat("ports", action=f"step {i}", root=tmp_repo)
+    # Beat completed normally despite failed snapshot
+    assert s["beat_count"] == AUTO_ESCALATION_INTERVAL
+
+
+def test_cli_snapshot(tmp_repo, capsys):
+    main(["join", "--family", "ports"])
+    capsys.readouterr()
+    rc = main(["snapshot", "--family", "ports", "--label", "checkpoint"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "snapshot written" in out
+    snaps = _list_snapshots("ports", tmp_repo)
+    assert len(snaps) == 1
+    assert "checkpoint" in snaps[0].name
+
+
+def test_cli_snapshot_missing_family(tmp_repo, capsys):
+    rc = main(["snapshot", "--family", "nope"])
+    assert rc != 0
