@@ -483,12 +483,12 @@ def join(
     if not stale and not force:
         # Fresh holder — reject (path 3)
         age = heartbeat_age(family, root) or 0
-        msg = (
+        sys.stderr.write(
             f"[keeper] family '{family}' is held by session "
             f"{existing.get('session_id')} (heartbeat {age:.0f}s ago). "
-            f"Use --force to take over."
+            f"Use --force to take over.\n"
         )
-        raise SystemExit(_format_held_error(msg, EXIT_HELD))
+        raise SystemExit(EXIT_HELD)
 
     # Path 2: stale or force — possibly prompt
     if stale and not force and interactive:
@@ -505,10 +505,10 @@ def join(
         except EOFError:
             answer = "n"
         if answer not in ("y", "yes"):
-            raise SystemExit(_format_held_error(
-                f"[keeper] aborted; family '{family}' not taken over.",
-                EXIT_STALE_NEEDS_TAKEOVER,
-            ))
+            sys.stderr.write(
+                f"[keeper] aborted; family '{family}' not taken over.\n"
+            )
+            raise SystemExit(EXIT_STALE_NEEDS_TAKEOVER)
 
     # Takeover (force or stale-confirmed)
     sess = new_id()
@@ -531,11 +531,6 @@ def join(
     atomic_write_state(family, new_state, root)
     touch_heartbeat(family, root)
     return new_state
-
-
-def _format_held_error(msg: str, code: int) -> str:
-    sys.stderr.write(msg + "\n")
-    return msg if False else ""  # unreachable; SystemExit takes the int
 
 
 def beat(
@@ -1159,6 +1154,161 @@ def status(
     return state
 
 
+# ─── Hook installation (Stage 1.5) ──────────────────────────────────────
+
+# Hook commands. PYTHONPATH is set explicitly to wherever keeper lives
+# so the hook works even from a different cwd.
+def _keeper_invocation() -> str:
+    """Build the `PYTHONPATH=... python3 -m keeper` prefix."""
+    ken_root = str(Path(__file__).resolve().parent.parent)
+    py = sys.executable or "python3"
+    return f"PYTHONPATH={ken_root} {py} -m keeper"
+
+
+def _hook_commands() -> dict[str, str]:
+    """Return event_name → shell command. Each is a no-op when
+    $KEEPER_FAMILY is unset, so installing hooks doesn't break sessions
+    that haven't opted in to keeper."""
+    inv = _keeper_invocation()
+    return {
+        "SessionStart": (
+            'if [ -n "$KEEPER_FAMILY" ]; then '
+            f'{inv} join --non-interactive 2>/dev/null || true; '
+            'fi'
+        ),
+        "PreCompact": (
+            # Debounced: just write the marker. The next beat consumes it.
+            'if [ -n "$KEEPER_FAMILY" ] && [ -n "$CLAUDE_PROJECT_DIR" ]; then '
+            'mkdir -p "$CLAUDE_PROJECT_DIR/.claude/state/families/$KEEPER_FAMILY" '
+            '2>/dev/null && '
+            'touch "$CLAUDE_PROJECT_DIR/.claude/state/families/$KEEPER_FAMILY/precompact.pending" '
+            '2>/dev/null || true; '
+            'fi'
+        ),
+        "SessionEnd": (
+            # Retry once with a 1s backoff. Two attempts is usually enough;
+            # avoids the 3-attempt cascade adding latency to session shutdown.
+            'if [ -n "$KEEPER_FAMILY" ]; then '
+            f'{inv} beat --auto --reason "session-end" 2>/dev/null || '
+            f'(sleep 1 && {inv} beat --auto --reason "session-end-retry" '
+            '2>/dev/null) || true; '
+            'fi'
+        ),
+    }
+
+
+def _hook_entry_for_command(cmd: str) -> dict:
+    """Build a single hook configuration entry."""
+    return {"hooks": [{"type": "command", "command": cmd}]}
+
+
+def _settings_path(scope: str, root: Path | None = None) -> Path:
+    if scope == "user":
+        return Path.home() / ".claude" / "settings.json"
+    if scope == "project":
+        return (root or repo_root()) / ".claude" / "settings.json"
+    if scope == "local":
+        return (root or repo_root()) / ".claude" / "settings.local.json"
+    raise ValueError(f"unknown scope {scope!r}; use user|project|local")
+
+
+def _merge_hooks(existing: dict, our_commands: dict[str, str]) -> tuple[dict, list[str]]:
+    """Add our hook commands to existing settings dict. Returns
+    (updated_dict, list of event names actually added).
+
+    Idempotent: if our exact command is already present for an event,
+    skip it. We tag our entries with a comment-like marker for future
+    --uninstall, but don't depend on it here.
+    """
+    out = dict(existing)
+    hooks = dict(out.get("hooks", {}))
+    added = []
+    for event, cmd in our_commands.items():
+        existing_entries = list(hooks.get(event, []))
+        already = False
+        for entry in existing_entries:
+            for h in entry.get("hooks", []):
+                if h.get("type") == "command" and h.get("command") == cmd:
+                    already = True
+                    break
+            if already:
+                break
+        if already:
+            continue
+        existing_entries.append(_hook_entry_for_command(cmd))
+        hooks[event] = existing_entries
+        added.append(event)
+    if added:
+        out["hooks"] = hooks
+    return out, added
+
+
+def install_hooks(
+    *,
+    scope: str = "project",
+    auto: bool = False,
+    root: Path | None = None,
+) -> dict:
+    """Install SessionStart / PreCompact / SessionEnd hooks.
+
+    Default (auto=False): print what WOULD be written + manual install
+    instructions. `--auto` writes the merged settings.json (with backup).
+
+    Returns {settings_path, added: [event...], skipped: [event...],
+             written: bool, backup_path}.
+    """
+    cmds = _hook_commands()
+    sp = _settings_path(scope, root)
+    existing: dict = {}
+    if sp.exists():
+        try:
+            existing = json.loads(sp.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                raise ValueError("settings.json is not an object")
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            sys.stderr.write(
+                f"[keeper] {sp} is malformed ({e}); refusing to merge.\n"
+            )
+            raise SystemExit(EXIT_USAGE)
+    merged, added = _merge_hooks(existing, cmds)
+    skipped = [e for e in cmds if e not in added]
+    if not auto:
+        # Print-only mode
+        print(f"# Would write to: {sp}")
+        if added:
+            print(f"# Adding hooks for: {', '.join(added)}")
+        if skipped:
+            print(f"# Already present (skipping): {', '.join(skipped)}")
+        print()
+        print(json.dumps(merged, indent=2, ensure_ascii=False, sort_keys=True))
+        print()
+        print("# To install: keeper install-hooks --auto"
+              + (f" --scope {scope}" if scope != "project" else ""))
+        return {
+            "settings_path": str(sp),
+            "added": added,
+            "skipped": skipped,
+            "written": False,
+            "backup_path": None,
+        }
+
+    # Write mode
+    backup_path = None
+    if sp.exists():
+        backup_path = sp.with_suffix(".json.keeper-backup")
+        backup_path.write_text(sp.read_text(encoding="utf-8"), encoding="utf-8")
+    if added:
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(sp, json.dumps(merged, indent=2, ensure_ascii=False, sort_keys=True))
+    return {
+        "settings_path": str(sp),
+        "added": added,
+        "skipped": skipped,
+        "written": bool(added),
+        "backup_path": str(backup_path) if backup_path else None,
+    }
+
+
 # ─── CLI ────────────────────────────────────────────────────────────────
 
 HELP_TEXT = """\
@@ -1176,8 +1326,18 @@ USAGE
   keeper status   [--family <name>]
   keeper validate [--family <name>] [--strict] [--threshold N] [--json]
   keeper snapshot [--family <name>] [--label "..."]
+  keeper install-hooks [--auto] [--scope project|user|local]
   keeper new-id
   keeper help
+
+HOOKS
+  install-hooks adds three hooks to .claude/settings.json:
+    SessionStart  → if KEEPER_FAMILY is set, auto-runs `keeper join`
+    PreCompact    → writes a precompact.pending marker (debounced)
+    SessionEnd    → runs `keeper beat --auto --reason session-end` (1 retry)
+  All three are no-ops when KEEPER_FAMILY is unset, so installing
+  doesn't affect non-keeper sessions. Default is print-only; pass
+  --auto to actually write the settings file.
 
 EXAMPLES
   # Start a session in family 'ports'
@@ -1294,6 +1454,13 @@ def main(argv: list[str] | None = None) -> int:
     p_snap.add_argument("--family")
     p_snap.add_argument("--label", help="short tag baked into the filename")
 
+    p_hooks = sub.add_parser("install-hooks", add_help=False)
+    p_hooks.add_argument("--auto", action="store_true",
+                         help="actually write settings.json (default: print only)")
+    p_hooks.add_argument("--scope", default="project",
+                         choices=("project", "user", "local"),
+                         help="settings.json location (default: project)")
+
     sub.add_parser("new-id", add_help=False)
     sub.add_parser("help", add_help=False)
 
@@ -1374,6 +1541,18 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(f"[keeper] no family '{family}'\n")
                 return EXIT_NOT_FOUND
             print(f"[keeper] snapshot written: {p}")
+            return EXIT_OK
+
+        if args.cmd == "install-hooks":
+            r = install_hooks(scope=args.scope, auto=args.auto)
+            if args.auto:
+                if r["written"]:
+                    print(f"[keeper] hooks installed: {', '.join(r['added'])}")
+                    print(f"[keeper] settings: {r['settings_path']}")
+                    if r["backup_path"]:
+                        print(f"[keeper] backup:   {r['backup_path']}")
+                else:
+                    print("[keeper] all hooks already present; nothing to do.")
             return EXIT_OK
 
         sys.stderr.write(f"unknown command: {args.cmd}\n")

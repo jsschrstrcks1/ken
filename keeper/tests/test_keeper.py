@@ -851,3 +851,135 @@ def test_cli_snapshot(tmp_repo, capsys):
 def test_cli_snapshot_missing_family(tmp_repo, capsys):
     rc = main(["snapshot", "--family", "nope"])
     assert rc != 0
+
+
+# ─── Install-hooks (Stage 1.5) ──────────────────────────────────────────
+
+from keeper.checkpoint import install_hooks, _hook_commands, _merge_hooks
+
+
+def test_hook_commands_have_keeper_family_guard():
+    cmds = _hook_commands()
+    for event, cmd in cmds.items():
+        assert "$KEEPER_FAMILY" in cmd, (
+            f"{event} command must guard on $KEEPER_FAMILY so installing "
+            f"doesn't affect non-keeper sessions. Got: {cmd!r}"
+        )
+
+
+def test_hook_commands_have_all_three_events():
+    cmds = _hook_commands()
+    assert set(cmds.keys()) == {"SessionStart", "PreCompact", "SessionEnd"}
+
+
+def test_install_hooks_print_only_by_default(tmp_repo, capsys):
+    r = install_hooks(scope="project", auto=False, root=tmp_repo)
+    assert r["written"] is False
+    settings = tmp_repo / ".claude" / "settings.json"
+    assert not settings.exists()
+    out = capsys.readouterr().out
+    assert "Would write to:" in out
+    assert "SessionStart" in out
+
+
+def test_install_hooks_auto_writes_settings(tmp_repo, capsys):
+    r = install_hooks(scope="project", auto=True, root=tmp_repo)
+    assert r["written"] is True
+    assert set(r["added"]) == {"SessionStart", "PreCompact", "SessionEnd"}
+    settings_path = tmp_repo / ".claude" / "settings.json"
+    assert settings_path.exists()
+    data = json.loads(settings_path.read_text())
+    assert "SessionStart" in data["hooks"]
+    assert "PreCompact" in data["hooks"]
+    assert "SessionEnd" in data["hooks"]
+
+
+def test_install_hooks_idempotent(tmp_repo, capsys):
+    install_hooks(scope="project", auto=True, root=tmp_repo)
+    capsys.readouterr()
+    r = install_hooks(scope="project", auto=True, root=tmp_repo)
+    # Second run: nothing to add
+    assert r["added"] == []
+    assert set(r["skipped"]) == {"SessionStart", "PreCompact", "SessionEnd"}
+    assert r["written"] is False
+
+
+def test_install_hooks_preserves_existing_hooks(tmp_repo, capsys):
+    settings_path = tmp_repo / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    user_existing = {
+        "hooks": {
+            "SessionStart": [
+                {"hooks": [{"type": "command", "command": "echo user-hook"}]}
+            ],
+            "PostToolUse": [
+                {"hooks": [{"type": "command", "command": "echo other"}]}
+            ],
+        },
+        "permissions": {"allow": ["Bash"]},
+    }
+    settings_path.write_text(json.dumps(user_existing, indent=2))
+    install_hooks(scope="project", auto=True, root=tmp_repo)
+    data = json.loads(settings_path.read_text())
+    # User's hooks survive
+    ss_entries = data["hooks"]["SessionStart"]
+    commands = [h["command"] for entry in ss_entries for h in entry["hooks"]]
+    assert "echo user-hook" in commands
+    # Ours added
+    assert any("keeper" in c for c in commands)
+    # Unrelated event survived
+    assert "PostToolUse" in data["hooks"]
+    # Other settings survived
+    assert data["permissions"]["allow"] == ["Bash"]
+
+
+def test_install_hooks_creates_backup(tmp_repo, capsys):
+    settings_path = tmp_repo / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text('{"foo": "bar"}')
+    r = install_hooks(scope="project", auto=True, root=tmp_repo)
+    assert r["backup_path"] is not None
+    backup = Path(r["backup_path"])
+    assert backup.exists()
+    assert json.loads(backup.read_text()) == {"foo": "bar"}
+
+
+def test_install_hooks_refuses_malformed_settings(tmp_repo, capsys):
+    settings_path = tmp_repo / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("not valid json")
+    with pytest.raises(SystemExit):
+        install_hooks(scope="project", auto=True, root=tmp_repo)
+    err = capsys.readouterr().err
+    assert "malformed" in err
+
+
+def test_merge_hooks_idempotency():
+    cmds = {"SessionStart": "echo hi"}
+    existing = {}
+    merged1, added1 = _merge_hooks(existing, cmds)
+    assert added1 == ["SessionStart"]
+    merged2, added2 = _merge_hooks(merged1, cmds)
+    assert added2 == []  # already present
+    # Confirm not double-added
+    entries = merged2["hooks"]["SessionStart"]
+    commands = [h["command"] for e in entries for h in e["hooks"]]
+    assert commands.count("echo hi") == 1
+
+
+def test_cli_install_hooks_default_print(tmp_repo, capsys):
+    rc = main(["install-hooks"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Would write to:" in out
+    # Did NOT write
+    assert not (tmp_repo / ".claude" / "settings.json").exists()
+
+
+def test_cli_install_hooks_auto(tmp_repo, capsys):
+    rc = main(["install-hooks", "--auto"])
+    assert rc == 0
+    settings = tmp_repo / ".claude" / "settings.json"
+    assert settings.exists()
+    out = capsys.readouterr().out
+    assert "hooks installed" in out
