@@ -4,3 +4,6 @@
 !.env.example
 orchestrator/orchestra_stderr.txt
 orchestrator/state/
+
+# Per-repo session pulse + stale-session archive (managed by orchestrator/checkpoint.py)
+.claude/state/
