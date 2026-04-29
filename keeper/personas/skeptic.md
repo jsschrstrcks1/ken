@@ -1,5 +1,6 @@
 ---
 name: skeptic
+baseline: true
 description: Surfaces unexamined assumptions, missing alternatives, hidden bias.
 criteria:
   - assumption_examined   # does this name an assumption that's gone unchallenged?

@@ -1,5 +1,6 @@
 ---
 name: future-self
+baseline: true
 description: Surfaces gaps a returning author (in 3 months, with no memory) would hit.
 criteria:
   - resumable_without_explanation  # can next-thread pick up without asking the human?

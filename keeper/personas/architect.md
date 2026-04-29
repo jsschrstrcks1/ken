@@ -1,5 +1,6 @@
 ---
 name: architect
+baseline: true
 description: Surfaces design holes, scope creep, premature abstraction, missing tests.
 criteria:
   - scope_clarity              # is the bound between this work and adjacent work crisp?

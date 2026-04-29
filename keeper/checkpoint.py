@@ -1327,6 +1327,9 @@ USAGE
   keeper validate [--family <name>] [--strict] [--threshold N] [--json]
   keeper snapshot [--family <name>] [--label "..."]
   keeper install-hooks [--auto] [--scope project|user|local]
+  keeper review   [--family <name>] [--repo <name>]
+                  [--persona <name> ...] [--no-persona <name> ...]
+                  [--show-prompts] [--json]   # currently dry-run only
   keeper new-id
   keeper help
 
@@ -1461,6 +1464,20 @@ def main(argv: list[str] | None = None) -> int:
                          choices=("project", "user", "local"),
                          help="settings.json location (default: project)")
 
+    p_review = sub.add_parser("review", add_help=False)
+    p_review.add_argument("--family")
+    p_review.add_argument("--repo",
+                          help="override the auto-detected repo name")
+    p_review.add_argument("--persona", action="append", default=None,
+                          help="add a persona to the roster (repeatable)")
+    p_review.add_argument("--no-persona", action="append", default=None,
+                          help="exclude a persona from the roster (repeatable)")
+    p_review.add_argument("--show-prompts", action="store_true",
+                          help="print the full per-persona prompts (default: just the roster summary)")
+    p_review.add_argument("--json", action="store_true")
+    p_review.add_argument("--dry-run", action="store_true", default=True,
+                          help="(currently the only mode — live calls not yet wired)")
+
     sub.add_parser("new-id", add_help=False)
     sub.add_parser("help", add_help=False)
 
@@ -1553,6 +1570,26 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"[keeper] backup:   {r['backup_path']}")
                 else:
                     print("[keeper] all hooks already present; nothing to do.")
+            return EXIT_OK
+
+        if args.cmd == "review":
+            from keeper.review import build_review, render_review_text
+            family = _resolve_family(args.family)
+            review_obj = build_review(
+                family,
+                repo_name=args.repo,
+                include=args.persona,
+                exclude=args.no_persona,
+            )
+            if not review_obj["state_present"]:
+                sys.stderr.write(
+                    f"[keeper] no family '{family}' — run keeper join first\n"
+                )
+                return EXIT_NOT_FOUND
+            if args.json:
+                print(json.dumps(review_obj, indent=2, ensure_ascii=False, sort_keys=True))
+            else:
+                print(render_review_text(review_obj, show_prompts=args.show_prompts))
             return EXIT_OK
 
         sys.stderr.write(f"unknown command: {args.cmd}\n")
