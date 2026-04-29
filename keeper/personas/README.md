@@ -4,21 +4,39 @@ This directory holds persona prompt files for `keeper review`, a planned command
 
 **Status:** spike. No code wired yet. These are draft prompts for review.
 
+## Directory layout
+
+```
+personas/
+├── README.md           # this file (protocol, baseline, per-repo index)
+├── skeptic.md          # baseline: unexamined assumptions
+├── architect.md        # baseline: design holes, scope creep
+├── future-self.md      # baseline: returning-author gaps
+├── inthewake/          # repo-specific: cruise planning
+│   ├── weather-realist.md
+│   ├── mechanical-pessimist.md
+│   ├── provisioning-auditor.md
+│   ├── anchorage-tactician.md
+│   ├── crew-fatigue-monitor.md
+│   └── compliance-officer.md
+└── (more repo dirs as they're drafted)
+```
+
 ## The protocol (lifted from pantheon-nick, adapted for keeper)
 
 Each persona is a separate Claude call that follows this exact 4-step chain:
 
-1. **Generate** 20 candidate critiques as the persona, given the family state.
+1. **Generate** N candidate critiques as the persona, given the family state. (Default 10; was 20 in pantheon-nick — we trimmed per orchestra advice.)
 2. **Rate** each on the persona's three criteria (10-point scale per criterion).
-3. **Aggregate** by taking the **minimum** of the three scores. (One weakness sinks the candidate. This is stricter than sum-of-points and forces all-around quality.)
+3. **Aggregate** by taking the **minimum** of the three scores. (One weakness sinks the candidate. Stricter than sum-of-points.)
 4. **Penalty** −1 for generic / lazy critiques (per persona's penalty list).
 5. **Select** the highest-aggregate candidate. Format as a single 1-3 sentence comment.
 
-The output of `keeper review` is the **minimum-aggregate winner from each persona**, plus an overall pass/fail.
+The output of `keeper review` is the **min-aggregate winner from each persona**, plus an overall pass/fail.
 
-## Default trio
+## Baseline personas
 
-The three personas in this directory are the recommended default set:
+Three universal personas that apply across all repos:
 
 | Persona | Looks for | Best at catching |
 |---|---|---|
@@ -26,23 +44,47 @@ The three personas in this directory are the recommended default set:
 | `architect.md` | Design holes, scope creep, missing tests | "Two abstractions doing the same thing" |
 | `future-self.md` | What someone returning in 3 months would need | "I won't remember why I did this" |
 
+Two more baseline personas are planned (per orchestra advice):
+- `content-quality.md` — clarity, coherence, engagement (for content-heavy repos)
+- `user-experience.md` — usability, accessibility (for end-user-facing repos)
+
+## Per-repo rosters
+
+A "roster" is the set of personas that runs by default for `keeper review` in a given repo. Defaults to baseline-3 plus repo-specific.
+
+### InTheWake (cruise planning) — 10-persona roster
+
+| Persona | Source | Critical for |
+|---|---|---|
+| skeptic | baseline | Always |
+| architect | baseline | Always (criteria reword: "testability" → "verifiable underway") |
+| future-self | baseline | Always |
+| content-quality | baseline (planned) | Documentation entries |
+| user-experience | baseline (planned) | Trip-share / dashboard surfaces |
+| **weather-realist** | inthewake/ | Passage planning |
+| **mechanical-pessimist** | inthewake/ | Equipment-dependent legs |
+| **provisioning-auditor** | inthewake/ | Multi-day or remote-anchorage legs |
+| **anchorage-tactician** | inthewake/ | Anchorage-dependent legs |
+| **crew-fatigue-monitor** | inthewake/ | Overnight or multi-day passages |
+
+Plus opt-in for international trips:
+- `compliance-officer` — customs / insurance / quarantine paperwork
+
+Default for InTheWake = baseline 3 + 4 most critical repo-specific (weather/mechanical/provisioning/anchorage) = **7 personas**. The other 3 (crew-fatigue, content-quality, UX) and the opt-in compliance-officer are flag-driven (`--persona crew-fatigue` etc.).
+
 ## Optional add-on personas (not yet drafted)
 
 - `verifier.md` — production-facing failure modes (what breaks at 3am)
-- `user-advocate.md` — end-user / downstream-caller perspective (errors, docs, edge cases)
-- `librarian.md` — prior-art and consistency-with-codebase (have we done this before? differently?)
-- `devil.md` — adversarial / red-team perspective (what would an attacker do)
+- `librarian.md` — prior-art and consistency-with-codebase
+- `devil.md` — adversarial / red-team perspective
 
-Add these by creating new persona files matching the `skeptic.md` shape.
+Add these by creating new persona files matching the existing shape.
 
-## Why three by default
+## Why minimum-of-criteria aggregation
 
-Every additional persona is another Claude call (cost) and another set of comments to read (cognitive load). Three personas give:
-- Three distinct POVs without redundancy
-- A natural odd number for tie-breaking ("2 of 3 personas flagged this")
-- Bounded latency (~3 parallel calls = roughly the time of one)
+A naive sum-of-points lets one strong dimension paper over weakness on others. The min-aggregate forces all-around quality: a critique that's brilliantly falsifiable but irrelevant scores low; one that's relevant but unfalsifiable scores low; only critiques strong on every criterion survive.
 
-More than 5 starts to dilute attention.
+Sharp failure mode: if ALL candidates score 1 on at least one criterion, the "winner" is still terrible. Mitigation (in the not-yet-built code): require the winning aggregate to clear a floor (default 4); below that, output "no critique met threshold for this persona" instead of garbage.
 
 ## What this isn't
 
