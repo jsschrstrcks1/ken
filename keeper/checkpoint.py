@@ -1475,8 +1475,14 @@ def main(argv: list[str] | None = None) -> int:
     p_review.add_argument("--show-prompts", action="store_true",
                           help="print the full per-persona prompts (default: just the roster summary)")
     p_review.add_argument("--json", action="store_true")
-    p_review.add_argument("--dry-run", action="store_true", default=True,
-                          help="(currently the only mode — live calls not yet wired)")
+    p_review.add_argument("--live", action="store_true",
+                          help="actually invoke Claude calls (default: dry-run)")
+    p_review.add_argument("--model", default="gpt",
+                          help="model name to use for --live (default: gpt; also: gemini, grok, perplexity, youdotcom)")
+    p_review.add_argument("--max-parallel", type=int, default=5,
+                          help="max simultaneous persona calls in --live (default: 5)")
+    p_review.add_argument("--yes", "-y", action="store_true",
+                          help="skip the cost-confirmation prompt in --live")
 
     sub.add_parser("new-id", add_help=False)
     sub.add_parser("help", add_help=False)
@@ -1573,14 +1579,61 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
 
         if args.cmd == "review":
-            from keeper.review import build_review, render_review_text
-            family = _resolve_family(args.family)
-            review_obj = build_review(
-                family,
-                repo_name=args.repo,
-                include=args.persona,
-                exclude=args.no_persona,
+            from keeper.review import (
+                build_review,
+                LiveReviewError,
+                render_review_text,
+                run_review_live,
             )
+            family = _resolve_family(args.family)
+
+            if not args.live:
+                review_obj = build_review(
+                    family,
+                    repo_name=args.repo,
+                    include=args.persona,
+                    exclude=args.no_persona,
+                )
+            else:
+                # Live mode — confirm cost first, then invoke.
+                preview = build_review(
+                    family,
+                    repo_name=args.repo,
+                    include=args.persona,
+                    exclude=args.no_persona,
+                )
+                if not preview["state_present"]:
+                    review_obj = preview
+                else:
+                    n = len(preview["roster"])
+                    est = preview["cost_estimate_usd"]
+                    sys.stderr.write(
+                        f"[keeper] live review: {n} personas via {args.model!r} "
+                        f"(estimated ~${est:.2f})\n"
+                    )
+                    if not args.yes:
+                        sys.stderr.write("[keeper] proceed? [y/N] ")
+                        sys.stderr.flush()
+                        try:
+                            ans = input().strip().lower()
+                        except EOFError:
+                            ans = "n"
+                        if ans not in ("y", "yes"):
+                            sys.stderr.write("[keeper] aborted.\n")
+                            return EXIT_USAGE
+                    try:
+                        review_obj = run_review_live(
+                            family,
+                            repo_name=args.repo,
+                            include=args.persona,
+                            exclude=args.no_persona,
+                            model=args.model,
+                            max_parallel=args.max_parallel,
+                        )
+                    except LiveReviewError as e:
+                        sys.stderr.write(f"[keeper] {e}\n")
+                        return EXIT_USAGE
+
             if not review_obj["state_present"]:
                 sys.stderr.write(
                     f"[keeper] no family '{family}' — run keeper join first\n"

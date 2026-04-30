@@ -421,3 +421,191 @@ def test_cli_review_missing_family(tmp_repo, capsys):
     from keeper.checkpoint import main
     rc = main(["review", "--family", "nope"])
     assert rc != 0
+
+
+# ─── Live mode (mocked adapter; no real API calls) ──────────────────────
+
+def test_build_persona_messages_split():
+    """build_persona_messages returns (system, user) split correctly."""
+    from keeper.review import build_persona_messages
+    p = Persona(
+        name="test-p",
+        body="You are TestP.",
+        criteria=["a", "b", "c"],
+        penalty_phrases=["x", "y"],
+    )
+    state = {"family": "demo", "goal": "g"}
+    sys_p, user_p = build_persona_messages(p, state, [])
+    # System prompt should have persona body + protocol + JSON requirement
+    assert "[PERSONA — test-p]" in sys_p
+    assert "You are TestP." in sys_p
+    assert "Respond in JSON" in sys_p
+    assert "comment" in sys_p
+    # User prompt should have data only, not protocol
+    assert "CURRENT FAMILY STATE" in user_p
+    assert '"goal": "g"' in user_p
+    assert "Follow this protocol" not in user_p
+
+
+def test_run_review_live_with_mocked_adapter(tmp_repo, monkeypatch):
+    """Live mode invokes adapter.query per persona and aggregates results."""
+    from keeper.checkpoint import join, beat
+    from keeper.review import run_review_live
+    join("ports", goal="g", root=tmp_repo)
+    beat("ports", action="x", root=tmp_repo)
+
+    # Build a fake adapter that returns a deterministic response.
+    invoked = []
+    class FakeAdapter:
+        def query(self, prompt, system):
+            invoked.append({"prompt_chars": len(prompt), "system_chars": len(system)})
+            return {
+                "response": {
+                    "comment": "mock critique",
+                    "aggregate_score": 7,
+                    "confidence": 0.8,
+                },
+                "usage": {
+                    "model": "fake",
+                    "input_tokens": 1000,
+                    "output_tokens": 50,
+                    "estimated_cost_usd": 0.01,
+                },
+            }
+
+    # Monkeypatch the adapter loader to return our fake.
+    import keeper.review
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters",
+        lambda: {"fake": FakeAdapter()},
+    )
+
+    review = run_review_live(
+        "ports",
+        repo_name="ken",
+        model="fake",
+        max_parallel=2,
+        root=tmp_repo,
+    )
+    assert review["live"] is True
+    assert "results" in review
+    assert review["actual_cost_usd"] > 0
+    # Every roster member produced a result
+    for r in review["roster"]:
+        assert r["name"] in review["results"]
+        entry = review["results"][r["name"]]
+        assert entry.get("comment") == "mock critique"
+        assert entry.get("aggregate_score") == 7
+    # Adapter was called once per persona
+    assert len(invoked) == len(review["roster"])
+
+
+def test_run_review_live_handles_adapter_error(tmp_repo, monkeypatch):
+    """If the adapter raises, the persona's result records the error
+    but other personas still run."""
+    from keeper.checkpoint import join
+    from keeper.review import run_review_live
+    join("ports", goal="g", root=tmp_repo)
+
+    call_count = [0]
+    class FlakyAdapter:
+        def query(self, prompt, system):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("simulated network failure")
+            return {
+                "response": {"comment": "ok", "aggregate_score": 5},
+                "usage": {"estimated_cost_usd": 0.005},
+            }
+
+    import keeper.review
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters",
+        lambda: {"fake": FlakyAdapter()},
+    )
+    review = run_review_live(
+        "ports", repo_name="ken", model="fake", max_parallel=1, root=tmp_repo,
+    )
+    # At least one error and at least one success
+    has_error = any("error" in r for r in review["results"].values())
+    has_success = any(r.get("comment") == "ok" for r in review["results"].values())
+    assert has_error and has_success
+
+
+def test_run_review_live_handles_non_dict_response(tmp_repo, monkeypatch):
+    """Adapter returns plain text — fallback comment extraction should work."""
+    from keeper.checkpoint import join
+    from keeper.review import run_review_live
+    join("ports", goal="g", root=tmp_repo)
+
+    class TextAdapter:
+        def query(self, prompt, system):
+            return {
+                "response": "just a plain string critique",
+                "usage": {"estimated_cost_usd": 0.005},
+            }
+
+    import keeper.review
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters",
+        lambda: {"fake": TextAdapter()},
+    )
+    review = run_review_live(
+        "ports", repo_name="ken", model="fake", root=tmp_repo,
+    )
+    # Every result should have SOME comment, even if not the JSON shape we asked for
+    for entry in review["results"].values():
+        assert "comment" in entry
+        assert entry["comment"]
+
+
+def test_run_review_live_unknown_model_errors(tmp_repo, monkeypatch):
+    from keeper.checkpoint import join
+    from keeper.review import run_review_live, LiveReviewError
+    join("ports", goal="g", root=tmp_repo)
+
+    import keeper.review
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters", lambda: {"gpt": object()},
+    )
+    with pytest.raises(LiveReviewError, match="unknown model"):
+        run_review_live("ports", repo_name="ken", model="nonexistent", root=tmp_repo)
+
+
+def test_render_review_text_with_results(tmp_repo, monkeypatch):
+    """Live-mode render shows comments inline, replaces dry-run footer."""
+    from keeper.checkpoint import join
+    from keeper.review import run_review_live, render_review_text
+    join("ports", goal="g", root=tmp_repo)
+
+    class FakeAdapter:
+        def query(self, prompt, system):
+            return {
+                "response": {"comment": "fake critique", "aggregate_score": 6},
+                "usage": {"estimated_cost_usd": 0.01},
+            }
+    import keeper.review
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters", lambda: {"fake": FakeAdapter()},
+    )
+    review = run_review_live(
+        "ports", repo_name="ken", model="fake", root=tmp_repo,
+    )
+    out = render_review_text(review)
+    assert "Comments:" in out
+    assert "fake critique" in out
+    assert "[6/10]" in out
+    assert "LIVE —" in out
+    assert "DRY RUN" not in out
+    assert "Actual cost:" in out
+
+
+def test_cli_review_live_aborts_on_no_confirmation(tmp_repo, capsys, monkeypatch):
+    """CLI live mode without --yes prompts; declining aborts."""
+    from keeper.checkpoint import main
+    main(["join", "--family", "ports", "--goal", "g"])
+    capsys.readouterr()
+    monkeypatch.setattr("builtins.input", lambda *a, **kw: "n")
+    rc = main(["review", "--family", "ports", "--repo", "ken", "--live"])
+    assert rc != 0
+    assert "aborted" in capsys.readouterr().err
