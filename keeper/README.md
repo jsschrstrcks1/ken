@@ -44,9 +44,12 @@ keeper recover --family ports --json --brief   # what to feed Claude
 
 # When you're really done:
 keeper complete --summary "endpoint shipping; CI green"
+
+# Optional: before complete, ask Claude to review what you've done
+keeper review --family ports --live --yes
 ```
 
-That's it. `keeper recover` is the hook that re-bootstraps a new Claude session against the prior one's state with zero manual handoff.
+That's it. `keeper recover` is the hook that re-bootstraps a new Claude session against the prior one's state with zero manual handoff. `keeper review` is an optional *cognitive* check — multiple Claude personas surface things you may have missed before you finalize.
 
 ---
 
@@ -125,6 +128,27 @@ Manually write a full state snapshot to `completed/snapshots/`. Auto-fires every
 
 Installs three Claude Code hooks (`SessionStart`, `PreCompact`, `SessionEnd`) that automate keeper lifecycle when `KEEPER_FAMILY` is set in your env. Default is print-only (review the JSON before writing); `--auto` actually writes. See **The hooks story** below.
 
+### `keeper review [--family ports] [--live] [--persona ...] [--no-persona ...] [--show-prompts] [--json]`
+
+The **cognitive review layer**. Loads the family state and runs it past multiple Claude *personas*, each with a distinct point of view (Skeptic / Architect / Future-Self / + repo-specific ones). Each persona produces a single 1–3 sentence critique anchored to the actual state.
+
+This is what `keeper validate` is *not*: validate runs deterministic structural lint checks (file existence, branch drift, journal sync) for free. Review runs cognitive critique — slow, probabilistic, costs Claude calls — and surfaces things only a thoughtful reader would catch.
+
+Two modes:
+
+- **Dry-run** (default): builds the per-persona prompts and shows the roster + estimated cost, but makes **zero Claude calls**. Use this to inspect what would be sent before spending anything.
+- **Live** (`--live`): actually invokes one parallel Claude call per persona. Prompts for confirmation showing the cost estimate, unless you pass `--yes`.
+
+Behavior:
+1. Detect the repo from `repo_root().name` (or use `--repo NAME` to override). The repo name selects the per-repo persona roster.
+2. Load the **roster**: every baseline persona + every persona scoped to this repo (single-repo `repo:` field or shared `repos: [...]` list in frontmatter).
+3. Apply `--persona`/`--no-persona` filters. `--persona` adds, `--no-persona` removes.
+4. For each persona: assemble the prompt (persona body + protocol + family state JSON + last 10 journal events).
+5. Live: fire all calls in parallel (default `--max-parallel 5`); collect comments + per-persona scores + actual costs. Failures are recorded per-persona; one bad call doesn't sink the rest.
+6. Render: text by default (one block per persona), `--json` for Claude-priming or scripting, `--show-prompts` to print the full prompts (long).
+
+Full walkthrough with concrete examples is in **"Personas and `keeper review`"** below.
+
 ### `keeper new-id`
 
 Mint a fresh session id. Used internally; surfaced for scripting.
@@ -166,6 +190,15 @@ A bool in state. Set to `true` only by `keeper complete`. If a takeover finds th
 
 ### Lint checks
 Seven structural checks `validate` runs alongside the score: branch drift, files_in_play exist, journal/state synced, heartbeat fresh, worktree match, instance_token consistent, completed/ archive integrity. All must pass for `validate --strict` to exit zero.
+
+### Persona
+A markdown file under `keeper/personas/` (baseline) or `keeper/personas/<repo>/` (repo-specific). Each persona declares a distinct point of view (Skeptic, Architect, Future-Self, Weather-Realist, ...) plus its **3 evaluation criteria**, **penalty phrases** that signal generic non-help, and a calibration example. At review time, each persona is one Claude call; the model is instructed to generate 10 candidate critiques, rate each on the 3 criteria (10-point scale), apply the penalty list, take the **minimum** across criteria as aggregate, and return the highest-scoring critique as a 1–3 sentence comment.
+
+### Roster
+The set of personas that run for a given repo's review. Composed at runtime: every baseline persona + every persona scoped to the current repo (`repo:` field) or sharing a multi-repo scope (`repos:` list — used by the heritage cookbooks, which share three personas across Grandmasrecipes/Grannysrecipes/MomsRecipes). `--persona NAME` adds; `--no-persona NAME` drops.
+
+### Min-of-criteria aggregation
+Each candidate critique gets three independent scores. The aggregate is `min(score_1, score_2, score_3)` — one weakness sinks the candidate. Stricter than sum-of-points; forces all-around quality. Borrowed from `nickkeesG/Pantheon`'s daemon protocol; see **Design notes**.
 
 ---
 
@@ -362,6 +395,344 @@ keeper complete --threshold 30             # lower the bar this once
 
 ---
 
+## Personas and `keeper review`
+
+The cognitive companion to `keeper validate`. Where validate asks *"is this state structurally complete?"*, review asks *"is this state actually good — is anything important missing, ambiguous, or unexamined?"*
+
+### Why this is separate from validate
+
+Validate is **structural** and **deterministic**. It checks file paths exist, branches haven't drifted, the journal links cleanly. It runs in milliseconds for free, every time. It will never tell you that your `goal` is sloppy or your `decisions` lack rationale.
+
+Review is **cognitive** and **probabilistic**. It runs a handful of LLM calls, each with a distinct point of view, and produces 1–3 sentence critiques anchored to the specific contents of your `family.json`. It costs roughly $0.10–$0.15 per invocation at default rosters. It catches the things only a thoughtful reader would catch.
+
+The two are complementary:
+
+| | `keeper validate` | `keeper review` |
+|---|---|---|
+| Type | Structural lint | Cognitive critique |
+| Cost | Free | ~$0.012 / persona × roster size |
+| Latency | <50 ms | 5–30 s (parallel calls) |
+| Determinism | Yes | No (LLM) |
+| Always-on | `complete` runs it strict-by-default | Opt-in only |
+| Question | "Is the state internally consistent?" | "Is the state actually any good?" |
+
+### How a single persona produces one comment
+
+Each persona is one Claude call. The model is told to follow this protocol:
+
+1. **Generate** 10 candidate critiques in the persona's voice, anchored to the family state and the last 10 journal events.
+2. **Rate** each on the persona's three criteria, 10-point scale per criterion. Each persona has different criteria — Skeptic scores `assumption_examined` / `falsifiable` / `alternative_considered`; Architect scores `scope_clarity` / `abstraction_pulls_weight` / `testability`; etc.
+3. **Apply −1 penalty** to candidates whose text contains the persona's blacklist of generic phrases ("consider best practices", "may want to think about", etc.).
+4. **Aggregate** by `min(score_1, score_2, score_3)`. One weakness sinks a candidate.
+5. **Select** the highest-aggregate candidate. If `aggregate < 4`, return `"no critique cleared threshold for <persona>"` instead of garbage.
+6. **Return** as JSON: `{comment, aggregate_score, confidence}`.
+
+This pattern is lifted from [`nickkeesG/Pantheon`](https://github.com/nickkeesG/Pantheon)'s daemon protocol. The min-aggregate (vs sum-of-points) is load-bearing — it forces critiques that are strong on every dimension, not just one.
+
+### The persona library
+
+31 personas drafted across 10 repositories. Every repo gets the 5 baseline personas; most also get repo-specific personas:
+
+| Persona file | Scope | Looks for |
+|---|---|---|
+| `personas/skeptic.md` | baseline | Unexamined assumptions, missing alternatives |
+| `personas/architect.md` | baseline | Design holes, scope creep, missing tests |
+| `personas/future-self.md` | baseline | Gaps a returning author hits in 3 months |
+| `personas/content-quality.md` | baseline | Prose clarity, coherence, engagement |
+| `personas/user-experience.md` | baseline | Usability, accessibility, audience match |
+| `personas/inthewake/*.md` | InTheWake (cruise planning) | weather realism, mechanical SPOFs, provisioning math, anchorage tactics, crew fatigue, customs (6 personas) |
+| `personas/romans/*.md` | Romans (sermon content) | exegesis, pastoral attention, application bridge (3) |
+| `personas/sermon-library/*.md` | sermon-library (production) | asset completeness, series coherence, archive findability, pipeline scalability, integration drift (5) |
+| `personas/allrecipes/*.md` | Allrecipes | source attribution, dedupe curation, search findability (3) |
+| `personas/heritage-cookbooks/*.md` | Grandmas/Grannys/Moms (shared) | voice fidelity, technique preservation, modernization marking (3) |
+| `personas/flickersofmajesty/*.md` | flickersofmajesty | visual sacredness, spiritual resonance, subject respect (3) |
+| `personas/manateecreeksheep/*.md` | manateecreeksheep | flock welfare, recordkeeping audit, environmental guardian (3, ⚠ thresholds need domain-expert review) |
+| `personas/ken/*.md` | ken (this hub) | downstream impact, cost containment, cognitive-memory schema (3) |
+
+Default roster sizes (baseline 5 + repo-specific) range from 8 (Allrecipes, flickersofmajesty, ken, manateecreeksheep, heritage cookbooks) to 11 (InTheWake — has 6 cruise-specific personas).
+
+### Two modes: dry-run vs live
+
+**Dry-run** is the default. It builds prompts but makes no API calls. Use this constantly — it's free, and it lets you check the roster and prompt shape before spending anything.
+
+```bash
+$ keeper review --family ports
+=== keeper review — family 'ports' (repo: ken) ===
+
+Roster: 8 personas
+Estimated cost: ~$0.10
+
+Personas:
+  • architect                    (baseline)  6286ch
+  • content-quality              (baseline)  3896ch
+  • cognitive-memory-steward     (ken)  rank=3  3622ch
+  • cost-containment-auditor     (ken)  rank=2  3654ch
+  • downstream-impact-guardian   (ken)  rank=1  3711ch
+  • future-self                  (baseline)  7111ch
+  • skeptic                      (baseline)  6415ch
+  • user-experience              (baseline)  4120ch
+
+--- DRY RUN — no Claude calls made ---
+```
+
+**Live** (`--live`) actually fires the calls. By default it prompts for confirmation showing the cost estimate; pass `--yes`/`-y` to skip.
+
+```bash
+$ keeper review --family ports --live
+[keeper] live review: 8 personas via 'gpt' (estimated ~$0.10)
+[keeper] proceed? [y/N] y
+[adapters] Loaded: gemini, gpt, grok, perplexity, youdotcom
+=== keeper review — family 'ports' (repo: ken) ===
+
+Roster: 8 personas
+Actual cost: $0.0413
+
+Comments:
+  • skeptic [7/10]
+      I notice the `decisions` array commits to using '200 OK' for the new
+      health endpoint because it matches the existing '/ready', but this
+      decision doesn't account for the assumption that all clients
+      interpret this status code as intended. Without clarity on what
+      happens during degraded service states, this could lead to
+      confusion. A simple test of the endpoint's behavior under simulated
+      failure conditions would reveal if this assumption holds.
+  • architect [6/10]
+      ...
+  ...
+
+--- LIVE — 8 personas invoked ---
+```
+
+### A worked example: review during a real session
+
+Realistic flow, top to bottom:
+
+```bash
+# Begin a session.
+keeper join --family ports --goal "wire up new health-check endpoint"
+
+# Work for an hour, recording progress.
+keeper beat --action "added /health route" --files src/api.py
+keeper beat --decision "use 200 OK" "matches existing /ready"
+keeper beat --action "wrote unit test for /health"
+keeper beat --next-step "wire backoff into /api/calls"
+
+# Quick structural check (free).
+keeper validate
+# → Quality: 80/100. all lints pass.
+
+# Cognitive review BEFORE you complete (~$0.10, ~15 s).
+keeper review --live
+# → Skeptic catches that 200 OK was chosen for parity but you didn't
+#   document what happens when the upstream check itself fails.
+# → Architect flags that the test exists but isn't in files_in_play.
+# → Future-self asks where "the upstream check" actually lives —
+#   no file path attached to the decision.
+# Three actionable items. Add them to next_step + decisions, then:
+keeper beat --next-step "add fail-mode test for upstream-down case" \
+            --files src/api.py tests/test_health.py
+
+# Now finalize.
+keeper complete --summary "endpoint shipping; CI green"
+```
+
+The review's cost (~$0.10) buys back work that would otherwise be discovered by a colleague code-reviewing your commit, or worse, in production. Use it when the session contained nontrivial decisions.
+
+### Filtering the roster
+
+The default roster is everything baseline + everything repo-specific. Often you want less.
+
+**Skip personas you don't need this time:**
+
+```bash
+# In a non-content-heavy session, drop the prose-focused baselines:
+keeper review --live \
+  --no-persona content-quality \
+  --no-persona user-experience
+```
+
+**Run a single persona:**
+
+```bash
+# Skeptic-only — quick second opinion at minimum cost (~$0.012).
+# Drop everything else explicitly:
+keeper review --live --yes \
+  --no-persona architect \
+  --no-persona future-self \
+  --no-persona content-quality \
+  --no-persona user-experience \
+  --no-persona downstream-impact-guardian \
+  --no-persona cost-containment-auditor \
+  --no-persona cognitive-memory-steward
+```
+
+**Add a persona that isn't in the default roster** (e.g., for a domestic cruise normally `compliance-officer` is excluded; force it for an international leg):
+
+```bash
+keeper review --family ports --repo InTheWake --live \
+  --persona compliance-officer
+```
+
+**Override the auto-detected repo** (e.g., you're working in `ken/` but reviewing a sermon entry):
+
+```bash
+keeper review --family draft-week3 --repo Romans --live
+# → loads exegetical-guardian, pastoral-shepherd, application-bridge
+#   instead of ken's downstream-impact-guardian etc.
+```
+
+**Skip the cost prompt:**
+
+```bash
+keeper review --live --yes              # already-confirmed
+```
+
+### Choosing a model
+
+The `--model` flag selects which adapter handles the calls. Default is `gpt` (uses the orchestrator's GPT adapter):
+
+```bash
+keeper review --live --model gpt        # default
+keeper review --live --model gemini
+keeper review --live --model grok
+keeper review --live --model perplexity
+keeper review --live --model youdotcom
+```
+
+Different models will produce different critiques. If you have a specific persona that consistently underperforms on one model, run *just* that persona on a different model:
+
+```bash
+keeper review --live --yes --model grok \
+  --no-persona architect --no-persona content-quality \
+  --no-persona user-experience --no-persona future-self \
+  --no-persona downstream-impact-guardian \
+  --no-persona cost-containment-auditor \
+  --no-persona cognitive-memory-steward
+# → Skeptic-only on Grok
+```
+
+### Output shapes
+
+**Default (text, no prompts):** human-readable, one block per persona with the comment and aggregate score. Best for reading.
+
+**`--json`:** machine-readable. Good for piping into `jq` or feeding back into Claude:
+
+```bash
+keeper review --live --yes --json | jq '.results | to_entries | map({name: .key, comment: .value.comment})'
+```
+
+The JSON shape:
+
+```json
+{
+  "family": "ports",
+  "repo": "ken",
+  "state_present": true,
+  "live": true,
+  "actual_cost_usd": 0.0413,
+  "cost_estimate_usd": 0.10,
+  "roster": [
+    {
+      "name": "skeptic",
+      "repo": "baseline",
+      "baseline": true,
+      "criticality": null,
+      "needs_domain_expert_review": false,
+      "criteria": ["assumption_examined", "falsifiable", "alternative_considered"],
+      "prompt_chars": 6415
+    },
+    ...
+  ],
+  "results": {
+    "skeptic": {
+      "comment": "I notice the `decisions` array commits to ...",
+      "aggregate_score": 7,
+      "confidence": 0.85,
+      "usage": {"model": "gpt-4o", "input_tokens": 1542, "output_tokens": 87, "estimated_cost_usd": 0.0056}
+    },
+    ...
+  },
+  "notes": []
+}
+```
+
+**`--show-prompts`:** print the full per-persona prompt that *would* be (or *was*) sent. Useful for:
+- Debugging unexpected critiques ("why did the persona answer like that?")
+- Sanity-checking a new repo-specific persona before going live
+- Documenting the actual prompt for review by a domain expert (especially for `manateecreeksheep`, where domain thresholds need expert calibration)
+
+```bash
+keeper review --family ports --show-prompts > /tmp/review-prompts.txt
+# 8 prompts, ~3K-7K chars each, fully renders the persona body + protocol +
+# state JSON + journal — exactly what Claude sees.
+```
+
+### Cost planning
+
+Per persona, ~$0.012 at typical model rates (1.5K input + 200 output tokens). Default rosters:
+
+| Repo | Default roster size | Estimate per `--live` |
+|---|---|---|
+| ken | 8 | ~$0.10 |
+| Allrecipes / flickersofmajesty / heritage-cookbooks / manateecreeksheep | 8 | ~$0.10 |
+| Romans | 8 | ~$0.10 |
+| sermon-library | 10 | ~$0.12 |
+| InTheWake | 11 | ~$0.13 |
+
+Strategies for keeping cost down:
+
+- **Run dry-run first** (free) and confirm the roster before going live.
+- **Drop personas not relevant** to the specific session — content-quality and user-experience are usually skippable for code-heavy sessions.
+- **One-persona spot-checks**: when stuck, fire just Skeptic (`~$0.012`) for a quick outside view.
+- **Don't auto-fire on every beat.** Review is for moments where you'd ask a colleague — typically right before `complete`, or when stuck.
+
+### Custom personas
+
+To add a persona for an existing repo, drop a markdown file in `keeper/personas/<repo>/<name>.md`:
+
+```markdown
+---
+name: my-custom-persona
+repo: ports
+criticality: 4
+description: One-line summary of what this catches.
+criteria:
+  - first_criterion        # what does a 10/10 look like?
+  - second_criterion
+  - third_criterion
+penalty_phrases:
+  - "specific phrase that signals lazy thinking"
+  - "another phrase"
+when_not_to_use: situations where this persona doesn't apply
+---
+
+# My Custom Persona
+
+You are MyCustomPersona — [the role description]. Your job is to surface
+[the specific blind spot].
+
+## Voice
+[How this persona speaks — what tone, what level of directness]
+
+## Calibration example
+> [A 1-3 sentence example critique in this persona's voice, citing a
+> specific element of family.json with a concrete score]
+
+## Notes
+Tie-break: [what to prefer when two candidates tie on aggregate].
+```
+
+The loader picks it up automatically on the next review — no code changes needed. To make a persona apply to multiple repos, use `repos: [a, b, c]` instead of `repo: a`. To make it baseline (every repo), use `baseline: true` and put it directly under `personas/`.
+
+### When NOT to use review
+
+- **On every beat.** Review is for *moments*, not background noise. Three calls per beat × 100 beats × $0.012 = $3.60 you didn't need to spend.
+- **For structural checks.** Use `keeper validate` for "is this state internally consistent" — it's instant and free.
+- **For sterile work.** A 5-minute session with one trivial change doesn't need eight Claude critiques.
+- **When the personas are wrong for the work.** The default `Architect` persona's "testability" criterion is meaningful for software but mostly noise for a recipe site. Use `--no-persona architect` or override with a repo-tuned persona.
+
+---
+
 ## Troubleshooting
 
 ### "no family specified"
@@ -408,6 +779,40 @@ keeper join --family <name>
 ```
 Family state is just files; deletion is safe.
 
+### `keeper review --live` errors with "could not import adapters"
+Live mode loads the orchestrator's adapter package from `<repo>/orchestrator/`. If you're running keeper in a repo without that directory (or the SDKs the adapters need aren't installed), live mode can't fire calls. Two paths:
+
+```bash
+# 1. Run keeper from inside ken (which has orchestrator/):
+cd /home/user/ken
+keeper review --family ports --live
+
+# 2. Or install the adapter SDKs (openai, google-genai, etc. — see
+#    /home/user/ken/orchestrator/requirements.txt).
+pip install -r /home/user/ken/orchestrator/requirements.txt
+```
+
+Dry-run mode works regardless — it never imports the adapters.
+
+### `keeper review` returns "no critique cleared threshold for <persona>"
+The persona generated 10 candidate critiques but every one scored below the floor on at least one criterion (post-penalty). This usually means the family state is sparse enough that there's nothing meaningful to say *from that persona's POV*. Either accept it (some personas legitimately have nothing to add) or enrich the state and re-run.
+
+### A persona keeps generating critiques that miss the point
+Three knobs:
+
+1. **Read the persona file.** `keeper personas/<repo>/<name>.md` — the criteria and penalty phrases live in the frontmatter. Tweak them.
+2. **Print the actual prompt.** `keeper review --family X --show-prompts` shows exactly what the model is seeing. If the persona body or criteria are off, they're visible there.
+3. **Try a different model.** `keeper review --live --model gemini` — different models have different strengths. GPT tends to follow protocol structure tightly; Grok tends to be more adversarial; Gemini tends to be more elaborate.
+
+### Cost is higher than expected
+The estimate is ~$0.012/persona based on typical token usage. Reality varies:
+
+- Larger family state (long `working` arrays, dense decisions) → larger input → higher cost.
+- Verbose models (some Grok configurations) → higher output tokens.
+- Failed JSON parsing → adapter retries (rare).
+
+The actual cost is reported in the `actual_cost_usd` field of `--json` output and in the live-mode summary. Run `keeper review --live --json` once and check the per-persona `usage.estimated_cost_usd` to calibrate.
+
 ---
 
 ## Design notes
@@ -432,6 +837,14 @@ The full 9-round design history lives in `keeper-plan.md` at the repo root. Key 
 
 **No SQLite.** Evaluated and rejected: zero binary deps, greppable JSONL, raw stdlib is enough. CONTINUITY uses SQLite for its MCP-tool surface; we have a CLI surface where files-on-disk is simpler.
 
+**Review is a separate cognitive layer, not a replacement for validate.** The orchestra triad's "trim, don't enhance" verdict still applies to validate (deterministic structural checks stay structural). Review is opt-in and never gates `complete` by default — the cost-conscious choice is to run it explicitly, not have it ride along on every lifecycle action.
+
+**Personas are markdown files, not code.** The frontmatter declares the rubric (`criteria`, `penalty_phrases`, `when_not_to_use`), and the markdown body becomes the system prompt. Adding a new persona is dropping a file, no code changes. Borrowed the daemon-with-rubric architecture from `nickkeesG/Pantheon` and the verifier-role concept from `PrometheanLink/pantheon`.
+
+**Min-of-criteria aggregation, not sum-of-points.** A naive sum lets one strong dimension paper over weakness on others. The min forces every criterion to clear a bar. Sharp failure mode: if all candidates score 1 on at least one criterion, the "winner" is still bad — handled by the `aggregate < 4 → "no critique cleared threshold"` floor.
+
+**Review uses the orchestrator's existing adapters, not its own model layer.** `keeper review --live` imports `orchestrator/adapters/__init__.py` and calls `adapter.query(prompt, system)` per persona in parallel. This means keeper's review surface stays small (~150 LOC in `review.py`) and inherits adapter improvements automatically. The price: review is a "live in ken" feature; using it in a repo without orchestrator next door requires installing the adapter SDKs locally.
+
 ---
 
 ## Limitations
@@ -442,17 +855,22 @@ The full 9-round design history lives in `keeper-plan.md` at the repo root. Key 
 - **Quality rubric is opinionated.** The 7 criteria may not match your workflow. Override per-call with `--threshold N` or bypass with `--force`.
 - **Family names are ASCII-only.** `[a-z0-9-]{1,32}`. Unicode names not supported.
 - **Recovery brief is plaintext-bounded.** If your `working` array has 100 entries, the human-readable brief gets long. Use `--brief` for a tighter Claude prompt.
+- **Review is single-model per invocation.** Each `--live` run uses one `--model`. Cross-model debate (one persona on Claude, one on GPT, one on Grok) would be a separate orchestration layer; for now, run two sequential `--live` invocations with different `--model` flags if you want both perspectives.
+- **Personas score themselves; we trust the score.** The model returns its own `aggregate_score` per the protocol. We don't post-process or recompute it. If a model lies about its score, we won't notice — practical mitigation is the penalty phrases (which catch the most common laziness pattern).
+- **Review can't see your code, only your state.** Each persona reads `family.json` + the last 10 journal events, not your actual git diff. A critique like "where's the test?" is anchored to whether `files_in_play` includes a test file, not whether the test exists in the working tree. If you want diff-aware review, that's future work.
 
 ---
 
 ## Credits
 
-This module wouldn't exist without the prior art it learned from. Full attribution per concept lives in `CREDITS.md`. The two biggest contributors:
+This module wouldn't exist without the prior art it learned from. Full attribution per concept lives in `CREDITS.md`. Highlights:
 
 - **[AnastasiyaW/mclaude](https://github.com/AnastasiyaW/mclaude)** (MIT) — atomic-write pattern, heartbeat-as-mtime, structured handoff schema, worktree+branch detection, schema-version-with-migration.
 - **[duke-of-beans/CONTINUITY](https://github.com/duke-of-beans/CONTINUITY)** (MIT) — auto-escalation, handoff quality scoring, state-accumulator merge semantics, `ended_cleanly` flag.
+- **[nickkeesG/Pantheon](https://github.com/nickkeesG/Pantheon)** (MIT) — daemon-with-rubric protocol for `keeper review` (multi-persona, 3-criteria scoring, **minimum-of-criteria** aggregation, penalty-phrase post-processing).
+- **[PrometheanLink/pantheon](https://github.com/PrometheanLink/pantheon)** (MIT) — Verifier role concept (one Claude instance whose job is to check the work of another); inspired the `keeper review` command shape.
 
-Plus the 5-model review chain (Gemini → Perplexity → You.com → GPT → Grok), the orchestra triad (GPT → Gemini → Grok), and four memory-tool spikes that surfaced Anthropic's official Auto Memory feature and clarified that keeper's scope is *session-continuity*, not *knowledge-accumulation*.
+Plus the 5-model review chain (Gemini → Perplexity → You.com → GPT → Grok), the orchestra triad (GPT → Gemini → Grok), four memory-tool spikes that surfaced Anthropic's official Auto Memory feature, and seven sequential per-repo orchestra runs that drafted the 26 repo-specific personas.
 
 ---
 
@@ -469,10 +887,25 @@ keeper/
 ├── __init__.py         # public API re-exports
 ├── __main__.py         # python -m keeper entry point
 ├── checkpoint.py       # core: state, lease, journal, hooks, CLI
+├── personas.py         # frontmatter parser + persona loader (no deps)
+├── review.py           # build/run keeper review (dry-run + live)
+├── personas/           # the 31-persona library
+│   ├── README.md
+│   ├── skeptic.md, architect.md, future-self.md,
+│   ├── content-quality.md, user-experience.md          (5 baseline)
+│   ├── allrecipes/<3 personas>
+│   ├── flickersofmajesty/<3>
+│   ├── heritage-cookbooks/<3 — shared by Grandmas/Grannys/Moms>
+│   ├── inthewake/<6>
+│   ├── ken/<3>
+│   ├── manateecreeksheep/<3 — domain-expert review pending>
+│   ├── romans/<3>
+│   └── sermon-library/<5>
 └── tests/
-    ├── conftest.py     # tmp_repo fixture
-    ├── test_keeper.py  # 90+ unit tests
-    └── test_acceptance.py  # 3 end-to-end scenarios
+    ├── conftest.py     # tmp_repo fixture (gpg-disabled)
+    ├── test_keeper.py  # core lifecycle (state/lease/journal/validate/snapshot/hooks)
+    ├── test_personas.py  # frontmatter parser, roster, build_review, live mode (mocked)
+    └── test_acceptance.py  # 3 end-to-end scenarios (kill-resume, corruption, race)
 ```
 
-Total: ~1100 LOC core + ~700 LOC tests, stdlib-only.
+Total: ~1700 LOC core + ~1000 LOC tests, stdlib-only. Live `keeper review` additionally requires the orchestrator's adapter SDKs (`openai`, `google-genai`, etc. — see `/home/user/ken/orchestrator/requirements.txt`).
