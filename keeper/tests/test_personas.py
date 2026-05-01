@@ -609,3 +609,203 @@ def test_cli_review_live_aborts_on_no_confirmation(tmp_repo, capsys, monkeypatch
     rc = main(["review", "--family", "ports", "--repo", "ken", "--live"])
     assert rc != 0
     assert "aborted" in capsys.readouterr().err
+
+
+# ─── keeper complete --review (gate) ────────────────────────────────────
+
+def _populate_complete_state(family: str, root: Path) -> None:
+    """Populate enough state that validate passes; isolates the review gate."""
+    from keeper.checkpoint import join, beat
+    real_file = root / "fake_module.py"
+    real_file.write_text("# placeholder\n")
+    join(family, goal="ship Stage 2", root=root)
+    beat(family,
+         action="implemented review gate",
+         phase="implementation",
+         next_step="run tests",
+         files=["fake_module.py"],
+         decision=("review-threshold default 7", "stricter blocks more"),
+         root=root)
+
+
+def _mock_adapters(monkeypatch, scores: dict[str, int]):
+    """Patch _import_adapters to return a fake adapter that returns
+    canned aggregate_scores per persona."""
+    import keeper.review
+
+    class ScoreByPersonaAdapter:
+        def query(self, prompt, system):
+            # Crude: detect the persona name from the system prompt header.
+            persona_name = None
+            for line in system.splitlines():
+                if line.startswith("[PERSONA — "):
+                    persona_name = line.split("—", 1)[1].rstrip("]").strip()
+                    break
+            score = scores.get(persona_name, 5)
+            return {
+                "response": {
+                    "comment": f"mock critique from {persona_name} at score {score}",
+                    "aggregate_score": score,
+                    "confidence": 0.8,
+                },
+                "usage": {"estimated_cost_usd": 0.01},
+            }
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters",
+        lambda: {"gpt": ScoreByPersonaAdapter(), "fake": ScoreByPersonaAdapter()},
+    )
+
+
+def test_complete_review_passes_when_all_low(tmp_repo, monkeypatch, capsys):
+    """If every persona returns aggregate_score < threshold, review gate passes."""
+    from keeper.checkpoint import complete, read_state
+    _populate_complete_state("ports", tmp_repo)
+    _mock_adapters(monkeypatch, scores={})  # default 5/10 across the board
+    s = complete(
+        "ports", summary="ok", review=True,
+        review_threshold=7, root=tmp_repo,
+    )
+    assert s["ended_cleanly"] is True
+
+
+def test_complete_review_blocks_on_strong_critique(tmp_repo, monkeypatch, capsys):
+    """If any persona returns aggregate_score >= threshold, refuses."""
+    from keeper.checkpoint import complete
+    _populate_complete_state("ports", tmp_repo)
+    _mock_adapters(monkeypatch, scores={"skeptic": 9})  # one strong critique
+    with pytest.raises(SystemExit) as exc:
+        complete(
+            "ports", summary="x", review=True,
+            review_threshold=7, root=tmp_repo,
+        )
+    assert exc.value.code != 0
+    err = capsys.readouterr().err
+    assert "strong critique" in err
+    assert "skeptic" in err
+    assert "9/10" in err
+
+
+def test_complete_review_threshold_configurable(tmp_repo, monkeypatch, capsys):
+    """Lowering threshold catches medium-confidence critiques too."""
+    from keeper.checkpoint import complete
+    _mock_adapters(monkeypatch, scores={"skeptic": 6})
+    # Two separate families so the second isn't re-joining a completed one.
+    _populate_complete_state("ports-a", tmp_repo)
+    _populate_complete_state("ports-b", tmp_repo)
+    # Threshold 7 → 6 passes
+    s = complete(
+        "ports-a", summary="ok", review=True,
+        review_threshold=7, root=tmp_repo,
+    )
+    assert s["ended_cleanly"] is True
+    # Threshold 5 → 6 now blocks
+    with pytest.raises(SystemExit):
+        complete(
+            "ports-b", summary="x", review=True,
+            review_threshold=5, root=tmp_repo,
+        )
+
+
+def test_complete_review_force_bypasses_gate(tmp_repo, monkeypatch):
+    """--force skips both validate AND review gates."""
+    from keeper.checkpoint import complete
+    _populate_complete_state("ports", tmp_repo)
+    _mock_adapters(monkeypatch, scores={"skeptic": 10})  # would block normally
+    s = complete(
+        "ports", summary="emergency", force=True,
+        review=True, root=tmp_repo,
+    )
+    assert s["ended_cleanly"] is True
+
+
+def test_complete_review_errors_if_adapters_unavailable(tmp_repo, monkeypatch, capsys):
+    """If review can't run (no adapters), refuse rather than skip silently."""
+    from keeper.checkpoint import complete
+    from keeper.review import LiveReviewError
+    import keeper.review
+    _populate_complete_state("ports", tmp_repo)
+
+    def boom():
+        raise LiveReviewError("simulated: no adapters available")
+    monkeypatch.setattr(keeper.review, "_import_adapters", boom)
+
+    with pytest.raises(SystemExit):
+        complete(
+            "ports", summary="x", review=True, root=tmp_repo,
+        )
+    err = capsys.readouterr().err
+    assert "review failed to run" in err
+    assert "no adapters available" in err
+
+
+def test_complete_review_filters_propagate(tmp_repo, monkeypatch):
+    """--review-persona / --review-no-persona reach the review call."""
+    from keeper.checkpoint import complete
+    import keeper.review
+
+    seen_includes = []
+    seen_excludes = []
+    real_run = keeper.review.run_review_live
+
+    def capture(*args, **kwargs):
+        seen_includes.append(kwargs.get("include"))
+        seen_excludes.append(kwargs.get("exclude"))
+        return {
+            "state_present": True,
+            "live": True,
+            "results": {},
+            "roster": [],
+            "actual_cost_usd": 0,
+        }
+    monkeypatch.setattr(keeper.review, "run_review_live", capture)
+
+    _populate_complete_state("ports", tmp_repo)
+    complete(
+        "ports", summary="x", review=True,
+        review_include=["skeptic"],
+        review_exclude=["architect"],
+        root=tmp_repo,
+    )
+    assert seen_includes == [["skeptic"]]
+    assert seen_excludes == [["architect"]]
+
+
+def test_complete_review_non_dict_response_doesnt_block(tmp_repo, monkeypatch):
+    """If a persona returns plain text (no aggregate_score), it can't
+    block — there's nothing to compare to the threshold."""
+    from keeper.checkpoint import complete
+    _populate_complete_state("ports", tmp_repo)
+    import keeper.review
+    class TextAdapter:
+        def query(self, prompt, system):
+            return {
+                "response": "just some text, not JSON",
+                "usage": {"estimated_cost_usd": 0.01},
+            }
+    monkeypatch.setattr(
+        keeper.review, "_import_adapters",
+        lambda: {"gpt": TextAdapter()},
+    )
+    # Should not block — no aggregate_score, no comparison possible
+    s = complete(
+        "ports", summary="ok", review=True, root=tmp_repo,
+    )
+    assert s["ended_cleanly"] is True
+
+
+def test_cli_complete_review_blocks(tmp_repo, monkeypatch, capsys):
+    """CLI: keeper complete --review with a strong critique returns non-zero."""
+    from keeper.checkpoint import main
+    main(["join", "--family", "ports", "--goal", "g"])
+    main(["beat", "--family", "ports", "--action", "did stuff",
+          "--decision", "x", "y", "--next-step", "next",
+          "--phase", "phase", "--files",
+          str(tmp_repo / "fake_module.py")])
+    (tmp_repo / "fake_module.py").write_text("# placeholder\n")
+    _mock_adapters(monkeypatch, scores={"skeptic": 9})
+    capsys.readouterr()
+    rc = main(["complete", "--family", "ports", "--summary", "x",
+               "--review", "--review-threshold", "7"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "strong critique" in err

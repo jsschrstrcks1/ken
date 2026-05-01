@@ -97,12 +97,13 @@ The **strict-by-default graceful end**.
 
 1. Read state.
 2. **Run `validate`** internally (quality score + 7 lint checks). If score < threshold (default 60) OR any lint fails → refuse with a stderr message telling you to either fix it or `--force`.
-3. Append a `complete` event to journal.
-4. Set `ended_cleanly=true` and `completed_at` in state.
-5. Atomic-write state.
-6. Render a markdown summary to `completed/<family>_<YYYY-MM-DD_HH-MM-SS>_complete.md` with done/working/broken/blocked/decisions sections.
+3. **Optional: run `review --live`** if `--review` is set. Refuses to complete if any persona returns a critique with `aggregate_score >= --review-threshold` (default 7).
+4. Append a `complete` event to journal (records `review: true/false`).
+5. Set `ended_cleanly=true` and `completed_at` in state.
+6. Atomic-write state.
+7. Render a markdown summary to `completed/<family>_<YYYY-MM-DD_HH-MM-SS>_complete.md` with done/working/broken/blocked/decisions sections.
 
-Skip the gate with `keeper complete --force` (audit trail is preserved; you just bypass the quality check).
+Skip the gate(s) with `keeper complete --force` (audit trail is preserved; you just bypass the quality and review checks).
 
 ### `keeper recover [--family ports] [--json] [--brief]`
 
@@ -392,6 +393,45 @@ Quality: 35/100  (threshold 60)
 keeper complete --force                    # one-off bypass
 keeper complete --threshold 30             # lower the bar this once
 ```
+
+### Optional: gate `complete` on `keeper review` too
+
+Add `--review` to also run the cognitive review (see next major section) before finalizing. Refuses to complete if any persona returns a critique with `aggregate_score >= --review-threshold` (default 7 — strong-confidence critiques only).
+
+```bash
+# Strict: validate + review must pass
+keeper complete --review --summary "..."
+
+# Tune the score that blocks (lower = stricter):
+keeper complete --review --review-threshold 5
+
+# Only consult specific personas during the gate:
+keeper complete --review --review-persona skeptic --review-persona architect
+
+# Skip noisy personas during the gate:
+keeper complete --review --review-no-persona content-quality \
+                          --review-no-persona user-experience
+
+# Force still bypasses both gates:
+keeper complete --force
+```
+
+When a persona blocks, the critique is shown inline so you know what to fix:
+
+```
+[keeper] refusing to complete: 1 persona(s) raised a strong critique (score >= 7).
+
+  skeptic [9/10]
+      I notice the `decisions` array commits to using '200 OK' for the
+      new health endpoint because it matches the existing '/ready', but
+      this decision doesn't account for the assumption that all clients
+      interpret this status code as intended ...
+
+  Address the critiques and beat the changes in, then re-run.
+  Bypass with `keeper complete --force`.
+```
+
+Cost: same as a regular `keeper review --live` (~$0.10 default roster). If review can't run (no adapter SDKs / orchestrator missing), `complete --review` refuses rather than silently skipping the gate.
 
 ---
 

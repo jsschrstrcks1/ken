@@ -621,13 +621,22 @@ def complete(
     summary: str = "",
     force: bool = False,
     threshold: int | None = None,
+    review: bool = False,
+    review_threshold: int = 7,
+    review_model: str = "gpt",
+    review_include: list[str] | None = None,
+    review_exclude: list[str] | None = None,
     root: Path | None = None,
 ) -> dict:
     """Graceful end. Sets ended_cleanly=true; archives a markdown summary.
 
     Runs `validate --strict` first by default: refuses to complete if
-    quality < threshold OR any lint fails. Use force=True to bypass
-    (equivalent to `keeper complete --force`).
+    quality < threshold OR any lint fails. Use force=True to bypass.
+
+    If review=True, also runs `keeper review --live` after validate
+    passes. Refuses to complete if any persona returns a critique with
+    `aggregate_score >= review_threshold` (default 7). Cost: ~$0.10 for
+    a default roster. Bypass with force=True.
     """
     _validate_family(family)
     root = root or repo_root()
@@ -651,10 +660,59 @@ def complete(
             )
             raise SystemExit(EXIT_USAGE)
 
+    if review and not force:
+        # Cognitive gate. Errors out cleanly if adapters can't load.
+        from keeper.review import (
+            LiveReviewError,
+            run_review_live,
+        )
+        try:
+            review_obj = run_review_live(
+                family,
+                model=review_model,
+                include=review_include,
+                exclude=review_exclude,
+                root=root,
+            )
+        except LiveReviewError as e:
+            sys.stderr.write(
+                f"[keeper] refusing to complete: review failed to run: {e}\n"
+                f"  Either fix adapters / SDKs, re-run without --review, "
+                f"or bypass with --force.\n"
+            )
+            raise SystemExit(EXIT_USAGE)
+
+        blockers = []
+        for name, entry in (review_obj.get("results") or {}).items():
+            if "error" in entry:
+                continue
+            score = entry.get("aggregate_score")
+            comment = entry.get("comment", "")
+            if score is None:
+                continue
+            if isinstance(score, (int, float)) and score >= review_threshold:
+                blockers.append((name, int(score), comment))
+        if blockers:
+            sys.stderr.write(
+                f"[keeper] refusing to complete: {len(blockers)} persona(s) "
+                f"raised a strong critique (score >= {review_threshold}).\n\n"
+            )
+            for name, score, comment in blockers:
+                sys.stderr.write(f"  {name} [{score}/10]\n")
+                for line in str(comment).splitlines():
+                    sys.stderr.write(f"      {line}\n")
+                sys.stderr.write("\n")
+            sys.stderr.write(
+                f"  Address the critiques and beat the changes in, then re-run.\n"
+                f"  Bypass with `keeper complete --force`.\n"
+            )
+            raise SystemExit(EXIT_USAGE)
+
     sess = state["session_id"]
     token = state["instance_token"]
     eid = journal_append(family, "complete",
-                         {"summary": summary}, sess, token, root)
+                         {"summary": summary, "review": review},
+                         sess, token, root)
     state["ended_cleanly"] = True
     state["last_event_id"] = eid
     state["completed_at"] = _now_iso()
@@ -1321,7 +1379,8 @@ USAGE
                   [--next-step "..."] [--phase "..."] [--note "..."]
                   [--auto] [--reason "..."]
   keeper complete [--family <name>] [--summary "..."] [--force]
-                  [--threshold N]
+                  [--threshold N] [--review] [--review-threshold N]
+                  [--review-model NAME] [--review-persona ...] [--review-no-persona ...]
   keeper recover  [--family <name>] [--json] [--brief]
   keeper status   [--family <name>]
   keeper validate [--family <name>] [--strict] [--threshold N] [--json]
@@ -1431,10 +1490,20 @@ def main(argv: list[str] | None = None) -> int:
     p_complete.add_argument("--family")
     p_complete.add_argument("--summary", default="")
     p_complete.add_argument("--force", action="store_true",
-                            help="bypass validate --strict gate")
+                            help="bypass validate --strict + --review gates")
     p_complete.add_argument("--threshold", type=int,
                             default=QUALITY_THRESHOLD_DEFAULT,
                             help=f"quality threshold (default {QUALITY_THRESHOLD_DEFAULT})")
+    p_complete.add_argument("--review", action="store_true",
+                            help="also run keeper review --live; refuse if any persona scores >= --review-threshold")
+    p_complete.add_argument("--review-threshold", type=int, default=7,
+                            help="block-on-this-score-or-above (default 7; lower = stricter)")
+    p_complete.add_argument("--review-model", default="gpt",
+                            help="model for the review gate (default gpt)")
+    p_complete.add_argument("--review-persona", action="append", default=None,
+                            help="add a persona to the review roster (repeatable)")
+    p_complete.add_argument("--review-no-persona", action="append", default=None,
+                            help="exclude a persona from the review roster (repeatable)")
 
     p_validate = sub.add_parser("validate", add_help=False)
     p_validate.add_argument("--family")
@@ -1528,8 +1597,17 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "complete":
             family = _resolve_family(args.family)
-            complete(family, summary=args.summary,
-                     force=args.force, threshold=args.threshold)
+            complete(
+                family,
+                summary=args.summary,
+                force=args.force,
+                threshold=args.threshold,
+                review=args.review,
+                review_threshold=args.review_threshold,
+                review_model=args.review_model,
+                review_include=args.review_persona,
+                review_exclude=args.review_no_persona,
+            )
             print(f"[keeper] completed family '{family}'")
             return EXIT_OK
 
