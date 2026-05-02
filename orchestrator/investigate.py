@@ -78,8 +78,38 @@ def extract_threads_from_fanout(state):
         if not resp or not isinstance(resp, dict):
             continue
 
+        # Unwrap: some adapters nest proposals under 'analysis' (GPT) or
+        # return raw JSON inside 'raw_text' (Gemini/You.com) without parsing.
+        candidate_sources = [resp]
+        if isinstance(resp.get("analysis"), dict):
+            candidate_sources.append(resp["analysis"])
+        if isinstance(resp.get("raw_text"), str):
+            raw = resp["raw_text"].strip()
+            if raw.startswith("```"):
+                raw = raw.split("```", 2)
+                raw = raw[1] if len(raw) > 1 else raw[0]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip().rstrip("`").strip()
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    candidate_sources.append(parsed)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Collect proposals/verdicts/LHF across all candidate_sources
+        pooled_proposals = []
+        pooled_verdicts = []
+        pooled_lhf = []
+        for src in candidate_sources:
+            if isinstance(src, dict):
+                pooled_proposals.extend(src.get("proposals", []) or [])
+                pooled_verdicts.extend(src.get("verdicts", []) or [])
+                pooled_lhf.extend(src.get("low_hanging_fruit", []) or [])
+
         # Extract proposals
-        for p in resp.get("proposals", []):
+        for p in pooled_proposals:
             text = p.get("PROPOSAL", p.get("proposal", str(p)))
             conf = p.get("CONFIDENCE", p.get("confidence", "MEDIUM"))
             justification = p.get("JUSTIFICATION", p.get("justification", ""))
@@ -111,7 +141,7 @@ def extract_threads_from_fanout(state):
                 threads.append(thread)
 
         # Extract verdicts that suggest investigation
-        for v in resp.get("verdicts", []):
+        for v in pooled_verdicts:
             verdict = str(v.get("VERDICT", v.get("verdict", ""))).upper()
             if verdict in ("WHEAT_WITH_REFINEMENT", "CONTRADICTED", "PARTIALLY_VERIFIED"):
                 refinement = v.get("REFINEMENT", v.get("refinement",
@@ -130,7 +160,7 @@ def extract_threads_from_fanout(state):
                     threads.append(thread)
 
         # Extract low-hanging fruit as TRACE threads
-        for lhf in resp.get("low_hanging_fruit", []):
+        for lhf in pooled_lhf:
             text = lhf.get("description", lhf.get("item", str(lhf))) if isinstance(lhf, dict) else str(lhf)
             if len(str(text)) > 20:
                 thread = {

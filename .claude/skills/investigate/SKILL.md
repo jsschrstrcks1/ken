@@ -174,4 +174,64 @@ Typical: $1-3. Exhaustive: $3-5. Budget enforced by IterationController.
 
 ---
 
+## Adapter Failure Policy (MANDATORY — owner directive 2026-04-22)
+
+**If any model adapter fails for any reason, Claude automatically fulfills that model's
+role in the synthesis AND reports the failure to the user. Every time. No exceptions.**
+
+### What counts as a failure
+Any of the following:
+- HTTP 429 / rate limit / quota exceeded
+- HTTP 401 / authentication failure / missing API key
+- HTTP 5xx / server errors
+- Out of credits / billing exhausted
+- Network / connection errors / timeouts
+- Parse / format errors after max retries
+- Returned `None` or empty response
+- SDK import errors (model unreachable at runtime)
+
+### What "fulfill the role" means
+
+Each model has a distinct niche in the investigate pipeline:
+
+| Model | Role | What Claude does when this model fails |
+|-------|------|----------------------------------------|
+| **GPT** | Structured planner / proposal generator | Claude writes the proposals + verdicts GPT would have. Use chain-of-thought to derive same structure. |
+| **Gemini** | Context expansion, cross-reference finding | Claude expands context from training data + any cached memory. Note gaps. |
+| **Grok** | Adversarial red-team / challenge | Claude plays Grok: blunt, biting, question every assumption, stress-test the proposal. |
+| **Perplexity** | Cited web research | Claude flags: "no current web verification available" and offers training-data facts with explicit dated-training caveat. |
+| **You.com** | Cited research + breadth search | Same as Perplexity — flag "no fresh web research" and proceed with training knowledge + flagged uncertainty. |
+
+### What reporting looks like
+
+When any adapter fails, the final synthesis MUST include a section:
+
+```
+## Adapter Failures This Run
+
+| Model | Niche | Failure mode | How Claude filled in |
+|-------|-------|--------------|----------------------|
+| grok  | Adversarial challenge | HTTP 429 — xAI credits exhausted | Claude played Grok's role inline, marked "Claude-as-Grok" |
+| gemini | Context expansion | Format retry loop (raw_text unparsed) | Claude used training context; no 2026 web data |
+```
+
+**This table is REQUIRED in every synthesis output whenever any adapter failed.**
+The user needs to know (a) what broke, so they can fix the underlying issue
+(add credits, update adapter, restart service) and (b) what part of the
+analysis came from a Claude stand-in rather than the intended model.
+
+### Execution rule
+
+When running the investigate pipeline:
+1. Check the run log for any model that failed, errored, timed out, or produced a degraded response
+2. For each failed model: write Claude's stand-in content explicitly labeled "Claude-as-<model>" in the relevant section
+3. Include the "Adapter Failures This Run" table in the final synthesis
+4. Do not silently omit the failed model's perspective — the whole point of fan-out is multi-model diversity; missing one and not saying so pretends the analysis has breadth it doesn't have
+
+### One-line summary
+
+**Silence is not an option.** If a model is unreachable, Claude fills the niche in writing and flags it by name.
+
+---
+
 *Soli Deo Gloria*
