@@ -15,7 +15,7 @@ if [ ! -f "$CHECKPOINT" ]; then
     exit 0
 fi
 
-OUT=$(python3 "$CHECKPOINT" scan 2>/dev/null) || exit 0
+OUT=$(python3 "$CHECKPOINT" scan --json 2>/dev/null) || exit 0
 
 # Suppress the "no stale" case; surface anything else.
 case "$OUT" in
