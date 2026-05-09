@@ -3,9 +3,25 @@
   "Whatever you do, work heartily, as for the Lord and not for men." — Colossians 3:23
   "Unless the LORD builds the house, those who build it labor in vain." — Psalm 127:1
 -->
+
+> ## ⚠ HISTORICAL — DO NOT FOLLOW
+> This document predates the discovery that OpenClaw is an existing
+> third-party project (`github.com/openclaw/openclaw`), not something we
+> are building. It assumes a custom Python runtime that is no longer the
+> plan.
+>
+> **Current canonical plan: [`MASTER_PLAN.md`](./MASTER_PLAN.md)** (v2.0.0).
+>
+> Kept here for historical context: many of the cluster-topology, photo
+> pipeline, and partition-rules sections survive the pivot and are
+> carried forward into v2. The skill-loader, audit-subject, and
+> bearer-middleware sections do not — OpenClaw provides those.
+
+---
+
 # OpenClaw Distributed AI System — v1 Architecture
 **Version:** 2026-05-09 · v1.000.000
-**Status:** Approved for build — Phase 1 ready
+**Status:** Superseded — see MASTER_PLAN.md
 **Author:** Ken Baker
 **Scope:** Distributed local AI workflow system across four Apple Silicon nodes plus a coordinator VPS.
 ---

@@ -1,5 +1,15 @@
 # OpenClaw Build — Handoff
 
+> **PIVOT NOTICE:** OpenClaw is an existing third-party project
+> (`github.com/openclaw/openclaw`), not a runtime we are building. The
+> current canonical plan is **`MASTER_PLAN.md`** (v2.0.0) in this
+> directory. `ARCHITECTURE_v1.md` is historical and labelled as such at
+> its top — do not follow it.
+>
+> If you are an AI session picking this up to set up OpenClaw on
+> m4mini: read `MASTER_PLAN.md` Section 0 first. It tells you what to
+> read before writing any code.
+
 ## What Was Done (in this repo)
 
 - `openclaw-tools.yaml` at repo root: top-level manifest, the single discovery surface OpenClaw will read. Seven tools across three execution classes:
