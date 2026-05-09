@@ -26,6 +26,47 @@ This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, `rec
 
 ---
 
+## OpenClaw Integration — Anthropic ToS Hard Requirements
+
+This repo hosts skills that load into the OpenClaw runtime (`github.com/openclaw/openclaw`). Architecture spec: `openclaw/ARCHITECTURE_v1.md`. The following requirements are **non-negotiable** and derive from Anthropic's Usage Policy, Commercial Terms of Service, and Consumer Terms of Service. They override convenience. If a planned skill, configuration, or integration would violate any of them, **halt and flag before continuing** — do not work around them.
+
+### Authentication
+
+- **Use a dedicated API key** (`ANTHROPIC_API_KEY=sk-ant-...`) issued from a `console.anthropic.com` billing account. This is the only compliant Anthropic auth path for OpenClaw.
+- **Never wire OpenClaw to Claude.ai subscription auth.** OAuth tokens from Free/Pro/Max accounts in any third-party tool violate the Consumer Terms and are actively detected and blocked by Anthropic.
+- **Keep this API key separate from Claude Code's auth.** A revocation on one billing relationship must not take down the other.
+
+### Tenancy
+
+- **Single user only.** Bearer-token auth on every OpenClaw endpoint per `openclaw/ARCHITECTURE_v1.md` Section 8. Tokens issue to the owner's own devices (phone, laptops, Mac minis); never to other natural persons.
+- **No multi-tenant gateway.** Letting another household member, friend, or collaborator use Claude through this API key is the "funnel" / "redistribution" pattern explicitly prohibited by Anthropic's Commercial Terms.
+- **No public-facing endpoint.** OpenClaw stays inside the tailnet. No port forwards, no Tailscale Funnel, no public reverse proxy in front of OpenClaw's gateway.
+
+### Agentic skills
+
+- Any skill that takes external action — `coding-agent`, browser control, file modification outside `/tmp`, voice-call, screen capture, message-channel posting — declares `requires_human_confirmation: true` in its manifest entry. Anthropic's agentic-use guidelines require clear consent and documented user control.
+- **No skill auto-publishes pastoral, Scripture, or family-history content.** Manifest-loader enforcement of `publish_*` names and the `external_endpoints` allowlist is documented in architecture Section 9. The doctrinal constraint from architecture Section 8 is mechanically enforced, not policy-only.
+
+### Universal usage standards
+
+- No use of OpenClaw for any prohibited category under Anthropic's Universal Usage Standards (CSAM, attacks on critical infrastructure, election manipulation, deception of democratic processes, etc.). Project intent is far from these; restated for completeness because the constraint is absolute.
+- Sensitive-domain output (pastoral, mental-health-adjacent, legal-adjacent, etc.) carries forward the disclaimers and accessibility commitments already in place for `cruisinginthewake.com` and sibling sites. Any skill contributing to such output must preserve those disclaimers in its return value.
+
+### Naming and trademark
+
+- Don't label any local skill, channel, or user-facing surface as "Claude" or use the Claude trademark as a product name. Factual references in logs and metadata (e.g., `model: claude-opus-4-7`) are fine; product-style use ("Claude in your menu bar," "Claude said:" as a brand) is not.
+- "OpenClaw" is the runtime name and is settled (Anthropic-trademark concerns over the original "Clawdbot" / "Moltbot" names were resolved by the rename in Jan 2026). Don't revert to or reference the older names in any user-facing surface.
+
+### Audit posture
+
+- Every Anthropic API call made through an OpenClaw skill in this repo must produce a `tool.audit` record per architecture Section 9. The `tool.audit` subject is the source of truth for compliance review; if it can't be reconstructed, the call shouldn't happen.
+
+### Enforcement
+
+These are hard requirements, not best practices. Anthropic's Safeguards Team can throttle, suspend, or terminate access for violations. A revoked API key blocks every other workflow that depends on it (consult, orchestrate, orchestra, investigate, plus any future skill).
+
+---
+
 ## Handoff Protocol
 
 This project uses **handoff files** to survive session timeouts and rate limits. Every Claude Code session that does significant work must maintain a handoff file.

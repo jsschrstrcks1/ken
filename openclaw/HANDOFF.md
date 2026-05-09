@@ -24,6 +24,19 @@ OpenClaw itself doesn't exist yet. It needs to be built on m4mini in its own rep
 
 When that repo is set up, hand it `openclaw/ARCHITECTURE_v1.md` and the existing `openclaw-tools.yaml` from this repo. The manifest is the contract; OpenClaw should make this hello-world tool callable as the Phase 2 smoke test.
 
+## Anthropic ToS Compliance (hard requirements)
+
+`CLAUDE.md` now contains a top-level "OpenClaw Integration — Anthropic ToS Hard Requirements" section. Read it before any OpenClaw work. The short version:
+
+- API key only (`sk-ant-...` from `console.anthropic.com`). Never Claude.ai subscription OAuth.
+- Single-user, single-tenant. No public endpoint, no other-person access.
+- Agentic skills require `requires_human_confirmation: true`.
+- No auto-publish of pastoral/Scripture/family-history content.
+- Don't use "Claude" as a product/skill name — runtime is "OpenClaw."
+- Every Anthropic call produces a `tool.audit` record.
+
+These derive from Anthropic's Usage Policy, Commercial Terms, and Consumer Terms. They override convenience.
+
 ## Key Decisions (don't revisit)
 
 - Bearer-token auth from Phase 1, not Phase 4. Tailscale gates devices, not processes.
