@@ -98,11 +98,14 @@ It runs on your hardware (Mac, Linux, VPS), exposes itself via messaging channel
 
 | Node | Hardware | Network | Reliability | Role |
 |------|----------|---------|-------------|------|
-| `vps` | RackNerd VPS (Linux) | Datacenter, always on | Highest | Coordinator: NATS JetStream queue, MinIO results-archive, Prometheus/Grafana, Caddy. **Not** an OpenClaw host. |
-| `m4mini` | Mac mini M4 | Home LAN | High | **OpenClaw host.** Default chat inference (Ollama). MinIO model storage. Folder watcher. Cluster routing logic for distributed work. |
+| `vps` | RackNerd VPS (Linux) | Datacenter, always on | Highest | Coordinator: NATS JetStream (one of three replicas), MinIO results-archive, Prometheus/Grafana, Caddy. **Not** an OpenClaw host. |
+| `m4mini` | Mac mini M4 | Home LAN | High | **OpenClaw host.** Default chat inference (Ollama). MinIO model storage. Cluster routing logic for distributed work. |
 | `m3pro` | MacBook Pro M3 Pro | Home LAN | High when home | Cluster worker: code-specialized inference (Ollama), Whisper, photo scoring/crop. |
-| `m2mini` | Mac mini M2 | Different network, moderate internet | High but remote | Cluster worker: small models, batch overflow. NATS replica. |
+| `m2mini` | Mac mini M2 | Different network, moderate internet | High but remote | Cluster worker: small models, batch overflow. NATS JetStream replica (one of three). |
 | `m4max` | MacBook Pro M4 Max | Mobile | Opportunistic | Cluster worker: heavy reasoning (70B), SDXL when home. Mode-detected (LAN ↔ travel). |
+| `rpi5` | Raspberry Pi 5 8GB | Home LAN ethernet | High (always on) | Infrastructure: NATS JetStream replica (one of three), Prometheus scraping. PCIe slot reserved for an AI HAT+ if vision pre-screen becomes worth it (Phase 6 decision). |
+| `rpi4a` | Raspberry Pi 4B 8GB | Home LAN | High (always on) | **Photo ingest worker:** folder watch + pHash + dedupe. USB SSD attached for staging. Frees m4mini from per-frame ingest. |
+| `rpi4b` | Raspberry Pi 4B 8GB | Home LAN | High (always on) | Scheduled jobs (cron-style triggers via NATS) + hot spare. Can take over `rpi5` or `rpi4a` role on hardware failure. |
 
 All on a Tailscale tailnet with MagicDNS. Hostnames above are canonical.
 
@@ -285,7 +288,7 @@ m4mini is the OpenClaw host *and* a target for chat/LLaVA/embeddings. Three larg
 
 - **m4max offline (frequent):** LAN cluster serves real-time with 7B/8B. Heavy-reasoning real-time degrades to "best available smaller model" with a flag, or queues for when m4max returns.
 - **LAN ↔ VPS link flaky (occasional):** LAN keeps serving real-time. Batch publishes buffer locally on m4mini until VPS is reachable. NATS reconnect handles flush.
-- **VPS down entirely (rare):** LAN keeps serving real-time. New batch jobs queue locally on m4mini (in-memory, not durable). Document as accepted: VPS-down means batch durability is suspended, not that the system is down.
+- **VPS down entirely (rare):** LAN keeps serving real-time. Batch durability is preserved by the 3-node JetStream cluster (`vps` + `rpi5` + `m2mini`); losing one node keeps quorum. Losing two nodes (vps + either replica, or both replicas) suspends batch durability until quorum returns; new batch jobs queue locally on m4mini in-memory in that window.
 - **m4mini down:** Single point of failure. OpenClaw and real-time inference stop. Phase 6 may add OpenClaw failover; v2 accepts this.
 
 ---
@@ -414,14 +417,16 @@ All four log to the project audit destination — OpenClaw's native audit if ava
 
 **Exit criterion:** All four skills callable, costs aggregating per skill, caps enforce on overrun.
 
-### Phase 4 — Coordinator + photo pipeline
+### Phase 4 — Coordinator + Pi infrastructure + photo pipeline
 
-1. Install NATS JetStream on VPS. Verify no AdGuard conflict. Configure explicitly: persistent streams, `AckExplicit` on every consumer, retention ≥ 24 hours or work-queue with explicit ack. Defaults silently drop messages — do not rely on them.
+1. Install NATS JetStream as a 3-node cluster on `vps` + `rpi5` + `m2mini`. Verify no AdGuard conflict on VPS. Configure explicitly: persistent streams, `AckExplicit` on every consumer, retention ≥ 24 hours or work-queue with explicit ack. Defaults silently drop messages — do not rely on them.
 2. Install MinIO on m4mini. Create buckets per Section 7.
-3. Build cluster-bridge skill on m4mini: one verb `run_on_cluster(task_class, payload, mode)`. Realtime mode blocks ≤5s on result topic. Batch mode publishes and returns.
-4. Photo pipeline MVP per Appendix A.
+3. Bring up `rpi4a` as the photo ingest worker. USB SSD attached for staging. `watchdog` library watches the import folder; pHash + dedupe runs on-Pi; survivors publish to `photo.ingest`.
+4. Bring up `rpi4b` as the scheduled-job runner. Initial jobs: heartbeat poller (every 60s, publishes per-node liveness to NATS), placeholder for future cron triggers (e.g., "every Sunday 14:00, kick off sermon transcription if a new file in `audio-originals/`").
+5. Build cluster-bridge skill on m4mini: one verb `run_on_cluster(task_class, payload, mode)`. Realtime mode blocks ≤5s on result topic. Batch mode publishes and returns.
+6. Photo pipeline MVP per Appendix A — minus the ingest stage, which now lives on `rpi4a`.
 
-**Exit criterion:** Folder watcher publishes ingest events; m3pro scoring worker picks them up via NATS; LLaVA on m4mini tags survivors; status JSON written per image.
+**Exit criterion:** `rpi4a` watches the folder, hashes/dedupes, publishes to NATS; m3pro scoring worker picks up survivors via NATS; LLaVA on m4mini tags what scoring keeps; status JSON written per image. NATS quorum survives any one node going down.
 
 ### Phase 5 — Full cluster (m2mini, m4max)
 
@@ -433,11 +438,12 @@ All four log to the project audit destination — OpenClaw's native audit if ava
 ### Phase 6 — Hardening
 
 - OpenClaw replication for m4mini failover.
-- Prometheus + Grafana on VPS.
+- Prometheus + Grafana on VPS, scraping nodes including the Pis via `rpi5`.
 - Backup strategy for MinIO.
 - A separate `openclaw-release` branch in the ken repo with signed-commit gating, replacing the `main`-tracked v2 default.
 - Confirmation-channel for batch jobs that need it (push notification via ntfy.sh or Pushover) — replaces Phase 1's fail-closed default.
 - Workflow-library evaluation (Prefect / Temporal) only if plain async Python becomes painful.
+- **Vision pre-screen decision.** After Phase 4 photo pipeline is in daily use, measure actual LLaVA throughput on m4mini. If it's a real bottleneck (waits long enough to bother you, or blocks chat-mode contention), buy the AI HAT+ (Hailo-8, 26 TOPS, ~$130) for `rpi5` and add the `vision-screen` stage per Appendix A. If LLaVA throughput isn't actually the limiter, save the money. Trigger to revisit: any new vision workload (security cam, doorbell cam, multi-stream video) — those make the HAT worth it independent of photo pipeline.
 
 ---
 
@@ -499,13 +505,23 @@ Every image carries `pipeline: "cruise" | "personal"`.
 
 ### MVP scope (Phase 4)
 
-1. Folder watcher on m4mini (`watchdog`)
-2. Publish to `photo.ingest`
+1. Folder watcher on **`rpi4a`** (`watchdog`), USB SSD attached
+2. pHash + dedupe on `rpi4a`; survivors publish to `photo.ingest`
 3. Scoring worker on m3pro (Laplacian variance + histogram)
 4. Tagging worker on m4mini (LLaVA-1.6 13B Q4 — verify RAM headroom first)
 5. Status JSON in `metadata/`
 
-Defer until MVP is in daily use: crop suggestions, SDXL enhancement, web export, UI.
+Defer until MVP is in daily use: vision pre-screen (see below), crop suggestions, SDXL enhancement, web export, UI.
+
+### Vision pre-screen (deferred — Phase 6 decision)
+
+Optional stage between `score/filter` and `tag`. Runs on a Pi with hardware acceleration:
+- **AI HAT+ (Hailo-8, 26 TOPS, ~$130)** on `rpi5` — preferred, more capable, supports model-zoo YOLO and scene classifiers out of the box.
+- **Coral USB Accelerator (~$60)** on `rpi4a` or `rpi4b` — cheaper, weaker, MobileNet-class only. Reasonable hedge if you want vision acceleration without committing to the HAT.
+
+Pre-classifies each scoring-survivor with YOLO + scene classifier; only "interesting" images proceed to LLaVA on m4mini. Estimated 60–80% reduction in LLaVA invocations.
+
+**Don't buy hardware speculatively.** Run the photo pipeline through one heavy-volume cycle (a real cruise or family event) first. Measure LLaVA wall-clock. If it's not annoying you, the savings aren't worth the spend. If you add a security cam or doorbell cam to the project, the HAT becomes worth it on its own merits independent of photo pipeline.
 
 ### RAM budget (verify on first run)
 

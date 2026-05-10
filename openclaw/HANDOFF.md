@@ -34,6 +34,15 @@ OpenClaw itself doesn't exist yet. It needs to be built on m4mini in its own rep
 
 When that repo is set up, hand it `openclaw/ARCHITECTURE_v1.md` and the existing `openclaw-tools.yaml` from this repo. The manifest is the contract; OpenClaw should make this hello-world tool callable as the Phase 2 smoke test.
 
+## Pi infrastructure additions (v2.0.1)
+
+Three Raspberry Pis joined the architecture:
+- `rpi5` (Pi 5 8GB) — NATS replica + Prometheus scrape. PCIe slot reserved for AI HAT+ if vision pre-screen becomes worth it.
+- `rpi4a` (Pi 4B 8GB) — photo ingest worker (folder watch + pHash + dedupe). USB SSD staging.
+- `rpi4b` (Pi 4B 8GB) — scheduled jobs + hot spare.
+
+3-node JetStream cluster (vps + rpi5 + m2mini) preserves batch durability under any single-node loss. The vision pre-screen stage (HAT-accelerated YOLO pre-classification before LLaVA) is documented in `MASTER_PLAN.md` Appendix A but is **deferred** to Phase 6 — a measurement-driven buy decision after the photo pipeline runs in daily use, not a speculative purchase.
+
 ## Anthropic ToS Compliance (hard requirements)
 
 `CLAUDE.md` now contains a top-level "OpenClaw Integration — Anthropic ToS Hard Requirements" section. Read it before any OpenClaw work. The short version:
