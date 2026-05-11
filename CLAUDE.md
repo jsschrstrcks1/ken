@@ -4,6 +4,16 @@ Timezone utility, clock sync for Devuan/SysVinit, and home of the multi-LLM orch
 
 ---
 
+## Skills
+
+The full skill catalog (30 skills) is documented in [`SKILLS.md`](SKILLS.md) — human-facing index with activation modes, trigger keywords, slash commands, and example prompts.
+
+**Read it at session start** when work involves the multi-LLM orchestrator (`/consult`, `/orchestrate`, `/orchestra`, `/investigate`), cross-repo health checks, or any of the household-wide skills (`like-a-human`, `voice-audit`, `verification-before-completion`, etc.).
+
+The Multi-LLM Integration section below gives the orchestrator quick reference; SKILLS.md gives the full picture.
+
+---
+
 ## Multi-LLM Integration
 
 This repository **hosts** the orchestrator at `orchestrator/`. It is the hub for all multi-LLM operations across all 9 repositories.
