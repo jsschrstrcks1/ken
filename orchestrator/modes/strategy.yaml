@@ -1,0 +1,131 @@
+# Strategy Mode — Document Synthesis & Positioning Engine
+#
+# Non-page-producing mode for marketing strategy, governance docs, philosophy
+# statements, and positioning work. Sister to sheep.yaml in being a planning
+# artifact rather than content. Designed for /investigate and /orchestra,
+# NOT /orchestrate (no linear page-build pipeline here).
+#
+# Why this exists: cruising.yaml injects ship_required_queries (gross tonnage,
+# IMO numbers, dining venues) into every fan-out model. That's correct for
+# building a ship page; it's pollution for a strategy synthesis. This mode
+# leaves those query slots empty and re-tunes the fan-out roles for design
+# debate instead of fact verification.
+
+name: strategy
+lead: claude  # Claude has codebase access and writes the final synthesis
+
+constraints:
+  - Preserve every bright line in the source repo's existing v1.0 governance
+  - "No hype vocabulary: must-do, bucket-list, unlock, discover the secrets, excessive exclamations, FOMO/urgency phrasing, your dream X awaits"
+  - Specificity over generality — quote the source docs being revised, do not paraphrase from training data
+  - Write to the standard the source site holds itself to, including under stakes pressure
+
+context_boundary:
+  send_externally:
+    - existing v1.0 governance documents (sent as quoted excerpts, not full files)
+    - identified live tensions and unresolved decisions
+    - audience profiles and pastoral context (anonymized)
+    - stakes framing
+  keep_local:
+    - full codebase
+    - analytics data
+    - private deployment plans
+
+output_schema:
+  cta_framework_v2: {}
+  affiliate_posture_v2: {}
+  trust_badge_rewrite: ""
+  measurement_policy_v2: {}
+  voice_drift_ritual: {}
+  philosophy_statement_200w: ""
+  bright_lines_preserved: []
+  tensions_resolved: []
+  tensions_deferred: []
+  citations: []
+
+data_sources:
+  - source repo's governance docs (CTA-STYLE-GUIDE, PASTORAL_GUARDRAILS,
+    LOGBOOK_ENTRY_STANDARDS, affiliate-disclosure)
+  - source repo's draft plans (e.g., plan-affiliate-deployment.md)
+  - external research (FTC guidance, peer-site monetization patterns) via
+    Perplexity and You.com
+
+max_loops: 1
+
+# Orchestra configuration — used by /investigate (Phase 1 RECONNAISSANCE)
+# and /orchestra. Roles re-tuned for strategy synthesis vs ship-page build.
+orchestra:
+  fan_out:
+    - model: gpt
+      role: structure
+      description: >
+        Rebuild the source repo's v1.0 governance into the requested v2.0
+        deliverables. Preserve every bright line in the v1.0 docs verbatim.
+        For each deliverable (CTA framework, affiliate posture, trust-badge
+        rewrite, measurement policy, voice-drift ritual, philosophy statement),
+        produce concrete language a contributor or LLM session can write to —
+        not principles, but text that ships. Cite which v1.0 source you are
+        rewriting from on every section.
+
+    - model: gemini
+      role: expand
+      description: >
+        Identify surfaces, audiences, and risks the v1.0 governance does not
+        address. Where could the existing philosophy be applied that it isn't
+        being applied? What edge cases (new tools, new content categories,
+        new affiliate verticals) does v1.0 leave silent on? Propose specific
+        v2.0 additions to fill those gaps. Be concrete about which page types
+        or content categories are affected.
+
+    - model: perplexity
+      role: research
+      description: >
+        REQUIRED RESEARCH:
+        1. 2025-2026 best-in-class examples of high-trust, low-hype content
+           sites that successfully run affiliate revenue. Name them. What do
+           their disclosure practices look like? What revenue verticals do
+           they accept and refuse?
+        2. Current FTC guidance on affiliate disclosure for content targeted
+           at vulnerable audiences (grief, disability, mental health, faith).
+           Cite the actual FTC documents.
+        3. Any 2025-2026 enforcement actions against content sites for
+           affiliate-disclosure failures, especially in wellness/grief space.
+        Cite every source with URL. No claims from training data.
+
+    - model: youdotcom
+      role: research
+      description: >
+        REQUIRED RESEARCH:
+        1. Ethical monetization patterns from sites with vulnerable audiences:
+           hospice/end-of-life sites, disability-advocacy sites,
+           mental-health resource sites, faith-based travel sites. Find 3-5
+           named examples in each category. What do they do, what do they
+           refuse to do?
+        2. Patterns for "decisional CTAs" on transactional tools (calculators,
+           comparison engines, recommendation tools) that preserve calm voice
+           while still helping users decide. Cite examples from sites known
+           for trustworthy decision support (Consumer Reports, Wirecutter,
+           Money's calculators).
+        Cite every source with URL. No claims from training data.
+
+    - model: grok
+      role: challenge
+      description: >
+        Adversarial review. Where is the philosophy in the v1.0 governance
+        self-flattering? Where could it fail under real revenue pressure?
+        What is the strongest counter-argument to "no cruise-booking
+        affiliates, ever"? What would a critic at a trade show say to the
+        presenter of this v2.0 strategy? What blind spots in the
+        affiliate-deployment plan would be exposed by a hostile journalist
+        looking for a "religious-grief-site sells Bibles to widows"
+        headline? Be brutal but specific.
+
+  # Two rounds of Claude+GPT alternating with full fan-out context
+  deliberation_rounds: 2
+
+  # Final contrarian check by Grok
+  blind_spot_model: grok
+
+  # Explicitly empty — this mode must NOT inject ship-page research queries
+  ship_required_queries: {}
+  port_required_queries: {}
