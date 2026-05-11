@@ -83,7 +83,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 | 10 | `ai-regression-testing` | ECC `skills/ai-regression-testing/` | `ken/orchestrator/` + `open-claw-stuff/skills/` | medium |
 | 11 | `harness-auditor` skill (concept lift from ECC `harness-optimizer` + `/harness-audit`) | ECC `agents/harness-optimizer.md` + `commands/harness-audit.md` | `open-claw-stuff/skills/harness-auditor/` | **✓ shipped** v1.0.0 in open-claw-stuff v0.4.0 (commit `82474a7`); single skill instead of agent+command split; 4 verdict tiers replacing 7-dim scoring; concept-lift only |
 | 12 | WORKING-CONTEXT.md pattern | ECC `WORKING-CONTEXT.md` | `ken/WORKING-CONTEXT.md` | **✓ completed (this file)** |
-| 13 | Provenance schema | ECC `schemas/provenance.schema.json` | `open-claw-stuff/schemas/` | small |
+| 13 | Provenance schema | ECC `schemas/provenance.schema.json` | `open-claw-stuff/schemas/` | **✓ shipped** in open-claw-stuff v0.6.0; concept-lift broadens from skills-only to any lifted artifact; replaces ECC's numeric trust score with 4-tier verdict + append-only audit log; `additionalProperties: false` at every level closes the "hidden override field" backdoor; schema validated against Draft 2020-12 meta-schema + adversarially tested against 8 malformed records (all rejected); 3 example records shipped (opensource-sanitizer / harness-auditor / doc-updater) |
 
 ### Lifting (P2) — workflow formalization, later sprints
 
@@ -145,6 +145,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ P1#7 `doc-updater` v1.0.0 shipped (open-claw-stuff v0.5.0, commit `d66b426`); smoke-test against ken caught the `v0.2.2 → v0.5.0` drift in WORKING-CONTEXT.md:38 on first run (fixed in same commit as this entry)
 - ✓ P0.5#3 `fact-forcing-gate` and P0.5#4 `configuration-protection` shipped as policy-as-markdown files in `ken/.claude/policies/`; concept-lift only, both regex patterns validated against representative match + non-match sets per the schema's testing requirement
 - ✓ P0#6 bookkeeping closed — sanitizer-sweep row updated to reflect v1.2.0 household pass already shipped on 2026-05-11
+- ✓ P1#13 provenance schema shipped (open-claw-stuff v0.6.0); concept-lift broadens scope from skills-only to any-lifted-artifact and replaces ECC's numeric trust score with 4-tier verdict + append-only audit log; schema valid against Draft 2020-12 + rejects 8/8 adversarial malformed records; 3 example records covering opensource-sanitizer / harness-auditor / doc-updater
 - ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
 - ✓ Threat-model self-audit of `opensource-sanitizer` and `policy-as-markdown` per operating principle #6
 
