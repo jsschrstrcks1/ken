@@ -837,6 +837,49 @@ class LearningPromoteDemoteTests(MemoryOpsTestBase):
         self.assertTrue(result["demoted"])
         self.assertTrue(result.get("already_not_instinct"))
 
+    def test_consolidate_does_not_auto_archive_instinct(self):
+        """v3.1 H1 regression: a promoted instinct shields from
+        auto-archive the same way `protected` does. Without this guard,
+        an instinct whose raw confidence drifts under 0.3 + age >180d
+        would be auto-archived, contradicting the whole point of having
+        promoted it.
+        """
+        m = memory_ops.encode("old instinct pattern", domain="ken",
+                              memory_type="pattern", confidence=0.25)
+        memory_ops.promote_to_instinct(m["id"], domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        _backdate(Path(path), days_old=200)
+        memory_ops.consolidate(domain="ken")
+        archive_path = os.path.join(memory_ops.ARCHIVE_DIR,
+                                    f"{m['id']}.json")
+        self.assertTrue(os.path.exists(path),
+                        "promoted instinct must NOT be auto-archived")
+        self.assertFalse(os.path.exists(archive_path),
+                         "promoted instinct must NOT appear in archive")
+
+    def test_promote_corrupt_json_returns_structured_error(self):
+        """v3.1 K1 regression: a zero-byte / corrupt JSON file must not
+        crash promote — it must return a structured not-found-style
+        response (mirrors _load_all's read discipline).
+        """
+        bad_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                "corrupt1.json")
+        Path(bad_path).write_text("")  # zero bytes
+        result = memory_ops.promote_to_instinct("corrupt1", domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertFalse(result["promoted"])
+        self.assertIn("unreadable", result.get("reason", "").lower())
+
+    def test_demote_corrupt_json_returns_structured_error(self):
+        bad_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                "corrupt2.json")
+        Path(bad_path).write_text("{not valid json")
+        result = memory_ops.demote_from_instinct("corrupt2", domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertFalse(result["demoted"])
+        self.assertIn("unreadable", result.get("reason", "").lower())
+
     def test_promotion_does_not_change_domain(self):
         """Slice 1 explicit choice: promotion is a flag flip, not a move.
         No parallel namespace; memory stays in its original domain.

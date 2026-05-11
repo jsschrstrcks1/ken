@@ -630,8 +630,13 @@ def consolidate(domain=None):
             else:
                 actions["kept"] += 1
 
-            # Auto-archive: old, low-confidence, unprotected
+            # Auto-archive: old, low-confidence, unprotected, not an instinct.
+            # is_instinct shields like `protected` does — an instinct that
+            # was deliberately promoted should not be auto-archived just
+            # because its raw confidence drifted under 0.3. (v3.1 fix from
+            # edge-probe H1.)
             if (not mem.get("protected", False)
+                    and not mem.get("is_instinct", False)
                     and mem.get("confidence", 1.0) < 0.3
                     and _age_days(mem.get("created", "")) > 180):
                 mem_id = mem["id"]
@@ -922,8 +927,17 @@ def promote_to_instinct(memory_id, domain=None):
         path = _memory_path(d, memory_id)
         if not os.path.exists(path):
             continue
-        with open(path) as f:
-            mem = json.load(f)
+        try:
+            with open(path) as f:
+                mem = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            # v3.1 fix from edge-probe K1: don't crash on a corrupt
+            # memory file; surface it as a structured not-found-style
+            # response so callers can handle it. Matches the read
+            # discipline in _load_all.
+            return {"enabled": True, "promoted": False,
+                    "id": memory_id, "domain": d,
+                    "reason": f"Memory file unreadable: {type(e).__name__}"}
         if mem.get("is_instinct", False):
             return {"enabled": True, "promoted": True,
                     "id": memory_id, "domain": d,
@@ -955,8 +969,13 @@ def demote_from_instinct(memory_id, domain=None):
         path = _memory_path(d, memory_id)
         if not os.path.exists(path):
             continue
-        with open(path) as f:
-            mem = json.load(f)
+        try:
+            with open(path) as f:
+                mem = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            return {"enabled": True, "demoted": False,
+                    "id": memory_id, "domain": d,
+                    "reason": f"Memory file unreadable: {type(e).__name__}"}
         if not mem.get("is_instinct", False):
             return {"enabled": True, "demoted": True,
                     "id": memory_id, "domain": d,
