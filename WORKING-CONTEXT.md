@@ -292,6 +292,58 @@ Commit: `8dbbae8` (policy-as-markdown v1.0.1).
 - ken's soul includes the household's three nested systems (`tz` + orchestrator + keeper) and their continuity-over-throughput theme.
 - Each soul ~10–15 KB; total ~140 KB of voice-and-identity documentation.
 
+
+---
+
+## v1.2.0 hardening audit log (2026-05-11)
+
+Pipeline: async research agent (a2876f61c) → GPT challenge → Grok backdoor-design challenge → You.com critique → Claude-side synthesis.
+
+**v1.2.0 changes vs v1.1.0 (full skill at `skills/opensource-sanitizer/SKILL.md`, 743 lines):**
+- +16 credential patterns (ASIA, sk-ant-oat01-, ghr_, hf_, rk_/pk_/sk_live_, github_pat_, DeepSeek, Snowflake, Databricks, MCP server tokens, glpat-, etc.)
+- 9 new sub-stages under Stage 7 (decode-rescan, Unicode hygiene, MCP config content scan, GH Actions workflow lint, SBOM compromised-package check, pre-install audit, SKILL.md prompt-injection lint, lookalike-domain detection, trufflehog/gitleaks invocation context)
+- Stage 6 expansion: `git fsck --unreachable`, reflog scan, `.gitattributes` filter audit
+- Redaction strengthened: full redaction ≤39 chars; `first2****last2 (len N)` ≥40 (was `first4****last4` — leaked 25% of high-entropy keys)
+- "May 2026 threat context" section with 13 cited incidents and 25 source URLs
+- "Backdoor defenses" section with 10 PR-rejection patterns derived from Grok red-team, each attributed
+- Self-audit checklist (8 items, including no-soft-verdict-tier tripwire and external-link tamper-detection)
+
+**Household sweep performed 2026-05-11 against 10 local repos.** Full report at `/tmp/HOUSEHOLD-SANITIZATION-REPORT-v1.2.0.md`.
+
+Results:
+- 10 of 10 PASS or PASS WITH WARNINGS
+- 0 real credential exposures
+- 0 git-history leaks
+- 0 compromised packages, MCP configs, or pull_request_target triggers
+- 2 MEDIUM findings (ken/.env.example incomplete; Family-History/Maurice SSN — deceased subject, accepted risk per user direction)
+- 8 LOW findings (uniformly: mutable major-version action tags on official `actions/*`)
+- 1 LOW (InTheWake): worked-example dummy creds in `admin/validator-spec/rules/SEC-005.md` re-trigger Stage 1 regex
+- 1 LOW (InTheWake): `lycheeverse/lychee-action@v2.1.0` is a community action on a mutable tag
+
+**Fix commits queued locally (push when proxy returns):**
+- ken: 5 keys added to `orchestrator/.env.example`; 4 actions in `.github/workflows/static.yml` pinned to commit SHAs
+- Romans: 1 action pinned in `.github/workflows/validate.yml`
+- Grannysrecipes/Allrecipes/MomsRecipes/Grandmasrecipes: all `actions/*` references pinned across all workflows
+- InTheWake: dummy credentials in `admin/validator-spec/rules/SEC-005.md` replaced with non-pattern-matching placeholders; `actions/*` pinned in `quality.yml` and `static.yml`; `lycheeverse/lychee-action@v2.1.0` pinned to commit SHA `f81112d0d2814ded911bd23e3beaa9dda9093915`
+- Family-History: accepted-risk note added to README.md re: pre-2000 deceased-subject SSNs (per SSDI public-record convention)
+
+---
+
+## v1.2.1 queued hardening items (NOT YET IMPLEMENTED)
+
+Identified during the v1.2.0 household sweep. Per user direction: ship v1.2.0 first, gather field data, then patch. Do **not** implement these as v1.2.0 hot-fixes.
+
+1. **Stage 7.2 — skip Office container formats.** `.docx`/`.xlsx`/`.pptx`/`.odt`/`.odp`/`.ods` are zip archives whose embedded XML routinely contains U+200D (zero-width joiner) in metadata. v1.2 raised a false positive on `admin/inthewake/ship quiz tool planning.docx`. Add explicit skip globs to Stage 7.2.
+2. **Stage 2 — pre-strip ISBN-formatted numbers** before SSN scan. The SSN regex `\b\d{3}-\d{2}-\d{4}\b` matches ISBN-13 prefixes like `978-84-7798`. False positives in Family-History on `978-84-7798-160-2` and `978-88-6969-403-5`. Add ISBN-13 pre-filter.
+3. **Stage 7.4 — distinguish official `actions/*` from community actions.** v1.2 currently lumps both into one LOW severity for mutable major-version tags. Community actions (e.g., `lycheeverse/lychee-action`) deserve a separate tier (MEDIUM) given they're easier to compromise. Different attack surface.
+4. **Stage 7.7 — add a "worked-examples-as-pattern" detection routine.** If a Stage 1 credential match occurs inside a file whose path contains `rules/`, `validator/`, `spec/`, `examples/`, or `tests/`, surface as "worked-example overlap" rather than CRITICAL. The InTheWake SEC-005.md case generalized. **Do NOT solve this by allowlisting paths** (Grok backdoor patterns #6 and #9). Solve it with a verdict downgrade only, no scan suppression.
+
+---
+
+## Operating principles update
+
+No change to the 6 standing operating principles. The v1.2.0 sweep validated principle #6 (audit security tools harder) — the procedure's own self-audit checklist caught the InTheWake SEC-005.md worked-example overlap on first run.
+
 ---
 
 ## See also
