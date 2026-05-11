@@ -35,7 +35,7 @@ These apply to every lift, port, or adoption from an external project.
 | Soul documents written | **11** (one per repo, in `souls/`) |
 | `SKILLS.md` indexes | **10** (open-claw-stuff uses README as its index; all other repos have dedicated SKILLS.md) |
 | Total documented skills across the household | **~247** |
-| `open-claw-stuff` status | **v0.2.2** — 6 skills + agent-skills-spec scaffold + eval framework + tooling baseline |
+| `open-claw-stuff` status | **v0.5.0** — 8 skills + agent-skills-spec scaffold + eval framework + tooling baseline |
 | Standard household kit | 16 skills (canonical version in `ken/.claude/skills/`) |
 | Multi-LLM orchestrator modes | 6 — sermon, sheep, cruising, recipe, family-history, triad |
 | Current keeper status | Designed (Stage 1: 5 commands), not yet implemented |
@@ -77,7 +77,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 
 | # | Item | Source | Target | Effort |
 |---|---|---|---|---|
-| 7 | `doc-updater` agent | ECC `agents/doc-updater.md` | `open-claw-stuff/skills/` | medium |
+| 7 | `doc-updater` skill (concept lift from ECC `doc-updater` agent) | ECC `agents/doc-updater.md` | `open-claw-stuff/skills/doc-updater/` | **✓ shipped** v1.0.0 in open-claw-stuff v0.5.0 (commit `d66b426`); intentional inversion — ECC generates docs from code, ours detects drift in hand-authored docs; detection-only, never edits docs; 9 stages, 4 verdict tiers |
 | 8 | `context-budget` skill | ECC `skills/context-budget/` | `open-claw-stuff/skills/` | medium |
 | 9 | Continuous-learning-v2 / instincts (confidence-scored, project-scoped, auto-promoting memory) | ECC `skills/continuous-learning-v2/` | `ken/orchestrator/memory_ops.py` upgrade | **large** |
 | 10 | `ai-regression-testing` | ECC `skills/ai-regression-testing/` | `ken/orchestrator/` + `open-claw-stuff/skills/` | medium |
@@ -142,6 +142,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ `opensource-sanitizer` v1.2.0 hardening pass (16 new credential patterns, 9 new Stage-7 sub-stages, redaction strengthened to first2-last2/len ≥40, 10-pattern backdoor-defenses section)
 - ✓ Household sweep with v1.2.0: 10 of 10 repos PASS or PASS WITH WARNINGS (full report `/tmp/HOUSEHOLD-SANITIZATION-REPORT-v1.2.0.md`); fix commits pushed across ken / Romans / 4 recipe repos / InTheWake / Family-History
 - ✓ P1#11 `harness-auditor` v1.0.0 shipped (open-claw-stuff v0.4.0, commit `82474a7`)
+- ✓ P1#7 `doc-updater` v1.0.0 shipped (open-claw-stuff v0.5.0, commit `d66b426`); smoke-test against ken caught the `v0.2.2 → v0.5.0` drift in WORKING-CONTEXT.md:38 on first run (fixed in same commit as this entry)
 - ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
 - ✓ Threat-model self-audit of `opensource-sanitizer` and `policy-as-markdown` per operating principle #6
 - → P0.5 hook patterns (after policy-as-markdown is adopted: `fact-forcing-gate`, `configuration-protection` ported as policy files)
