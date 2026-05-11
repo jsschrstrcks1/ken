@@ -293,7 +293,14 @@ def encode(content, domain="shared", memory_type="insight", source="",
 
 
 def update(memory_id, new_content, domain=None, confidence=None):
-    """Update a memory by creating a new version. Preserves the original."""
+    """Update a memory by creating a new version. Preserves the original.
+
+    v3.1 fix from edge-probe U1: refuses to update a memory that has
+    `superseded_by` already set. Allowing it would branch the supersedes
+    chain — the original m1 would point to a new m3, orphaning m2.
+    Returns None on this guard (same shape as id-not-found, since both
+    are "no update produced").
+    """
     _ensure_dirs()
     domains = [domain] if domain else DOMAINS
 
@@ -302,6 +309,10 @@ def update(memory_id, new_content, domain=None, confidence=None):
         if os.path.exists(path):
             with open(path) as f:
                 old = json.load(f)
+
+            # Refuse to branch an already-superseded chain.
+            if old.get("superseded_by"):
+                return None
 
             old["superseded_by"] = None
             old["confidence"] = max(0.1, old.get("confidence", 0.5) * 0.5)
@@ -591,6 +602,20 @@ def consolidate(domain=None):
         "potential_duplicates": [],
     }
 
+    # v3.1 fix from edge-probes AP1+AP2: auto-protect should count only
+    # REAL edges — deduped + pointing at memories that actually exist on
+    # disk in the same consolidate pass. Pre-compute the universe of ids
+    # across all domains being processed so the centrality count below
+    # can filter orphan and duplicate edges.
+    valid_ids = set()
+    for d in domains:
+        for p in glob.glob(os.path.join(MEMORY_ROOT, d, "*.json")):
+            try:
+                with open(p) as f:
+                    valid_ids.add(json.load(f)["id"])
+            except (json.JSONDecodeError, IOError, KeyError):
+                continue
+
     for d in domains:
         pattern = os.path.join(MEMORY_ROOT, d, "*.json")
         paths = glob.glob(pattern)
@@ -607,8 +632,12 @@ def consolidate(domain=None):
             if mem.get("superseded_by"):
                 continue
 
-            # Auto-protect well-connected memories (3+ edges)
-            if len(mem.get("related_to", [])) >= 3 and not mem.get("protected"):
+            # Auto-protect well-connected memories: 3+ DEDUPED edges that
+            # point at REAL memories. (v3.1 fix from edge-probes AP1+AP2:
+            # raw len(related_to) counted orphan and duplicate edges,
+            # producing false-positive auto-protection.)
+            real_edges = len(set(mem.get("related_to", [])) & valid_ids)
+            if real_edges >= 3 and not mem.get("protected"):
                 mem["protected"] = True
                 _save_mem(mem, path)
                 actions["auto_protected"] += 1
@@ -665,11 +694,51 @@ def consolidate(domain=None):
                         continue
                     sim = _cosine_similarity(tfidf_matrix[i], tfidf_matrix[j])
                     if sim > 0.85:
-                        # Auto-merge: keep the higher-confidence one, archive the other
+                        # Auto-merge with shield-aware role assignment.
+                        # (v3.1 fix from edge-probes AM1+AM4+AM3):
+                        #   * If both sides are shielded (protected OR
+                        #     is_instinct), skip the merge entirely —
+                        #     neither can be safely discarded.
+                        #   * If exactly one side is shielded, force it
+                        #     to be the keeper.
+                        #   * Otherwise pick by confidence; on a tie,
+                        #     break by id for determinism (no longer
+                        #     filesystem-order dependent).
                         a = active_memories[i]
                         b = active_memories[j]
-                        keep = a if a.get("confidence", 0) >= b.get("confidence", 0) else b
-                        discard = b if keep is a else a
+
+                        def _shielded(m):
+                            return bool(m.get("protected", False)
+                                        or m.get("is_instinct", False))
+
+                        a_shield, b_shield = _shielded(a), _shielded(b)
+                        if a_shield and b_shield:
+                            # Both shielded: surface as potential duplicate
+                            # but do NOT merge.
+                            actions["potential_duplicates"].append({
+                                "a": a["id"], "b": b["id"],
+                                "similarity": round(sim, 3),
+                                "domain": d,
+                                "skipped_reason": "both shielded",
+                            })
+                            continue
+                        if a_shield:
+                            keep, discard = a, b
+                        elif b_shield:
+                            keep, discard = b, a
+                        else:
+                            a_conf = a.get("confidence", 0)
+                            b_conf = b.get("confidence", 0)
+                            if a_conf > b_conf:
+                                keep, discard = a, b
+                            elif a_conf < b_conf:
+                                keep, discard = b, a
+                            else:
+                                # Tie: deterministic by id.
+                                if a["id"] < b["id"]:
+                                    keep, discard = a, b
+                                else:
+                                    keep, discard = b, a
 
                         # Add tags from discarded to kept
                         merged_tags = list(set(keep.get("tags", []) + discard.get("tags", [])))

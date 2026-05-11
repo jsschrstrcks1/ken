@@ -899,5 +899,211 @@ class LearningPromoteDemoteTests(MemoryOpsTestBase):
         self.assertFalse(os.path.exists(instincts_path))
 
 
+# ─────────────────────────────────────────────
+# v3.1 Slice 1.2 — auto-operation hardening
+# (regression anchors for edge-probe findings AM1/AM4/AM3/U1/AP1/AP2)
+# ─────────────────────────────────────────────
+
+
+class AutoMergeShieldTests(MemoryOpsTestBase):
+    """consolidate's auto-merge must respect shields. A protected or
+    promoted-instinct memory cannot be silently discarded by merge,
+    even when a higher-raw-confidence duplicate exists.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+        super().tearDown()
+
+    def _common(self):
+        return ("one two three four five six seven eight nine ten "
+                "eleven twelve")
+
+    def test_auto_merge_does_not_discard_an_instinct(self):
+        common = self._common()
+        instinct = memory_ops.encode(f"{common} apple", domain="ken",
+                                     memory_type="pattern", confidence=0.4,
+                                     tags=["x"])
+        memory_ops.promote_to_instinct(instinct["id"], domain="ken")
+        higher = memory_ops.encode(f"{common} banana", domain="ken",
+                                   memory_type="pattern", confidence=0.95)
+        memory_ops.consolidate(domain="ken")
+        instinct_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                     f"{instinct['id']}.json")
+        instinct_archive = os.path.join(memory_ops.ARCHIVE_DIR,
+                                        f"{instinct['id']}.json")
+        # Instinct survives — it's the keeper now even though its raw
+        # confidence is lower. The higher-confidence duplicate is the
+        # one that gets archived.
+        self.assertTrue(os.path.exists(instinct_path),
+                        "promoted instinct MUST NOT be discarded by merge")
+        self.assertFalse(os.path.exists(instinct_archive))
+
+    def test_auto_merge_does_not_discard_a_protected_memory(self):
+        common = self._common()
+        prot = memory_ops.encode(f"{common} apple", domain="ken",
+                                 memory_type="pattern", confidence=0.4,
+                                 protected=True)
+        higher = memory_ops.encode(f"{common} banana", domain="ken",
+                                   memory_type="pattern", confidence=0.95)
+        memory_ops.consolidate(domain="ken")
+        prot_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                 f"{prot['id']}.json")
+        prot_archive = os.path.join(memory_ops.ARCHIVE_DIR,
+                                    f"{prot['id']}.json")
+        self.assertTrue(os.path.exists(prot_path),
+                        "protected memory MUST NOT be discarded by merge")
+        self.assertFalse(os.path.exists(prot_archive))
+
+    def test_auto_merge_skips_when_both_sides_shielded(self):
+        # Both protected: neither can be safely discarded → no merge.
+        common = self._common()
+        a = memory_ops.encode(f"{common} apple", domain="ken",
+                              memory_type="pattern", confidence=0.9,
+                              protected=True)
+        b = memory_ops.encode(f"{common} banana", domain="ken",
+                              memory_type="pattern", confidence=0.9,
+                              protected=True)
+        actions = memory_ops.consolidate(domain="ken")
+        a_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{a['id']}.json")
+        b_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{b['id']}.json")
+        self.assertTrue(os.path.exists(a_path))
+        self.assertTrue(os.path.exists(b_path))
+        self.assertEqual(actions["summarized"], 0)
+        # Surfaced as potential_duplicate with skipped_reason
+        flagged = [p for p in actions["potential_duplicates"]
+                   if p.get("skipped_reason") == "both shielded"]
+        self.assertGreaterEqual(len(flagged), 1)
+
+
+class AutoMergeDeterminismTests(MemoryOpsTestBase):
+    """Tied-confidence merge must be deterministic (independent of
+    filesystem glob order). Lower id wins.
+    """
+
+    def test_tied_confidence_breaks_by_id_lexicographic(self):
+        # Force ids to known values by writing files directly
+        common = "one two three four five six seven eight nine ten eleven twelve"
+        for mid, leaf in [("aaaaaaaa", "apple"), ("zzzzzzzz", "banana")]:
+            mem = {
+                "id": mid, "created": memory_ops._now(), "domain": "ken",
+                "type": "pattern", "content": f"{common} {leaf}",
+                "confidence": 0.9, "tags": [], "related_to": [],
+                "recall_count": 0, "version": 1,
+                "protected": False, "archived": False, "summarizes": [],
+            }
+            path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                f"{mid}.json")
+            with open(path, "w") as f:
+                json.dump(mem, f)
+        memory_ops.consolidate(domain="ken")
+        a_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "aaaaaaaa.json")
+        z_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "zzzzzzzz.json")
+        # Lower id ("aaaaaaaa") wins, regardless of filesystem order
+        self.assertTrue(os.path.exists(a_path),
+                        "lower id should be the keeper on confidence tie")
+        self.assertFalse(os.path.exists(z_path))
+
+
+class UpdateSupersededRefusalTests(MemoryOpsTestBase):
+    """update() must refuse to update a memory that already has
+    `superseded_by` set. Allowing it branches the chain and orphans
+    the intermediate version.
+    """
+
+    def test_update_refuses_already_superseded(self):
+        m1 = memory_ops.encode("v1", domain="ken")
+        m2 = memory_ops.update(m1["id"], "v2", domain="ken")
+        self.assertIsNotNone(m2, "first update should succeed")
+        # Now try to update m1 (which is superseded by m2). Must refuse.
+        m3 = memory_ops.update(m1["id"], "v1.5-branch", domain="ken")
+        self.assertIsNone(m3, "second update on m1 must be refused")
+        # m1's superseded_by pointer must be unchanged
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m1['id']}.json")
+        with open(path) as f:
+            m1_after = json.load(f)
+        self.assertEqual(m1_after["superseded_by"], m2["id"],
+                         "m1 must still point to m2")
+
+    def test_update_still_works_on_latest_in_chain(self):
+        # Updating the LATEST version of a chain must continue to work
+        m1 = memory_ops.encode("v1", domain="ken")
+        m2 = memory_ops.update(m1["id"], "v2", domain="ken")
+        m3 = memory_ops.update(m2["id"], "v3", domain="ken")
+        self.assertIsNotNone(m3)
+        self.assertEqual(m3["supersedes"], m2["id"])
+
+
+class AutoProtectEdgeCountTests(MemoryOpsTestBase):
+    """auto-protect counts only REAL edges: deduped + pointing at
+    memories that exist on disk in the same consolidate pass.
+    Orphan or duplicate edges no longer trigger false-positive
+    auto-protection.
+    """
+
+    def test_auto_protect_ignores_orphan_edges(self):
+        m = memory_ops.encode("orphan-edged", domain="ken",
+                              memory_type="pattern", confidence=0.5)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        # Inject 3 ghost edges and backdate
+        with open(path) as f:
+            mem = json.load(f)
+        mem["related_to"] = ["ghost-01", "ghost-02", "ghost-03"]
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        _backdate(Path(path), days_old=30)
+        memory_ops.consolidate(domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertFalse(after.get("protected", False),
+                         "orphan edges must not trigger auto-protect")
+
+    def test_auto_protect_dedupes_self_referential_duplicates(self):
+        target = memory_ops.encode("real", domain="ken",
+                                   memory_type="fact", confidence=0.5)
+        m = memory_ops.encode("dup-edged", domain="ken",
+                              memory_type="pattern", confidence=0.5)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["related_to"] = [target["id"], target["id"], target["id"]]
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        _backdate(Path(path), days_old=30)
+        memory_ops.consolidate(domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertFalse(after.get("protected", False),
+                         "duplicate edges count as 1, not 3")
+
+    def test_auto_protect_still_fires_for_three_real_distinct_edges(self):
+        # The non-regression case — auto-protect must still work for
+        # genuine 3+-edge memories.
+        hub = memory_ops.encode("hub", domain="ken", memory_type="pattern")
+        s1 = memory_ops.encode("s1", domain="ken")
+        s2 = memory_ops.encode("s2", domain="ken")
+        s3 = memory_ops.encode("s3", domain="ken")
+        memory_ops.link(hub["id"], s1["id"], domain="ken")
+        memory_ops.link(hub["id"], s2["id"], domain="ken")
+        memory_ops.link(hub["id"], s3["id"], domain="ken")
+        memory_ops.consolidate(domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{hub['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertTrue(after.get("protected", False),
+                        "3 real distinct edges MUST still auto-protect")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
