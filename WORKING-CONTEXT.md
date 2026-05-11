@@ -21,6 +21,7 @@ These apply to every lift, port, or adoption from an external project.
 3. **Industry-standard primitives are not lifts.** Regex patterns for AWS keys, the PASS/FAIL verdict triad, the careful-not-clever idiom, the read-before-edit discipline — these are generic patterns in the broader engineering literature. Use them freely.
 4. **Schema interfaces are lifts.** Field names, operator values, file-location conventions, frontmatter shape — these together constitute an API. If our skill's frontmatter is bit-identical to an upstream skill's frontmatter, we don't have our own tool; we have their tool with our name on it.
 5. **Privacy posture is non-negotiable.** Romans `.ai-deny` content stays local. Grannysrecipes Memorial content never leaves the local machine. Sermon manuscripts have strict context boundaries. No upstream pattern overrides these.
+6. **Audit security tools harder than other tools.** Security tools are the best place to hide malicious code, because users defer to them. Every security skill must (a) document what it cannot catch, (b) include a "how to audit this skill before trusting it" section, (c) verify that its declared `allowed-tools` match its actual behavior, (d) enforce redaction in any report it produces, and (e) refuse permissive verdict tiers that would let a real risk ship under a softer label. Apply the same scrutiny to imported security artifacts (secret-scanner patterns, policy files, hooks): they are executable security configuration, not documentation.
 
 ---
 
@@ -34,7 +35,7 @@ These apply to every lift, port, or adoption from an external project.
 | Soul documents written | **11** (one per repo, in `souls/`) |
 | `SKILLS.md` indexes | **10** (open-claw-stuff uses README as its index; all other repos have dedicated SKILLS.md) |
 | Total documented skills across the household | **~247** |
-| `open-claw-stuff` status | **v0.2.1** — 6 skills + agent-skills-spec scaffold + eval framework + tooling baseline |
+| `open-claw-stuff` status | **v0.2.2** — 6 skills + agent-skills-spec scaffold + eval framework + tooling baseline |
 | Standard household kit | 16 skills (canonical version in `ken/.claude/skills/`) |
 | Multi-LLM orchestrator modes | 6 — sermon, sheep, cruising, recipe, family-history, triad |
 | Current keeper status | Designed (Stage 1: 5 commands), not yet implemented |
@@ -46,6 +47,7 @@ These apply to every lift, port, or adoption from an external project.
 - No bulk install of external Claude Code plugins. Cherry-pick patterns; never surrender hook authority to upstream maintainers.
 - All skills lifted into `open-claw-stuff` must be Unlicense-compatible. **Re-write, do not copy-paste from MIT/Apache sources.** Attribute upstream in an Inspiration section.
 - **Concept lift, not code lift.** See operating principle #1.
+- **Audit security tools harder.** See operating principle #6.
 - No execution of unverified upstream tooling (e.g., `npx ecc-agentshield scan`). Read source first; if we want the capability, ship our own implementation.
 - Domain-specific skills stay in their domain repo. Only generic patterns belong in `open-claw-stuff`.
 - Privacy posture per repo is non-negotiable. See operating principle #5.
@@ -64,12 +66,12 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 
 | # | Item | Source | Target | Status |
 |---|---|---|---|---|
-| 1 | `opensource-sanitizer` | ECC `agents/opensource-sanitizer.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; regex patterns are industry-standard primitives) |
-| 2 | `silent-failure-hunter` | ECC `agents/silent-failure-hunter.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; 5-category taxonomy is generic to code review) |
-| 3 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
-| 4 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
-| 5 | `policy-as-markdown` (renamed from `hookify-rules`) | ECC `skills/hookify-rules/` | `open-claw-stuff/skills/` | **✓ shipped** as `policy-as-markdown` with independent schema (see audit note below) |
-| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` | all 11 repos | **scheduled after this sprint** |
+| 1 | `opensource-sanitizer` v1.1.0 (after self-audit) | ECC `agents/opensource-sanitizer.md` | `open-claw-stuff/skills/` | **✓ shipped** (v1.0 had real gaps; v1.1 patched after threat-model audit — see audit log below) |
+| 2 | `silent-failure-hunter` | ECC `agents/silent-failure-hunter.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; reviewed under audit lens — clean) |
+| 3 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/policies/` | **deferred to P0.5** — now buildable as a policy-as-markdown rule |
+| 4 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/policies/` | **deferred to P0.5** — now buildable as a policy-as-markdown rule |
+| 5 | `policy-as-markdown` v1.0.1 (after self-audit) | ECC `skills/hookify-rules/` | `open-claw-stuff/skills/` | **✓ shipped** (renamed from hookify-rules with independent schema; v1.0.1 added security-tool audit posture) |
+| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` v1.1 | all 11 repos | **scheduled after this sprint** |
 
 ### Lifting (P1) — capability gaps, next sprint
 
@@ -101,7 +103,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 | Item | Reason for rejection |
 |---|---|
 | Bulk `/plugin install everything-claude-code` | 48 agents + 182 skills + auto-loading hooks.json = unbounded blast radius from a non-household maintainer; three prompt-injection events detected in their docs |
-| `npx ecc-agentshield scan` (their security tool) | Supply-chain risk; build our own `opensource-sanitizer` instead |
+| `npx ecc-agentshield scan` (their security tool) | Supply-chain risk; build our own `opensource-sanitizer` instead. **Reinforced by operating principle #6** — even well-known security tools deserve audit before trust. |
 | Language-specific build-resolvers and reviewers (cpp, csharp, dart, flutter, go, java, kotlin, pytorch, rust) | Household codebase is Python + vanilla JS + HTML/CSS; would be unused weight |
 | `healthcare-reviewer`, `healthcare-*` skills | Not the household's domain |
 | `agent-payment-x402`, `defi-amm-security`, `evm-token-decimals`, `llm-trading-agent-security`, `nodejs-keccak256` | Crypto-specific; household runs no on-chain work |
@@ -136,14 +138,15 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ `SKILLS.md` per repo + `CLAUDE.md` updates in 11 repos
 - ✓ Voice skills (`voice-audit` + `like-a-human`) upgraded in InTheWake (10 sub-disciplines lifted from Romans)
 - ✓ This file (`ken/WORKING-CONTEXT.md`) — P1#12 complete
-- ✓ P0 ECC harvest shipped: `opensource-sanitizer`, `silent-failure-hunter`, `policy-as-markdown` (v0.2.1)
+- ✓ P0 ECC harvest shipped: `opensource-sanitizer` v1.1.0, `silent-failure-hunter` v1.0.0, `policy-as-markdown` v1.0.1 (open-claw-stuff v0.2.2)
 - ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
+- ✓ Threat-model self-audit of `opensource-sanitizer` and `policy-as-markdown` per operating principle #6
 - → P0.5 hook patterns (after policy-as-markdown is adopted: `fact-forcing-gate`, `configuration-protection` ported as policy files)
-- → P0#6 sanitizer audit of household (next session)
+- → P0#6 sanitizer audit of household (next session, using v1.1.0)
 
 ### Cross-repo queue
 
-- Sanitizer audit of all 11 repos (scheduled next session; uses `opensource-sanitizer` skill)
+- Sanitizer audit of all 11 repos (scheduled next session; uses `opensource-sanitizer` v1.1.0 with expanded coverage)
 - doc-updater pass on the 11 soul docs and 10 SKILLS.md files (scheduled for P1)
 - continuous-learning-v2 upgrade of ken's cognitive-memory (scheduled for P1)
 - Policy-as-markdown propagation: write `.claude/policies/*.md` files per repo from the documented "never do" lists in CAREFUL.md / claude.md / CLAUDE.md across the household
@@ -179,11 +182,56 @@ When a P0/P1/P2 item ships, mark it **completed** in the classification tables a
 
 ## Latest execution notes
 
+### 2026-05-11 — security-tool audit (operating principle #6 added)
+
+Triggered by user feedback: *"Security tools are the best place to hide malicious code."*
+
+**Audit scope:** the two safety-category skills shipped this sprint — `opensource-sanitizer` and `policy-as-markdown`. Reviewed line-by-line through a threat-model lens (not just "is it correct" but "could this be a backdoor").
+
+**`opensource-sanitizer` v1.0.0 audit findings:**
+
+| Finding | Type | Fix in v1.1.0 |
+|---|---|---|
+| "Read-only by design" claim contradicted the report-writing behavior (no `Write` tool yet a report file gets created) | Contradiction | Clarified: skill describes the report; agent's own Write materializes it |
+| Output template said `(redacted match)` but didn't enforce | Data leak risk | Mandatory redaction rule with format spec (`first4****last4`) |
+| PASS WITH WARNINGS allowed shipping with HIGH findings | Permissive verdict | New tier: PASS WITH ACCEPTED RISK; HIGH without acceptance = FAIL |
+| Missing patterns: Stripe, Twilio, SendGrid, Google API, GCP service accounts, Azure, npm, PyPI, Mailgun, DigitalOcean, Discord, GitLab, modern OpenAI/Anthropic formats | Coverage gap (16+ providers) | Expanded pattern table to 25+ patterns across 5 provider categories |
+| DB URL pattern missed `redis://`, `mssql://`, `mariadb://`, `oracle://` | Coverage gap | Added |
+| Slack webhook regex was case-restricted | Coverage gap | Made case-insensitive |
+| Stage 5 pseudocode only checked `src/` and only handled JS+Python | Wouldn't work as written | Language-agnostic (10 languages); discovers all source dirs via `git ls-files` |
+| Stage 6 git scan only checked `.env`/`.pem`/`.key` extensions | Coverage gap (missed credentials in regular files committed-then-removed) | Pattern-matches across full history; large-repo fallback to date-bounded walk |
+| No "What this skill cannot do" section | Honesty gap | Added explicit limits |
+| No "How to audit this skill" meta-section | Trust-without-verification | Added; user should audit the skill before trusting the output |
+| Tool-scoping caveat about Bash arg injection not flagged | Architectural gap | Added section |
+| No troubleshooting for large repos | Operational gap | Added |
+| Allowed-tools missing `Bash(git diff:*)` and `Bash(git ls-files:*)` | Minor | Added |
+
+Commit: `1ba9f5a` (opensource-sanitizer v1.1.0).
+
+**`policy-as-markdown` v1.0.0 audit findings:**
+
+| Finding | Type | Fix in v1.0.1 |
+|---|---|---|
+| No "audit imported policies" guidance | Trust gap | Added 7-step "How to audit a policy file" section |
+| No explicit "what this skill cannot do" disclaimer | Honesty gap | Added section listing 7 things the skill won't catch |
+| Tool scoping for `Write` / `Edit` not flagged | Architectural gap | Added "Tool scoping note" explaining the platform limit and the convention pinning writes to `.claude/policies/` |
+| `severity: info` on sensitive operations not flagged as exfiltration risk | Threat-model gap | Added warning to "Patterns to refuse" and "How to audit" sections |
+| Validation checklist didn't verify imported policies were audited | Procedural gap | Added two new checklist items |
+| Common pitfall: impossible match-when conditions not documented | Operational gap | Added pitfall and troubleshooting row |
+
+Commit: `8dbbae8` (policy-as-markdown v1.0.1).
+
+**`silent-failure-hunter` reviewed:** clean. allowed-tools is read-only; no report-writing contradiction; no external URLs; no destructive suggestions; no prompt-injection in body. Same `Bash(grep:*)` arg-scoping caveat as the other Bash-using skills (Claude Code platform limit, not skill-specific).
+
+**Operating principle #6 added** to this file. Codifies the audit posture so future security-tool lifts apply the same scrutiny by default.
+
+**Plumbing:** open-claw-stuff bumped to v0.2.2 (commit `5bd7f3e`).
+
 ### 2026-05-11 — audit of P0 shipped skills + rename hookify-rules → policy-as-markdown
 
 - **Audit finding.** The `hookify-rules` skill shipped in v0.2.0 (commit `80d7afc`) lifted upstream ECC's schema verbatim — field names (`name`, `event`, `action`, `pattern`, `conditions`, `field`, `operator`), event values (`bash` / `file` / `stop` / `prompt` / `all`), operator values (`regex_match` / `not_contains` / etc.), and file location (`.claude/hookify.<name>.local.md`). A rule file written for ECC's runner would have dropped into our runner unmodified. That's a clone, not our tool.
 - **Operating principle #1 violated.** Concept lift, not code lift. Documented this principle at the top of this file so it can't drift again.
-- **Audit of the other two P0 skills.** Both `opensource-sanitizer` and `silent-failure-hunter` were concept lifts. The regex patterns in `opensource-sanitizer` are industry-standard primitives (not ECC-specific). The 5-category taxonomy in `silent-failure-hunter` is generic to code review. Examples and severity rubrics in both are original. Kept as-is.
+- **Audit of the other two P0 skills.** Both `opensource-sanitizer` and `silent-failure-hunter` were concept lifts. The regex patterns in `opensource-sanitizer` are industry-standard primitives (not ECC-specific). The 5-category taxonomy in `silent-failure-hunter` is generic to code review. Examples and severity rubrics in both are original. Kept as-is. (Note: a deeper threat-model audit of `opensource-sanitizer` on the same day found additional gaps — see entry above.)
 - **Redesign.** Replaced `hookify-rules` with `policy-as-markdown`. Same concept (markdown-as-policy at the harness layer). Independent schema:
   - `rule` (vs their `name`)
   - `trigger` with 6 values, including split `before-edit` / `before-write` (vs their `event` with 5 values, unified `file`)
@@ -196,13 +244,13 @@ When a P0/P1/P2 item ships, mark it **completed** in the classification tables a
 - **README quality bar updated.** Added "Concept-lift, not code-lift" to the contribution guidelines so the principle propagates to future contributors.
 - **Commits:** `4eb9fa2` (deletion of old SKILL.md), `228445b` (new SKILL.md + plumbing v0.2.1).
 
-### 2026-05-11 — ECC harvest sprint (P0 shipped)
+### 2026-05-11 — ECC harvest sprint (P0 shipped, initial)
 
 - **Reviewed** `affaan-m/everything-claude-code` in three passes: skills (182), agents (48), and broader concepts (rules, commands, schemas, working-context, hookify-rules).
 - **Three prompt-injection events detected** — `<system-reminder>` blocks embedded in their README, chief-of-staff.md, and WORKING-CONTEXT.md. All attempted to influence TodoWrite usage. Treated as confirmed. Flagged in writeup. Ignored. None malicious in payload, but pattern is concerning enough to refuse bulk install.
 - **install.sh + scripts/install-apply.js audited as clean** (npm install + Node CLI installer; no obfuscation; no exfiltration).
 - **Created this file** (`ken/WORKING-CONTEXT.md`) as the household's lift of ECC's WORKING-CONTEXT.md pattern. P1#12 complete as a side-effect of writing the plan.
-- **P0 skills shipped in `open-claw-stuff`** v0.2.0: `opensource-sanitizer`, `silent-failure-hunter`, `hookify-rules`. Commit `80d7afc`. (`hookify-rules` later renamed to `policy-as-markdown` after audit — see entry above.)
+- **P0 skills shipped in `open-claw-stuff`** v0.2.0: `opensource-sanitizer`, `silent-failure-hunter`, `hookify-rules`. Commit `80d7afc`. (`hookify-rules` later renamed to `policy-as-markdown` after audit; both safety skills later patched to v1.1.0 / v1.0.1 after security-tool audit.)
 - **P0#3 (`fact-forcing-gate`) and P0#4 (`configuration-protection`)** deferred to P0.5: they are hook patterns that need a per-repo hook-spec design before shipping. With `policy-as-markdown` now shipped, both will land as policy files (`.claude/policies/fact-forcing-gate.md` etc.).
 - **P0#6 (sanitizer audit)** scheduled for next session. Audit order: ken first (hub; orchestrator/.env), then Romans (private + .ai-deny), then Grannysrecipes (memorial content), then the four recipe repos, then InTheWake + flickersofmajesty (public commerce/content), then Family-History, then manateecreeksheep.
 
