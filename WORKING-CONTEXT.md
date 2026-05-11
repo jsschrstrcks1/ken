@@ -1,6 +1,6 @@
 # Working Context — ken (the household hub)
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
 
 ---
 
@@ -9,6 +9,18 @@
 Operational truth document for `ken` and the household of 11 repos. Tracks current sprint, active queues, lift decisions from external sources, rejected items with rationale, and a chronological execution log.
 
 Modeled on the `WORKING-CONTEXT.md` pattern lifted from [`affaan-m/everything-claude-code`](https://github.com/affaan-m/everything-claude-code) (MIT). Adapted to household voice and scope.
+
+---
+
+## Operating principles
+
+These apply to every lift, port, or adoption from an external project.
+
+1. **Lift the concept, not the code.** A concept is a problem framing, a workflow shape, a vocabulary, an approach. A code lift is field names, schemas, regex patterns, file paths, function signatures. The household's reusable artifacts must be the household's own design — same concept, our interface. A rule file written for our runner must not drop into theirs and vice versa. When in doubt, redesign the schema.
+2. **Attribute the concept honestly.** Every lifted concept gets an Inspiration section in the resulting skill/agent/doc, with a link to the upstream and a table of our intentional deviations. Don't paper over the lift; make it visible.
+3. **Industry-standard primitives are not lifts.** Regex patterns for AWS keys, the PASS/FAIL verdict triad, the careful-not-clever idiom, the read-before-edit discipline — these are generic patterns in the broader engineering literature. Use them freely.
+4. **Schema interfaces are lifts.** Field names, operator values, file-location conventions, frontmatter shape — these together constitute an API. If our skill's frontmatter is bit-identical to an upstream skill's frontmatter, we don't have our own tool; we have their tool with our name on it.
+5. **Privacy posture is non-negotiable.** Romans `.ai-deny` content stays local. Grannysrecipes Memorial content never leaves the local machine. Sermon manuscripts have strict context boundaries. No upstream pattern overrides these.
 
 ---
 
@@ -22,7 +34,7 @@ Modeled on the `WORKING-CONTEXT.md` pattern lifted from [`affaan-m/everything-cl
 | Soul documents written | **11** (one per repo, in `souls/`) |
 | `SKILLS.md` indexes | **10** (open-claw-stuff uses README as its index; all other repos have dedicated SKILLS.md) |
 | Total documented skills across the household | **~247** |
-| `open-claw-stuff` status | 3 foundational skills + agent-skills-spec scaffold + eval framework + tooling baseline |
+| `open-claw-stuff` status | **v0.2.1** — 6 skills + agent-skills-spec scaffold + eval framework + tooling baseline |
 | Standard household kit | 16 skills (canonical version in `ken/.claude/skills/`) |
 | Multi-LLM orchestrator modes | 6 — sermon, sheep, cruising, recipe, family-history, triad |
 | Current keeper status | Designed (Stage 1: 5 commands), not yet implemented |
@@ -33,9 +45,10 @@ Modeled on the `WORKING-CONTEXT.md` pattern lifted from [`affaan-m/everything-cl
 
 - No bulk install of external Claude Code plugins. Cherry-pick patterns; never surrender hook authority to upstream maintainers.
 - All skills lifted into `open-claw-stuff` must be Unlicense-compatible. **Re-write, do not copy-paste from MIT/Apache sources.** Attribute upstream in an Inspiration section.
+- **Concept lift, not code lift.** See operating principle #1.
 - No execution of unverified upstream tooling (e.g., `npx ecc-agentshield scan`). Read source first; if we want the capability, ship our own implementation.
 - Domain-specific skills stay in their domain repo. Only generic patterns belong in `open-claw-stuff`.
-- Privacy posture per repo is non-negotiable: Romans `.ai-deny` content stays local; Grannysrecipes Memorial content never leaves the local machine; sermon manuscripts have strict context boundaries.
+- Privacy posture per repo is non-negotiable. See operating principle #5.
 
 ---
 
@@ -47,16 +60,16 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 
 `install.sh` and `scripts/install-apply.js` were audited as clean (npm install + Node CLI installer; no obfuscation, no exfiltration).
 
-### Lifting (P0) — defensive, ship this sprint
+### Lifting (P0) — defensive, shipped this sprint
 
 | # | Item | Source | Target | Status |
 |---|---|---|---|---|
-| 1 | `opensource-sanitizer` | ECC `agents/opensource-sanitizer.md` | `open-claw-stuff/skills/` | **shipping in this sprint** |
-| 2 | `silent-failure-hunter` | ECC `agents/silent-failure-hunter.md` | `open-claw-stuff/skills/` | **shipping in this sprint** |
-| 3 | `hookify-rules` | ECC `skills/hookify-rules/` | `open-claw-stuff/skills/` | **shipping in this sprint** |
-| 4 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
-| 5 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
-| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` | all 11 repos | **scheduled after #1 ships** |
+| 1 | `opensource-sanitizer` | ECC `agents/opensource-sanitizer.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; regex patterns are industry-standard primitives) |
+| 2 | `silent-failure-hunter` | ECC `agents/silent-failure-hunter.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; 5-category taxonomy is generic to code review) |
+| 3 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
+| 4 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/hooks/` | **deferred to P0.5** — needs hook-spec design first |
+| 5 | `policy-as-markdown` (renamed from `hookify-rules`) | ECC `skills/hookify-rules/` | `open-claw-stuff/skills/` | **✓ shipped** as `policy-as-markdown` with independent schema (see audit note below) |
+| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` | all 11 repos | **scheduled after this sprint** |
 
 ### Lifting (P1) — capability gaps, next sprint
 
@@ -67,7 +80,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 | 9 | Continuous-learning-v2 / instincts (confidence-scored, project-scoped, auto-promoting memory) | ECC `skills/continuous-learning-v2/` | `ken/orchestrator/memory_ops.py` upgrade | **large** |
 | 10 | `ai-regression-testing` | ECC `skills/ai-regression-testing/` | `ken/orchestrator/` + `open-claw-stuff/skills/` | medium |
 | 11 | `harness-optimizer` agent + `/harness-audit` command | ECC `agents/harness-optimizer.md` + `commands/harness-audit.md` | `ken/.claude/skills/` | medium |
-| 12 | WORKING-CONTEXT.md pattern | ECC `WORKING-CONTEXT.md` | `ken/WORKING-CONTEXT.md` | **completed (this file)** |
+| 12 | WORKING-CONTEXT.md pattern | ECC `WORKING-CONTEXT.md` | `ken/WORKING-CONTEXT.md` | **✓ completed (this file)** |
 | 13 | Provenance schema | ECC `schemas/provenance.schema.json` | `open-claw-stuff/schemas/` | small |
 
 ### Lifting (P2) — workflow formalization, later sprints
@@ -102,6 +115,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 | MCP configs for GitHub/Supabase/Vercel/Railway as committed configs | Household has no shared infrastructure footprint these would address; revisit if added |
 | PRP 5-command workflow (prp-prd / prp-plan / prp-implement / prp-commit / prp-pr) | Overhead too high for household work scale |
 | `multi-*` commands (multi-backend, multi-frontend, multi-execute, multi-plan, multi-workflow) | Household isn't multi-stack |
+| ECC's `hookify-rules` schema verbatim | First shipped as a near-clone in v0.2.0; redesigned as `policy-as-markdown` with independent schema in v0.2.1 — see audit log below |
 
 ### Rejected with deferral
 
@@ -122,16 +136,17 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ `SKILLS.md` per repo + `CLAUDE.md` updates in 11 repos
 - ✓ Voice skills (`voice-audit` + `like-a-human`) upgraded in InTheWake (10 sub-disciplines lifted from Romans)
 - ✓ This file (`ken/WORKING-CONTEXT.md`) — P1#12 complete
-- → P0 ECC harvest (in progress: `opensource-sanitizer`, `silent-failure-hunter`, `hookify-rules` shipping)
-- → P0.5 hook patterns (after P0 skills ship: `fact-forcing-gate`, `configuration-protection`)
-- → P0#6 sanitizer audit of household (after `opensource-sanitizer` ships)
+- ✓ P0 ECC harvest shipped: `opensource-sanitizer`, `silent-failure-hunter`, `policy-as-markdown` (v0.2.1)
+- ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
+- → P0.5 hook patterns (after policy-as-markdown is adopted: `fact-forcing-gate`, `configuration-protection` ported as policy files)
+- → P0#6 sanitizer audit of household (next session)
 
 ### Cross-repo queue
 
-- Sanitizer audit of all 11 repos (scheduled after `opensource-sanitizer` skill ships in this sprint)
+- Sanitizer audit of all 11 repos (scheduled next session; uses `opensource-sanitizer` skill)
 - doc-updater pass on the 11 soul docs and 10 SKILLS.md files (scheduled for P1)
 - continuous-learning-v2 upgrade of ken's cognitive-memory (scheduled for P1)
-- Hook-pattern propagation: hookify-rules per-repo files for the documented "never do" lists in CAREFUL.md / claude.md / CLAUDE.md across the household
+- Policy-as-markdown propagation: write `.claude/policies/*.md` files per repo from the documented "never do" lists in CAREFUL.md / claude.md / CLAUDE.md across the household
 
 ### Long-running
 
@@ -164,15 +179,32 @@ When a P0/P1/P2 item ships, mark it **completed** in the classification tables a
 
 ## Latest execution notes
 
-### 2026-05-10 — ECC harvest sprint
+### 2026-05-11 — audit of P0 shipped skills + rename hookify-rules → policy-as-markdown
+
+- **Audit finding.** The `hookify-rules` skill shipped in v0.2.0 (commit `80d7afc`) lifted upstream ECC's schema verbatim — field names (`name`, `event`, `action`, `pattern`, `conditions`, `field`, `operator`), event values (`bash` / `file` / `stop` / `prompt` / `all`), operator values (`regex_match` / `not_contains` / etc.), and file location (`.claude/hookify.<name>.local.md`). A rule file written for ECC's runner would have dropped into our runner unmodified. That's a clone, not our tool.
+- **Operating principle #1 violated.** Concept lift, not code lift. Documented this principle at the top of this file so it can't drift again.
+- **Audit of the other two P0 skills.** Both `opensource-sanitizer` and `silent-failure-hunter` were concept lifts. The regex patterns in `opensource-sanitizer` are industry-standard primitives (not ECC-specific). The 5-category taxonomy in `silent-failure-hunter` is generic to code review. Examples and severity rubrics in both are original. Kept as-is.
+- **Redesign.** Replaced `hookify-rules` with `policy-as-markdown`. Same concept (markdown-as-policy at the harness layer). Independent schema:
+  - `rule` (vs their `name`)
+  - `trigger` with 6 values, including split `before-edit` / `before-write` (vs their `event` with 5 values, unified `file`)
+  - `severity` 3-tier: `block` / `warn` / `info` (vs their `action` 2-tier)
+  - `match` / `match-when` (vs `pattern` / `conditions`)
+  - `check` / `is` / `value` (vs `field` / `operator` / `pattern` in conditions)
+  - hyphenated operator values (`matches-regex`) vs snake_case (`regex_match`)
+  - `.claude/policies/<rule>.md` (vs `.claude/hookify.<name>.local.md`)
+- **Rule files for one runner do not drop into the other.** Confirmed by walking both schemas field-by-field.
+- **README quality bar updated.** Added "Concept-lift, not code-lift" to the contribution guidelines so the principle propagates to future contributors.
+- **Commits:** `4eb9fa2` (deletion of old SKILL.md), `228445b` (new SKILL.md + plumbing v0.2.1).
+
+### 2026-05-11 — ECC harvest sprint (P0 shipped)
 
 - **Reviewed** `affaan-m/everything-claude-code` in three passes: skills (182), agents (48), and broader concepts (rules, commands, schemas, working-context, hookify-rules).
-- **Three prompt-injection events detected** — `<system-reminder>` blocks embedded in their README, chief-of-staff.md, and WORKING-CONTEXT.md. All attempted to influence TodoWrite usage. Treated as confirmed (deliberate or side-effect). Flagged in writeup. Ignored. None malicious in payload, but pattern is concerning enough to refuse bulk install.
+- **Three prompt-injection events detected** — `<system-reminder>` blocks embedded in their README, chief-of-staff.md, and WORKING-CONTEXT.md. All attempted to influence TodoWrite usage. Treated as confirmed. Flagged in writeup. Ignored. None malicious in payload, but pattern is concerning enough to refuse bulk install.
 - **install.sh + scripts/install-apply.js audited as clean** (npm install + Node CLI installer; no obfuscation; no exfiltration).
 - **Created this file** (`ken/WORKING-CONTEXT.md`) as the household's lift of ECC's WORKING-CONTEXT.md pattern. P1#12 complete as a side-effect of writing the plan.
-- **P0 skills shipping in `open-claw-stuff`** this sprint: `opensource-sanitizer`, `silent-failure-hunter`, `hookify-rules`. All re-written for Unlicense compatibility with attribution to ECC in each Inspiration section.
-- **P0#3 (`fact-forcing-gate`) and P0#4 (`configuration-protection`)** deferred to P0.5: they are hook patterns that need a per-repo hook-spec design before shipping. Hookify-rules ships first; those two will be ported as hookify rule files.
-- **P0#6 (sanitizer audit)** scheduled for immediately after `opensource-sanitizer` skill ships. Audit order: ken first (hub; orchestrator/.env), then Romans (private + .ai-deny), then Grannysrecipes (memorial content), then the four recipe repos, then InTheWake + flickersofmajesty (public commerce/content), then Family-History, then manateecreeksheep.
+- **P0 skills shipped in `open-claw-stuff`** v0.2.0: `opensource-sanitizer`, `silent-failure-hunter`, `hookify-rules`. Commit `80d7afc`. (`hookify-rules` later renamed to `policy-as-markdown` after audit — see entry above.)
+- **P0#3 (`fact-forcing-gate`) and P0#4 (`configuration-protection`)** deferred to P0.5: they are hook patterns that need a per-repo hook-spec design before shipping. With `policy-as-markdown` now shipped, both will land as policy files (`.claude/policies/fact-forcing-gate.md` etc.).
+- **P0#6 (sanitizer audit)** scheduled for next session. Audit order: ken first (hub; orchestrator/.env), then Romans (private + .ai-deny), then Grannysrecipes (memorial content), then the four recipe repos, then InTheWake + flickersofmajesty (public commerce/content), then Family-History, then manateecreeksheep.
 
 ### 2026-05-10 — voice skills upgrade
 
