@@ -68,10 +68,10 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 |---|---|---|---|---|
 | 1 | `opensource-sanitizer` v1.1.0 (after self-audit) | ECC `agents/opensource-sanitizer.md` | `open-claw-stuff/skills/` | **✓ shipped** (v1.0 had real gaps; v1.1 patched after threat-model audit — see audit log below) |
 | 2 | `silent-failure-hunter` | ECC `agents/silent-failure-hunter.md` | `open-claw-stuff/skills/` | **✓ shipped** (concept lift; reviewed under audit lens — clean) |
-| 3 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/policies/` | **deferred to P0.5** — now buildable as a policy-as-markdown rule |
-| 4 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | per-repo `.claude/policies/` | **deferred to P0.5** — now buildable as a policy-as-markdown rule |
+| 3 | `fact-forcing-gate` (hook pattern) | ECC `hooks/hooks.json` | `ken/.claude/policies/fact-forcing-gate.md` | **✓ shipped** as policy-as-markdown file; concept-lift narrows scope from "every first edit" to "high-context surfaces only" (schemas, contracts, orchestrator core, harness config, skill defs, top-level prose); `severity: warn`; three-question framing is independent |
+| 4 | `configuration-protection` (hook pattern) | ECC `hooks/hooks.json` | `ken/.claude/policies/configuration-protection.md` | **✓ shipped** as policy-as-markdown file; covers eslint/prettier/tsconfig/pyproject/setup.cfg/flake8/editorconfig/jest/pytest/pre-commit/.github-workflows/Makefile/ruff/mypy; `severity: warn` (not block) with "adding vs weakening rule" question; legitimate config edits exist, false positives erode trust |
 | 5 | `policy-as-markdown` v1.0.1 (after self-audit) | ECC `skills/hookify-rules/` | `open-claw-stuff/skills/` | **✓ shipped** (renamed from hookify-rules with independent schema; v1.0.1 added security-tool audit posture) |
-| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` v1.1 | all 11 repos | **scheduled after this sprint** |
+| 6 | Sanitizer audit of household | self-audit using `opensource-sanitizer` v1.2 | all 11 repos | **✓ shipped** — 10 of 10 PASS / PASS WITH WARNINGS via v1.2.0 sweep; report `/tmp/HOUSEHOLD-SANITIZATION-REPORT-v1.2.0.md`; fix commits pushed across ken / Romans / 4 recipe repos / InTheWake / Family-History |
 
 ### Lifting (P1) — capability gaps, next sprint
 
@@ -143,10 +143,10 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ Household sweep with v1.2.0: 10 of 10 repos PASS or PASS WITH WARNINGS (full report `/tmp/HOUSEHOLD-SANITIZATION-REPORT-v1.2.0.md`); fix commits pushed across ken / Romans / 4 recipe repos / InTheWake / Family-History
 - ✓ P1#11 `harness-auditor` v1.0.0 shipped (open-claw-stuff v0.4.0, commit `82474a7`)
 - ✓ P1#7 `doc-updater` v1.0.0 shipped (open-claw-stuff v0.5.0, commit `d66b426`); smoke-test against ken caught the `v0.2.2 → v0.5.0` drift in WORKING-CONTEXT.md:38 on first run (fixed in same commit as this entry)
+- ✓ P0.5#3 `fact-forcing-gate` and P0.5#4 `configuration-protection` shipped as policy-as-markdown files in `ken/.claude/policies/`; concept-lift only, both regex patterns validated against representative match + non-match sets per the schema's testing requirement
+- ✓ P0#6 bookkeeping closed — sanitizer-sweep row updated to reflect v1.2.0 household pass already shipped on 2026-05-11
 - ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
 - ✓ Threat-model self-audit of `opensource-sanitizer` and `policy-as-markdown` per operating principle #6
-- → P0.5 hook patterns (after policy-as-markdown is adopted: `fact-forcing-gate`, `configuration-protection` ported as policy files)
-- → P0#6 sanitizer audit of household (next session, using v1.1.0)
 
 ### Cross-repo queue
 
