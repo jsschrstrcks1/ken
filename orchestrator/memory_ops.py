@@ -9,6 +9,17 @@ v3 upgrades (research-driven, zero external dependencies):
   4. Memory summarization — consolidate merges high-similarity memories
   5. Tiered storage — active vs archive with automatic promotion/demotion
 
+v3.1 instincts tier (continuous-learning-v2 Slice 1, opt-in via env var):
+  6. Instinct candidates — extract_instinct_candidates() surfaces high-confidence
+     frequently-recalled memories that look like reusable patterns. Read-only.
+  7. Explicit promotion — promote_to_instinct() / demote_from_instinct() flip a
+     single memory's is_instinct flag. No bulk, no auto-promotion. Requires
+     MEMORY_LEARNING_ENABLED=true; otherwise both ops are no-ops returning
+     {"enabled": false}. Memories stay in their original domain — no parallel
+     namespace.
+  Future slices (not in v3.1): session hooks, PreToolUse/PostToolUse capture,
+  auto-promotion thresholds. Each its own decision.
+
 v2 features retained:
   - TF-IDF + cosine similarity semantic search (pure Python)
   - Memory versioning (update preserves history)
@@ -68,6 +79,15 @@ DOMAINS = [
     "romans", "sheep", "cruising", "recipes",
     "ken", "photography", "shared",
 ]
+
+# v3.1 continuous-learning-v2 feature flag (Slice 1).
+# Off by default — extract_instinct_candidates / promote_to_instinct /
+# demote_from_instinct all return {"enabled": false} no-ops until this is
+# set. Set MEMORY_LEARNING_ENABLED=true in the environment to enable.
+# Read at call time (not at import) so tests can flip it via monkey-patch
+# or os.environ without re-importing the module.
+def _learning_enabled():
+    return os.environ.get("MEMORY_LEARNING_ENABLED", "false").lower() == "true"
 
 # ─────────────────────────────────────────────
 # Infrastructure
@@ -783,6 +803,173 @@ def stats():
         "domains": len(t),
         "per_domain": t,
     }
+
+
+# ─────────────────────────────────────────────
+# v3.1 Continuous Learning (Slice 1)
+#
+# Concept-lifted from ECC `skills/continuous-learning-v2/` (MIT) with
+# intentional inversions:
+#   - ECC uses PreToolUse/PostToolUse hooks + a background Haiku observer
+#     to auto-capture instincts. Slice 1 has NO hooks and NO background
+#     daemon — extract_instinct_candidates is a synchronous on-demand read.
+#   - ECC auto-promotes at consensus thresholds across projects. Slice 1
+#     requires explicit single-id promote_to_instinct calls — bulk
+#     promotion is structurally impossible.
+#   - ECC introduces a parallel project-scope namespace via git remote
+#     hash. Slice 1 reuses the existing 7 domains + a flat is_instinct
+#     flag — no parallel namespace.
+#   - Feature flag default OFF — every call is a no-op until enabled.
+#
+# Future slices (NOT in v3.1): hook integration, auto-extraction,
+# confidence-promotion rules, cross-session usage tracking. Each its own
+# decision.
+# ─────────────────────────────────────────────
+
+# Memory types most likely to encode a reusable behavioral pattern.
+# "insight" and "fact" are excluded: insights are often episodic; facts
+# are too static. Patterns/preferences/decisions are the instinct-shaped
+# memory types.
+_INSTINCT_CANDIDATE_TYPES = ("pattern", "preference", "decision")
+
+# Thresholds for candidate selection. Documented inline (auditable in
+# this file's PR history); not read from runtime config.
+_INSTINCT_MIN_CONFIDENCE = 0.8
+_INSTINCT_MIN_RECALL_COUNT = 3
+_INSTINCT_MIN_INTEGRATION = 1  # has tags OR >=1 graph edge
+
+
+def extract_instinct_candidates(domain=None, limit=20):
+    """Surface candidate instincts: high-confidence, frequently-recalled
+    memories of pattern/preference/decision type that have been integrated
+    into the graph (have tags or edges). Read-only — returns a ranked list
+    of memories that *could* be promoted; never promotes.
+
+    When MEMORY_LEARNING_ENABLED is unset/false, returns:
+        {"enabled": false, "candidates": []}
+
+    The candidate list is sorted by a composite signal score, but
+    promotion still requires an explicit single-id promote_to_instinct
+    call per item. There is no bulk-promote API.
+    """
+    if not _learning_enabled():
+        return {"enabled": False, "candidates": []}
+
+    _ensure_dirs()
+    memories = _load_all([domain] if domain else None)
+
+    candidates = []
+    for mem in memories:
+        if mem.get("superseded_by"):
+            continue
+        if mem.get("archived", False):
+            continue
+        if mem.get("is_instinct", False):
+            continue  # already promoted
+        if mem.get("type") not in _INSTINCT_CANDIDATE_TYPES:
+            continue
+        if mem.get("confidence", 0.0) < _INSTINCT_MIN_CONFIDENCE:
+            continue
+        if mem.get("recall_count", 0) < _INSTINCT_MIN_RECALL_COUNT:
+            continue
+        integration = len(mem.get("tags", [])) + len(mem.get("related_to", []))
+        if integration < _INSTINCT_MIN_INTEGRATION:
+            continue
+
+        # Composite signal: confidence × recall_count × (1 + integration)
+        # — gives more weight to entries that are confident AND used AND
+        # connected, without any single signal dominating.
+        signal = (mem.get("confidence", 0.0)
+                  * mem.get("recall_count", 0)
+                  * (1 + integration))
+        mem.pop("_path", None)
+        candidates.append((signal, mem))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return {
+        "enabled": True,
+        "thresholds": {
+            "min_confidence": _INSTINCT_MIN_CONFIDENCE,
+            "min_recall_count": _INSTINCT_MIN_RECALL_COUNT,
+            "min_integration": _INSTINCT_MIN_INTEGRATION,
+            "candidate_types": list(_INSTINCT_CANDIDATE_TYPES),
+        },
+        "candidates": [
+            {**mem, "_signal": round(signal, 3)}
+            for signal, mem in candidates[:limit]
+        ],
+    }
+
+
+def promote_to_instinct(memory_id, domain=None):
+    """Mark a single memory as an instinct. Requires
+    MEMORY_LEARNING_ENABLED=true; returns {"enabled": false} no-op
+    otherwise. No bulk variant exists. Memory stays in its original
+    domain — promotion is a flag flip plus a timestamp, not a move.
+
+    Sets `is_instinct: true` and `promoted_at: <iso>` on the memory file.
+    Idempotent: re-promoting an already-promoted memory returns success
+    without changing the timestamp.
+    """
+    if not _learning_enabled():
+        return {"enabled": False, "promoted": False,
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    _ensure_dirs()
+    domains = [domain] if domain else DOMAINS
+
+    for d in domains:
+        path = _memory_path(d, memory_id)
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            mem = json.load(f)
+        if mem.get("is_instinct", False):
+            return {"enabled": True, "promoted": True,
+                    "id": memory_id, "domain": d,
+                    "already_instinct": True,
+                    "promoted_at": mem.get("promoted_at")}
+        mem["is_instinct"] = True
+        mem["promoted_at"] = _now()
+        _save_mem(mem, path)
+        return {"enabled": True, "promoted": True,
+                "id": memory_id, "domain": d,
+                "promoted_at": mem["promoted_at"]}
+
+    return {"enabled": True, "promoted": False,
+            "id": memory_id, "reason": "Not found in any domain"}
+
+
+def demote_from_instinct(memory_id, domain=None):
+    """Reverse of promote_to_instinct. Sets `is_instinct: false` and
+    `demoted_at: <iso>`. Idempotent.
+    """
+    if not _learning_enabled():
+        return {"enabled": False, "demoted": False,
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    _ensure_dirs()
+    domains = [domain] if domain else DOMAINS
+
+    for d in domains:
+        path = _memory_path(d, memory_id)
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            mem = json.load(f)
+        if not mem.get("is_instinct", False):
+            return {"enabled": True, "demoted": True,
+                    "id": memory_id, "domain": d,
+                    "already_not_instinct": True}
+        mem["is_instinct"] = False
+        mem["demoted_at"] = _now()
+        _save_mem(mem, path)
+        return {"enabled": True, "demoted": True,
+                "id": memory_id, "domain": d,
+                "demoted_at": mem["demoted_at"]}
+
+    return {"enabled": True, "demoted": False,
+            "id": memory_id, "reason": "Not found in any domain"}
 
 
 # ─────────────────────────────────────────────

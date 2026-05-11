@@ -569,5 +569,292 @@ class InternalHelperTests(unittest.TestCase):
         self.assertEqual(memory_ops._graph_centrality(spoke, all_mems), 0.25)
 
 
+# ─────────────────────────────────────────────
+# v3.1 Continuous Learning (Slice 1) — instincts tier
+# ─────────────────────────────────────────────
+
+
+class LearningEnabledFlagTests(unittest.TestCase):
+    """_learning_enabled() reads MEMORY_LEARNING_ENABLED env at call time.
+
+    Tests do NOT need MEMORY_ROOT patching — pure env read.
+    """
+
+    def setUp(self) -> None:
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+
+    def test_default_is_false(self):
+        self.assertFalse(memory_ops._learning_enabled())
+
+    def test_explicit_false(self):
+        os.environ["MEMORY_LEARNING_ENABLED"] = "false"
+        self.assertFalse(memory_ops._learning_enabled())
+
+    def test_explicit_true(self):
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+        self.assertTrue(memory_ops._learning_enabled())
+
+    def test_case_insensitive(self):
+        os.environ["MEMORY_LEARNING_ENABLED"] = "TRUE"
+        self.assertTrue(memory_ops._learning_enabled())
+        os.environ["MEMORY_LEARNING_ENABLED"] = "True"
+        self.assertTrue(memory_ops._learning_enabled())
+
+    def test_unknown_value_treated_as_false(self):
+        # Anything that isn't "true" (case-insensitive) is false. No
+        # accidental on-states from typos like "yes", "1", "on".
+        for v in ("yes", "1", "on", "enabled", "y", ""):
+            os.environ["MEMORY_LEARNING_ENABLED"] = v
+            self.assertFalse(memory_ops._learning_enabled(),
+                             f"value {v!r} must not enable")
+
+
+class LearningFeatureFlagOffTests(MemoryOpsTestBase):
+    """When the flag is off, all v3.1 ops return no-op stubs without
+    reading or writing memory. This is the dark-ship default.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+        super().tearDown()
+
+    def test_extract_candidates_returns_disabled_no_op(self):
+        # Seed some memories that WOULD qualify if flag were on
+        memory_ops.encode("good pattern", domain="ken",
+                          memory_type="pattern", confidence=0.95,
+                          tags=["x"])
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertEqual(result, {"enabled": False, "candidates": []})
+
+    def test_promote_returns_disabled_no_op(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        result = memory_ops.promote_to_instinct(m["id"], domain="ken")
+        self.assertFalse(result["enabled"])
+        self.assertFalse(result["promoted"])
+        # Disk untouched
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertNotIn("is_instinct", mem)
+        self.assertNotIn("promoted_at", mem)
+
+    def test_demote_returns_disabled_no_op(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        result = memory_ops.demote_from_instinct(m["id"], domain="ken")
+        self.assertFalse(result["enabled"])
+
+
+class LearningExtractCandidatesTests(MemoryOpsTestBase):
+    """When the flag is on, extract_instinct_candidates returns memories
+    matching every criterion. Each test seeds disqualifying conditions
+    one at a time to confirm the filter does what it claims.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+        super().tearDown()
+
+    def _make_qualifying(self, content="pattern thing", domain="ken"):
+        """Seed a memory that passes all candidate filters."""
+        m = memory_ops.encode(content, domain=domain,
+                              memory_type="pattern", confidence=0.9,
+                              tags=["seeded"])
+        # Recall N times to bump recall_count above threshold
+        for _ in range(memory_ops._INSTINCT_MIN_RECALL_COUNT):
+            memory_ops.recall(content, domain=domain)
+        return m
+
+    def test_qualifying_memory_appears_as_candidate(self):
+        m = self._make_qualifying("kubernetes scheduling rules")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertTrue(result["enabled"])
+        ids = {c["id"] for c in result["candidates"]}
+        self.assertIn(m["id"], ids)
+
+    def test_low_confidence_excluded(self):
+        memory_ops.encode("low-conf pattern", domain="ken",
+                          memory_type="pattern", confidence=0.5,
+                          tags=["x"])
+        # Bump recall_count
+        memory_ops.recall("low-conf", domain="ken")
+        memory_ops.recall("low-conf", domain="ken")
+        memory_ops.recall("low-conf", domain="ken")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertEqual(result["candidates"], [])
+
+    def test_low_recall_count_excluded(self):
+        memory_ops.encode("never-recalled pattern", domain="ken",
+                          memory_type="pattern", confidence=0.95,
+                          tags=["x"])
+        # No recalls; recall_count == 0
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertEqual(result["candidates"], [])
+
+    def test_wrong_type_excluded(self):
+        # "insight" is not in _INSTINCT_CANDIDATE_TYPES
+        m = memory_ops.encode("episodic insight here", domain="ken",
+                              memory_type="insight", confidence=0.95,
+                              tags=["x"])
+        for _ in range(5):
+            memory_ops.recall("episodic insight", domain="ken")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        ids = {c["id"] for c in result["candidates"]}
+        self.assertNotIn(m["id"], ids)
+
+    def test_zero_integration_excluded(self):
+        # confidence + recall_count pass, but no tags and no edges
+        memory_ops.encode("orphan pattern with unique-token-zorblax",
+                          domain="ken", memory_type="pattern",
+                          confidence=0.9)  # no tags
+        for _ in range(5):
+            memory_ops.recall("zorblax", domain="ken")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertEqual(result["candidates"], [])
+
+    def test_superseded_excluded(self):
+        m = self._make_qualifying("supersedable pattern alpha")
+        memory_ops.update(m["id"], "supersedable pattern beta",
+                          domain="ken", confidence=0.9)
+        # Old version is superseded; new version recall_count is 0
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        ids = {c["id"] for c in result["candidates"]}
+        self.assertNotIn(m["id"], ids)
+
+    def test_already_promoted_excluded(self):
+        m = self._make_qualifying("already-an-instinct pattern")
+        memory_ops.promote_to_instinct(m["id"], domain="ken")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        ids = {c["id"] for c in result["candidates"]}
+        self.assertNotIn(m["id"], ids)
+
+    def test_archived_excluded(self):
+        m = self._make_qualifying("archivable pattern")
+        memory_ops.archive(m["id"], domain="ken")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        ids = {c["id"] for c in result["candidates"]}
+        self.assertNotIn(m["id"], ids)
+
+    def test_thresholds_reported_in_result(self):
+        # The result advertises the thresholds it used — auditability
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        self.assertIn("thresholds", result)
+        self.assertEqual(result["thresholds"]["min_confidence"], 0.8)
+        self.assertEqual(result["thresholds"]["min_recall_count"], 3)
+        self.assertEqual(result["thresholds"]["min_integration"], 1)
+        self.assertIn("pattern", result["thresholds"]["candidate_types"])
+
+    def test_candidates_have_signal_field(self):
+        self._make_qualifying("first kubernetes pattern")
+        self._make_qualifying("second different docker pattern")
+        result = memory_ops.extract_instinct_candidates(domain="ken")
+        for c in result["candidates"]:
+            self.assertIn("_signal", c)
+            self.assertIsInstance(c["_signal"], float)
+        # Sorted descending
+        signals = [c["_signal"] for c in result["candidates"]]
+        self.assertEqual(signals, sorted(signals, reverse=True))
+
+
+class LearningPromoteDemoteTests(MemoryOpsTestBase):
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+        super().tearDown()
+
+    def test_promote_sets_flag_and_timestamp(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        result = memory_ops.promote_to_instinct(m["id"], domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["promoted"])
+        self.assertEqual(result["domain"], "ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertTrue(mem["is_instinct"])
+        self.assertIn("promoted_at", mem)
+
+    def test_promote_is_idempotent(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        first = memory_ops.promote_to_instinct(m["id"], domain="ken")
+        second = memory_ops.promote_to_instinct(m["id"], domain="ken")
+        self.assertTrue(second["promoted"])
+        self.assertTrue(second.get("already_instinct"))
+        # Same timestamp — no overwrite
+        self.assertEqual(second["promoted_at"], first["promoted_at"])
+
+    def test_promote_missing_id_returns_not_found(self):
+        result = memory_ops.promote_to_instinct("no-such-id", domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertFalse(result["promoted"])
+        self.assertIn("Not found", result["reason"])
+
+    def test_demote_reverses_promote(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        memory_ops.promote_to_instinct(m["id"], domain="ken")
+        result = memory_ops.demote_from_instinct(m["id"], domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["demoted"])
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertFalse(mem["is_instinct"])
+        self.assertIn("demoted_at", mem)
+
+    def test_demote_idempotent_on_non_instinct(self):
+        m = memory_ops.encode("p", domain="ken", memory_type="pattern")
+        # Never promoted; demote should still return success
+        result = memory_ops.demote_from_instinct(m["id"], domain="ken")
+        self.assertTrue(result["demoted"])
+        self.assertTrue(result.get("already_not_instinct"))
+
+    def test_promotion_does_not_change_domain(self):
+        """Slice 1 explicit choice: promotion is a flag flip, not a move.
+        No parallel namespace; memory stays in its original domain.
+        """
+        m = memory_ops.encode("p", domain="recipes", memory_type="pattern")
+        memory_ops.promote_to_instinct(m["id"], domain="recipes")
+        # File still lives at recipes/<id>.json
+        recipes_path = os.path.join(memory_ops.MEMORY_ROOT, "recipes",
+                                    f"{m['id']}.json")
+        self.assertTrue(os.path.exists(recipes_path))
+        # No file created elsewhere (e.g., no _instincts dir, no ken/)
+        ken_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                f"{m['id']}.json")
+        instincts_path = os.path.join(memory_ops.MEMORY_ROOT, "_instincts",
+                                      f"{m['id']}.json")
+        self.assertFalse(os.path.exists(ken_path))
+        self.assertFalse(os.path.exists(instincts_path))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
