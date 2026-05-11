@@ -81,7 +81,7 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 | 8 | `context-budget` skill | ECC `skills/context-budget/` | `open-claw-stuff/skills/` | medium |
 | 9 | Continuous-learning-v2 / instincts (confidence-scored, project-scoped, auto-promoting memory) | ECC `skills/continuous-learning-v2/` | `ken/orchestrator/memory_ops.py` upgrade | **large** |
 | 10 | `ai-regression-testing` | ECC `skills/ai-regression-testing/` | `ken/orchestrator/` + `open-claw-stuff/skills/` | medium |
-| 11 | `harness-optimizer` agent + `/harness-audit` command | ECC `agents/harness-optimizer.md` + `commands/harness-audit.md` | `ken/.claude/skills/` | medium |
+| 11 | `harness-auditor` skill (concept lift from ECC `harness-optimizer` + `/harness-audit`) | ECC `agents/harness-optimizer.md` + `commands/harness-audit.md` | `open-claw-stuff/skills/harness-auditor/` | **✓ shipped** v1.0.0 in open-claw-stuff v0.4.0 (commit `82474a7`); single skill instead of agent+command split; 4 verdict tiers replacing 7-dim scoring; concept-lift only |
 | 12 | WORKING-CONTEXT.md pattern | ECC `WORKING-CONTEXT.md` | `ken/WORKING-CONTEXT.md` | **✓ completed (this file)** |
 | 13 | Provenance schema | ECC `schemas/provenance.schema.json` | `open-claw-stuff/schemas/` | small |
 
@@ -139,6 +139,9 @@ Three review passes covered `affaan-m/everything-claude-code`: skills (182), age
 - ✓ Voice skills (`voice-audit` + `like-a-human`) upgraded in InTheWake (10 sub-disciplines lifted from Romans)
 - ✓ This file (`ken/WORKING-CONTEXT.md`) — P1#12 complete
 - ✓ P0 ECC harvest shipped: `opensource-sanitizer` v1.1.0, `silent-failure-hunter` v1.0.0, `policy-as-markdown` v1.0.1 (open-claw-stuff v0.2.2)
+- ✓ `opensource-sanitizer` v1.2.0 hardening pass (16 new credential patterns, 9 new Stage-7 sub-stages, redaction strengthened to first2-last2/len ≥40, 10-pattern backdoor-defenses section)
+- ✓ Household sweep with v1.2.0: 10 of 10 repos PASS or PASS WITH WARNINGS (full report `/tmp/HOUSEHOLD-SANITIZATION-REPORT-v1.2.0.md`); fix commits pushed across ken / Romans / 4 recipe repos / InTheWake / Family-History
+- ✓ P1#11 `harness-auditor` v1.0.0 shipped (open-claw-stuff v0.4.0, commit `82474a7`)
 - ✓ Audit + redesign of `policy-as-markdown` (schema independence vs upstream)
 - ✓ Threat-model self-audit of `opensource-sanitizer` and `policy-as-markdown` per operating principle #6
 - → P0.5 hook patterns (after policy-as-markdown is adopted: `fact-forcing-gate`, `configuration-protection` ported as policy files)
