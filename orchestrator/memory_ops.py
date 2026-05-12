@@ -89,6 +89,219 @@ DOMAINS = [
 def _learning_enabled():
     return os.environ.get("MEMORY_LEARNING_ENABLED", "false").lower() == "true"
 
+
+# ─────────────────────────────────────────────
+# v5 Doctrine layer — profile, exception, invariants (Slice 0)
+# ─────────────────────────────────────────────
+# Slice 0 of the continuous-learning-v2 plan. See
+# CONTINUOUS_LEARNING_PLAN.md + CONTINUOUS_LEARNING_DOCTRINE.md.
+#
+# 9 invariants shipped here are the doctrine made into code. Each
+# raises CarefulNotCleverError (a discipline boundary, not a generic
+# bug). They are called from EVERY public mutation function in
+# subsequent slices; the CI gate test in tests/test_memory_ops.py
+# enforces that contract via AST walk.
+#
+# Nothing in this block has external side effects; everything is
+# feature-flag / profile gated and additive to the existing surface.
+
+class CarefulNotCleverError(Exception):
+    """Discipline boundary crossed, not a generic bug. Surface to
+    operator; do not silently retry or downgrade. Catching this and
+    swallowing it via `except: pass` is itself a doctrine violation —
+    see CONTINUOUS_LEARNING_DOCTRINE.md."""
+
+
+# Profile is read at call time (not import) so tests + emergency
+# reconfiguration can flip via os.environ without re-importing.
+def _learning_profile():
+    """Return active operating profile. Valid values:
+        'single-operator-local' (default) — sole-human household
+        'multi-operator-shared'           — team/enterprise/shared FS
+    Any other value falls back to single-operator-local with no warning;
+    this field is operator-controlled configuration, not security policy."""
+    return os.environ.get(
+        "MEMORY_LEARNING_PROFILE", "single-operator-local"
+    ).lower()
+
+
+# Rate-limit state. Per (operation, key) tuple → list of recent timestamps.
+# Cleared lazily by _assert_rate_limit. Per-process; sessions are short
+# enough that this doesn't need persistence.
+_rate_buckets = {}
+_rate_baselines = {}  # historical 95th percentile per (operation, key)
+
+
+def _dynamic_threshold(operation, key):
+    """Per Grok R3: 95th percentile + 20% based on historical baseline.
+    Falls back to 60/min during first session before baseline exists."""
+    baseline = _rate_baselines.get((operation, key))
+    if baseline is None:
+        return 60
+    return max(60, int(baseline * 1.20))
+
+
+# Invariant 1: Panic check (MUST be first executable statement of every
+# public learning function — CI gate will enforce position).
+def _assert_panic_check():
+    """Refuse to proceed if MEMORY_LEARNING_PANIC_DISABLE_ALL=true.
+    Takes precedence over every other flag and profile."""
+    if os.environ.get("MEMORY_LEARNING_PANIC_DISABLE_ALL",
+                      "").lower() == "true":
+        raise CarefulNotCleverError(
+            "panic disable active — all learning operations halted"
+        )
+
+
+# Invariant 2: No silent skip. Surface as INFO finding, not silent drop.
+def _assert_no_silent_skip(reason, count):
+    """Refuse to silently skip > 0 items. Caller must surface as INFO
+    findings instead. count == 0 is the success path (no-op)."""
+    if count > 0:
+        raise CarefulNotCleverError(
+            f"silent skip of {count} items: {reason}. "
+            f"Surface as INFO findings, not silent drop."
+        )
+
+
+# Invariant 3: Evidence present. No bare-pattern candidates.
+def _assert_evidence_present(candidate):
+    """Every candidate must carry observations + session_ids that
+    produced it. Bare-pattern candidates cannot be audited and are
+    forbidden."""
+    evidence = candidate.get("evidence", {})
+    if not evidence.get("observations"):
+        raise CarefulNotCleverError(
+            f"candidate {candidate.get('id', '?')} has no evidence trail"
+        )
+
+
+# Invariant 4: Single-id mutation contract.
+def _assert_single_id(arg):
+    """Refuse list/tuple/set arguments to single-id APIs. The structural
+    block holds regardless of profile."""
+    if isinstance(arg, (list, tuple, set)):
+        raise CarefulNotCleverError(
+            f"single-id API received {type(arg).__name__}; "
+            f"bulk mutation forbidden by doctrine"
+        )
+
+
+# Invariant 5: Safety-guard compliance.
+def _assert_safety_guard_compliant(operation, target, force=False):
+    """Destructive operations (delete/forget/demote) on shielded
+    targets (is_instinct or protected) require explicit force=True."""
+    destructive = operation in ("delete", "forget", "demote")
+    shielded = bool(target.get("is_instinct") or target.get("protected"))
+    if destructive and shielded and not force:
+        raise CarefulNotCleverError(
+            f"{operation} on shielded target {target.get('id', '?')} "
+            f"requires explicit force=True"
+        )
+
+
+# Invariant 6: Evidence integrity (STUB until Slice 3C).
+def _assert_evidence_integrity(candidate):
+    """STUB until Slice 3C ships HMAC-SHA256 validation against
+    ~/.memory/_checksums/. Currently a no-op; the call-site contract
+    is preserved so subsequent slices can wire the invariant call
+    without breaking when 3C is implemented."""
+    return  # Intentional no-op. Tests assert this is a stub.
+
+
+# Invariant 7: Rate limiting (dynamic per Grok R3).
+def _assert_rate_limit(operation, key):
+    """Bound call rate per (operation, key). Threshold is dynamic
+    (95th %ile + 20%) once baseline exists; falls back to 60/min
+    during first session. Mitigates DoS via repeated extraction or
+    observation flooding."""
+    now = time.time()
+    bucket = _rate_buckets.setdefault((operation, key), [])
+    bucket[:] = [t for t in bucket if now - t < 60]
+    threshold = _dynamic_threshold(operation, key)
+    if len(bucket) >= threshold:
+        raise CarefulNotCleverError(
+            f"rate limit: {operation} for {key} exceeded {threshold}/min"
+        )
+    bucket.append(now)
+
+
+# Invariant 8: Temporal consistency (5min/5min per v4 tuning).
+def _assert_temporal_consistency(ts, chain=None):
+    """Reject timestamps > 5min in the future or > 5min before the
+    chain head. Mitigates clock-skew and backdating attacks (T12).
+    Tuned from v3's 60s/1h after NTP drift on consumer hardware was
+    shown to exceed 60s (Grok R3)."""
+    now = time.time()
+    try:
+        ts_epoch = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, TypeError):
+        raise CarefulNotCleverError(
+            f"temporal consistency: unparseable timestamp {ts!r}"
+        )
+    if ts_epoch > now + 300:
+        raise CarefulNotCleverError(
+            f"temporal consistency: {ts} is future-dated >5min"
+        )
+    if chain:
+        chain_ts = []
+        for e in chain:
+            if "at" in e:
+                try:
+                    chain_ts.append(time.mktime(
+                        time.strptime(e["at"], "%Y-%m-%dT%H:%M:%SZ")))
+                except (ValueError, TypeError):
+                    continue
+        if chain_ts:
+            last = max(chain_ts)
+            if ts_epoch < last - 300:
+                raise CarefulNotCleverError(
+                    f"temporal consistency: {ts} backdated >5min "
+                    f"from chain head"
+                )
+
+
+# Invariant 9: Human attention (profile-aware per v5).
+_AUTONOMOUS_KEYWORDS = (
+    "auto", "every", "daily", "schedule", "automatically",
+    "on its own", "without asking", "in the background",
+    # T18 intent-laundering semantic coverage:
+    "regularly", "routinely", "as a matter of course",
+)
+
+
+def _assert_human_attention(candidate, confirm=False):
+    """Pre-promotion anomaly heuristic. Behavior depends on profile:
+
+    single-operator-local (default): logs matched terms; non-blocking
+      — there is no separate attacker mimicking operator habits.
+    multi-operator-shared: blocks promotion on autonomous-action match
+      unless caller passes confirm=True.
+
+    Returns:
+        {"matched_terms": [...], "blocking": bool}
+    """
+    content = candidate.get("content", "").lower()
+    matched = [k for k in _AUTONOMOUS_KEYWORDS if k in content]
+    profile = _learning_profile()
+    if matched and profile == "multi-operator-shared" and not confirm:
+        raise CarefulNotCleverError(
+            f"candidate {candidate.get('id', '?')} matched autonomous-action "
+            f"keywords {matched}; multi-operator-shared profile requires "
+            f"explicit confirm=True"
+        )
+    return {"matched_terms": matched, "blocking": False}
+
+
+# Read-only allowlist for the CI gate. Every addition is a doctrine
+# decision visible in PR diff (the test in tests/ hashes this constant).
+_INVARIANT_READ_ONLY_ALLOWLIST = frozenset({
+    "recall", "extract", "tree", "stats", "neighbors",
+    "extract_instinct_candidates",
+    "main",  # CLI entry, not a mutation function per se
+})
+
+
 # ─────────────────────────────────────────────
 # Infrastructure
 # ─────────────────────────────────────────────

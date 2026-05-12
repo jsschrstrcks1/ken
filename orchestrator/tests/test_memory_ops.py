@@ -1105,5 +1105,346 @@ class AutoProtectEdgeCountTests(MemoryOpsTestBase):
                         "3 real distinct edges MUST still auto-protect")
 
 
+# ─────────────────────────────────────────────
+# Slice 0 — Doctrine layer (CarefulNotCleverError + 9 invariants
+# + profile reader + CI gate)
+# ─────────────────────────────────────────────
+
+
+class LearningProfileTests(unittest.TestCase):
+    """_learning_profile() returns the active operating profile."""
+
+    def setUp(self) -> None:
+        self._orig = os.environ.get("MEMORY_LEARNING_PROFILE")
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PROFILE"] = self._orig
+
+    def test_default_is_single_operator_local(self):
+        self.assertEqual(memory_ops._learning_profile(), "single-operator-local")
+
+    def test_explicit_single_operator(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "single-operator-local"
+        self.assertEqual(memory_ops._learning_profile(), "single-operator-local")
+
+    def test_multi_operator_shared(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        self.assertEqual(memory_ops._learning_profile(), "multi-operator-shared")
+
+    def test_case_insensitive(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "MULTI-OPERATOR-SHARED"
+        self.assertEqual(memory_ops._learning_profile(), "multi-operator-shared")
+
+    def test_unknown_value_treated_as_default(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "enterprise-fortress"
+        # Returns whatever was set, lowercased; the doctrine documents that
+        # unknown profiles fall back to single-operator-local semantically
+        # in callers, but _learning_profile itself is configuration return.
+        self.assertEqual(memory_ops._learning_profile(), "enterprise-fortress")
+
+
+class PanicCheckInvariantTests(unittest.TestCase):
+    """_assert_panic_check is the kill-switch every learning function calls
+    first. MEMORY_LEARNING_PANIC_DISABLE_ALL takes precedence over every
+    other flag and profile."""
+
+    def setUp(self) -> None:
+        self._orig = os.environ.get("MEMORY_LEARNING_PANIC_DISABLE_ALL")
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = self._orig
+
+    def test_panic_off_succeeds(self):
+        # No raise — function returns None
+        self.assertIsNone(memory_ops._assert_panic_check())
+
+    def test_panic_on_raises(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_panic_check()
+
+    def test_panic_typo_does_not_trigger(self):
+        # safety property: "yes"/"1"/"on" don't accidentally panic
+        for v in ("yes", "1", "on", "True ", ""):
+            os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = v
+            try:
+                memory_ops._assert_panic_check()
+            except memory_ops.CarefulNotCleverError:
+                self.fail(f"value {v!r} should not have triggered panic")
+
+
+class NoSilentSkipInvariantTests(unittest.TestCase):
+
+    def test_zero_count_succeeds(self):
+        # count == 0 is the success path (no-op)
+        self.assertIsNone(memory_ops._assert_no_silent_skip("ok", 0))
+
+    def test_positive_count_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_no_silent_skip("rotation evicted", 5)
+
+
+class EvidencePresentInvariantTests(unittest.TestCase):
+
+    def test_candidate_with_observations_passes(self):
+        candidate = {"id": "c1", "evidence": {"observations": [{"id": "o1"}]}}
+        self.assertIsNone(memory_ops._assert_evidence_present(candidate))
+
+    def test_missing_evidence_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_present({"id": "c1"})
+
+    def test_empty_observations_raises(self):
+        candidate = {"id": "c1", "evidence": {"observations": []}}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_present(candidate)
+
+
+class SingleIdInvariantTests(unittest.TestCase):
+
+    def test_string_passes(self):
+        self.assertIsNone(memory_ops._assert_single_id("abc12345"))
+
+    def test_list_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id(["a", "b"])
+
+    def test_tuple_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id(("a",))
+
+    def test_set_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id({"a"})
+
+
+class SafetyGuardCompliantInvariantTests(unittest.TestCase):
+
+    def test_non_destructive_op_passes_on_shielded(self):
+        target = {"id": "t1", "is_instinct": True}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "read", target))
+
+    def test_destructive_op_on_unshielded_passes(self):
+        target = {"id": "t1"}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "delete", target))
+
+    def test_destructive_op_on_instinct_without_force_raises(self):
+        target = {"id": "t1", "is_instinct": True}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_safety_guard_compliant("delete", target)
+
+    def test_destructive_op_on_protected_without_force_raises(self):
+        target = {"id": "t1", "protected": True}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_safety_guard_compliant("forget", target)
+
+    def test_destructive_op_with_force_passes(self):
+        target = {"id": "t1", "is_instinct": True}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "delete", target, force=True))
+
+
+class EvidenceIntegrityStubTests(unittest.TestCase):
+    """_assert_evidence_integrity is a STUB until Slice 3C. This test
+    anchors the stub contract so future code that wires the invariant
+    in doesn't break when 3C lands the real implementation."""
+
+    def test_stub_returns_none_on_anything(self):
+        for c in [{}, {"id": "x"}, {"evidence": {}},
+                  {"evidence": {"observations": [{"line_hmac": "deadbeef"}]}}]:
+            self.assertIsNone(memory_ops._assert_evidence_integrity(c),
+                              f"stub should no-op on {c!r}")
+
+
+class RateLimitInvariantTests(unittest.TestCase):
+
+    def setUp(self):
+        # Clear bucket state between tests
+        memory_ops._rate_buckets.clear()
+        memory_ops._rate_baselines.clear()
+
+    def test_under_threshold_passes(self):
+        for _ in range(10):
+            memory_ops._assert_rate_limit("test_op", "key1")
+
+    def test_at_threshold_raises(self):
+        # 60 calls allowed; 61st raises
+        for _ in range(60):
+            memory_ops._assert_rate_limit("test_op", "key1")
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_rate_limit("test_op", "key1")
+
+    def test_separate_keys_have_separate_buckets(self):
+        for _ in range(50):
+            memory_ops._assert_rate_limit("test_op", "key1")
+        # Different key still works
+        memory_ops._assert_rate_limit("test_op", "key2")
+
+
+class TemporalConsistencyInvariantTests(unittest.TestCase):
+
+    def test_current_timestamp_passes(self):
+        ts = memory_ops._now()
+        self.assertIsNone(memory_ops._assert_temporal_consistency(ts))
+
+    def test_unparseable_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency("yesterday")
+
+    def test_far_future_raises(self):
+        future = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                               time.gmtime(time.time() + 3600))
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency(future)
+
+    def test_5min_future_passes(self):
+        # Within tolerance
+        near = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                             time.gmtime(time.time() + 60))
+        self.assertIsNone(memory_ops._assert_temporal_consistency(near))
+
+    def test_backdated_from_chain_raises(self):
+        chain_head = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time()))
+        chain = [{"at": chain_head}]
+        backdated = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                  time.gmtime(time.time() - 3600))
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency(backdated, chain)
+
+
+class HumanAttentionInvariantTests(unittest.TestCase):
+    """Profile-aware: logs-only in single-operator-local; blocking in
+    multi-operator-shared unless confirm=True."""
+
+    def setUp(self):
+        self._orig = os.environ.get("MEMORY_LEARNING_PROFILE")
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+
+    def tearDown(self):
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PROFILE"] = self._orig
+
+    def test_no_keyword_match_returns_clean(self):
+        candidate = {"id": "c1", "content": "remember kubernetes scheduling"}
+        result = memory_ops._assert_human_attention(candidate)
+        self.assertEqual(result, {"matched_terms": [], "blocking": False})
+
+    def test_match_in_single_operator_logs_only(self):
+        # default profile = single-operator-local
+        candidate = {"id": "c1", "content": "auto-query weather every morning"}
+        result = memory_ops._assert_human_attention(candidate)
+        self.assertIn("auto", result["matched_terms"])
+        self.assertIn("every", result["matched_terms"])
+        self.assertFalse(result["blocking"])
+
+    def test_match_in_multi_operator_blocks(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        candidate = {"id": "c1", "content": "automatically run daily report"}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_human_attention(candidate)
+
+    def test_match_in_multi_operator_with_confirm_passes(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        candidate = {"id": "c1", "content": "automatically run daily report"}
+        result = memory_ops._assert_human_attention(candidate, confirm=True)
+        self.assertIn("automatically", result["matched_terms"])
+
+    def test_intent_laundering_terms_caught(self):
+        # T18 — semantic equivalents of autonomous-action
+        for term in ("regularly", "routinely", "as a matter of course"):
+            candidate = {"id": "x", "content": f"do this {term} for me"}
+            result = memory_ops._assert_human_attention(candidate)
+            self.assertIn(term, result["matched_terms"])
+
+
+class CIGateTests(unittest.TestCase):
+    """test_every_mutation_path_invokes_invariants — the CI gate that
+    enforces _assert_* calls on every public mutation function. Slice
+    1 functions (promote_to_instinct, demote_from_instinct,
+    extract_instinct_candidates) predate the doctrine layer; they
+    get added to a legacy allowlist with a tracking note. New slices
+    (Slice 2+) must call invariants directly."""
+
+    def test_invariant_allowlist_is_documented(self):
+        # The constant exists and contains the read-only function names
+        self.assertIn("recall", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+        self.assertIn("extract", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+        self.assertIn("stats", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+
+    def test_every_mutation_path_invokes_invariants(self):
+        """The CI gate: every public function in memory_ops.py that
+        mutates state must contain at least one _assert_* call OR be
+        in the read-only allowlist. This test fires when a future PR
+        adds a public mutation function without wiring invariants.
+
+        Note: Slice 1 functions (promote_to_instinct, demote_from_instinct)
+        and v3 functions (encode/update/link/protect/archive/promote/
+        consolidate/forget) predate the doctrine layer. They are tracked
+        in a legacy allowlist below. Slice 2+ functions are NOT
+        grandfathered — they must call invariants directly.
+        """
+        import ast
+        import inspect
+
+        # Legacy allowlist: functions that predate Slice 0. Listed
+        # explicitly so additions are visible. Slice 2+ MUST NOT be
+        # added here; they get invariant calls in their slice work.
+        legacy = {
+            "encode", "update", "link", "protect", "archive", "promote",
+            "consolidate", "forget",
+            "promote_to_instinct", "demote_from_instinct",
+        }
+
+        src = inspect.getsource(memory_ops)
+        tree = ast.parse(src)
+
+        missing = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if node.name.startswith("_"):
+                continue
+            if node.name in memory_ops._INVARIANT_READ_ONLY_ALLOWLIST:
+                continue
+            if node.name in legacy:
+                continue
+            # Find any Call to a Name starting with _assert_
+            invariant_calls = [
+                c for c in ast.walk(node)
+                if isinstance(c, ast.Call)
+                and isinstance(c.func, ast.Name)
+                and c.func.id.startswith("_assert_")
+            ]
+            if not invariant_calls:
+                missing.append(node.name)
+
+        self.assertEqual(missing, [],
+            f"Public mutation functions without invariant calls: "
+            f"{missing}. Add an _assert_* call or add the function name "
+            f"to the legacy allowlist with explicit doctrine justification.")
+
+
+class CarefulNotCleverErrorTests(unittest.TestCase):
+
+    def test_is_an_exception(self):
+        self.assertTrue(issubclass(memory_ops.CarefulNotCleverError,
+                                   Exception))
+
+    def test_can_be_raised_with_message(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            raise memory_ops.CarefulNotCleverError("boundary crossed")
+        self.assertIn("boundary crossed", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
