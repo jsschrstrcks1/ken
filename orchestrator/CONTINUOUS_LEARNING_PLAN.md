@@ -1,12 +1,89 @@
-# Continuous-Learning-v2 Auto-Extraction Plan — v4
+# Continuous-Learning-v2 Auto-Extraction Plan — v5
 
-**Status:** Round-3 multi-LLM review complete (mutation-prevention focus + answers to v3 open questions). This is v4. Total 14 consults across 3 rounds, ~$0.27 spend.
+**Status:** Operating profile decision. Plan v4's defenses are intact; v5 introduces `MEMORY_LEARNING_PROFILE` so the friction tax matches the actual threat model. Default profile: `single-operator-local`. The operator stated they are the only human with access to this household; defenses targeting a separate-attacker scenario become non-applicable.
+
+This is not a new LLM review round — it is a configuration decision applied on top of the v4 security model. All cryptographic, integrity, agent-drift, and external-data-contamination defenses remain in force.
 **Owner:** P1#9 continuation. Slices 1, 1.1, 1.2 already shipped.
 **Goal:** Make the household memory system learn from operator behavior without sacrificing the safety properties Slices 1–1.2 established.
 
 ---
 
 ## 0. Change log
+
+### v4 → v5 (operating profile decision)
+
+Operator confirmed they are the sole human with access to the household. Several v4 defenses were modeled against a multi-actor scenario (separate attacker coercing or impersonating operator; shared filesystem; UI fatigue under bulk-approval pressure). In a single-operator local-only environment these threats are non-applicable.
+
+**v5 introduces two operating profiles via `MEMORY_LEARNING_PROFILE`:**
+
+| Profile | Default? | Use case |
+|---|---|---|
+| `single-operator-local` | **YES (this household)** | One human + one or more AI agents; local-only storage; no shared filesystem |
+| `multi-operator-shared` | available, opt-in | Team / enterprise / shared infrastructure |
+
+The profile is read once at import time (mirrors `_learning_enabled`'s discipline). Future profiles can be added without breaking the API contract.
+
+**Cross-slice invariant changes in `single-operator-local`:**
+
+| Invariant | v4 (locked) | v5 single-operator |
+|---|---|---|
+| #1 Feature flag default OFF | all 8 sub-flags default off | only `MEMORY_LEARNING_PANIC_DISABLE_ALL` defaults off (panic must be opt-in). All other learning flags default **ON**. |
+| #2 No auto-promotion to instinct, ever | locked | Auto-promotion permitted **only** when consensus criteria are cryptographically verifiable via `_assert_promotion_eligibility`. Single-id manual `promote_to_instinct` remains the default API; `auto_promote_eligible()` opt-in API for consensus-passing candidates. |
+
+All other cross-slice invariants (3 through 10) unchanged.
+
+**Threat reclassifications:**
+
+| Threat | v4 status | v5 single-operator status |
+|---|---|---|
+| T11 Side-channel timing | out-of-scope (co-located trusted operators) | **non-applicable** (no observer exists) |
+| T16 Social-engineering via familiarity crafting | mitigated by `_assert_human_attention` (blocking) | **relaxed** — no separate attacker to mimic operator. `_assert_human_attention` logs matched terms as INFO; does not block. |
+| T17 Approval fatigue | mitigated by 3-candidate cap + 60s inter-promotion delay | **relaxed** — cap raised to 20, inter-promotion delay removed |
+| T19 Local privilege escalation | out-of-scope (household OS trust) | **non-applicable** (single user OS) |
+| T21 Operator coercion | out-of-scope | **non-applicable** (operator coercing themselves makes no sense) |
+
+T13 (indirect influence post-promotion) **stays mitigated** — self-deception is still a real cognitive risk; `instinct_invocation_count` + 30-day audit surfacing remains.
+
+T1, T2, T8, T9, T10, T14, T15, T18, T20, T22, T23 — **all unchanged**. The external-data contamination, agent-drift, mutation-prevention, and cryptographic layers are independent of operator count.
+
+**Flag defaults in `single-operator-local`:**
+
+| Flag | v4 default | v5 single-operator default |
+|---|---|---|
+| `MEMORY_LEARNING_ENABLED` | OFF | **ON** |
+| `MEMORY_LEARNING_FROM_SESSIONS` | OFF | **ON** |
+| `MEMORY_OBSERVATIONS_ENABLED` | OFF | **ON** |
+| `MEMORY_AUTO_OBSERVE_ENABLED` (Slice 6 hooks) | OFF | **ON** (after Slice 3C ships) |
+| `MEMORY_CONFIDENCE_PROMOTION_ENABLED` | OFF | **ON** |
+| `MEMORY_USAGE_HISTORY_ENABLED` | OFF | **ON** |
+| `MEMORY_AUTO_PROMOTE_ELIGIBLE` (NEW v5) | (didn't exist) | **ON** |
+| `MEMORY_LEARNING_PANIC_DISABLE_ALL` | OFF | OFF (always opt-in) |
+
+**New slice: 7.5 — Consensus auto-promotion eligibility.** Surfaces candidates that pass cryptographically verifiable consensus criteria as auto-promoted (with `is_auto_promoted: true` audit flag); rolls back via one-call `demote_from_instinct`. Detailed §3.
+
+**New invariant: `_assert_promotion_eligibility`.** Cryptographically validates consensus criteria before any auto-promotion. Detailed §5.
+
+**Friction reductions:**
+
+| v4 friction | v5 single-operator |
+|---|---|
+| Manual extraction trigger | Session-end auto-extract via harness hook (Slice 7) |
+| `_assert_human_attention` requires confirmation on autonomous-action keywords | Logs matched terms as INFO; does not block |
+| Cap of 3 candidates per session | Cap at 20 |
+| 60s inter-promotion delay | Removed |
+| Per-id promotion calls only | `auto_promote_eligible()` opt-in for consensus-passing candidates; per-id still works |
+| Manual observation log enabling | Default-on after Slice 3C ships |
+
+**What still gates (non-negotiable in v5):**
+
+- Cryptographic integrity layer (HMAC sidecar, helper integrity, key fingerprint) — defends against agent drift, not operator
+- CI gate + meta-tests — defends against future commits weakening defenses
+- Kill-switch (`_assert_panic_check` as first line) — defends against runaway bugs
+- External-data wrapping (`<external-content>`) — defends against tool-output prompt injection
+- Plan-injection mitigation — defends against agent self-modification
+- TOCTOU snapshot + flock + WAL — defends against concurrent writes
+- Rate limiting (now dynamic per Grok R3) — defends against DoS-style runaway
+- Test-suite integrity (`test_regression_test_count`) — defends against accidental safety regression
 
 ### v3 → v4 (Round-3 mutation-prevention + open-question pass)
 
@@ -458,7 +535,7 @@ The skill being lifted is ECC's `continuous-learning-v2` (MIT). Three foundation
 
 ---
 
-### Slice 6 — Optional always-on capture (ECC-shaped)
+### Slice 6 — Always-on capture (ECC-shaped; default-on in single-operator profile)
 
 **Goal:** Wire PreToolUse / PostToolUse hooks into Slice 3A's `record_observation`. Highest-leverage AND highest-attack-surface slice.
 
@@ -504,7 +581,79 @@ Plus the process skills at transitions (brainstorming, writing-plans, executing-
 
 ---
 
-## 5. Invariant helpers — 7 in v2 (was 4)
+### Slice 7 — Session-end auto-extract (v5)
+
+**Goal:** Wire the harness's existing session-end hook to invoke extraction without manual operator trigger. From operator perspective: candidates surface at session boundary. From architecture perspective: no Python daemon — uses an existing harness affordance, not a new always-on process.
+
+**Adds:**
+- `.claude/hooks/session-end-extract.sh` — calls `extract_candidates_from_session()` and `extract_candidates_from_observations()` (if Slice 3B shipped)
+- Output written to `~/.memory/_candidates/<session_id>.json` for next-session pickup
+- `MEMORY_AUTO_EXTRACT_ENABLED=true` flag (default-on in `single-operator-local`)
+
+**Invariant calls (in order):**
+1. `_assert_panic_check`
+2. `_assert_rate_limit` (session-id key, dynamic threshold)
+3. `_assert_evidence_integrity` per candidate
+4. `_assert_no_silent_skip` if any extraction call failed
+
+**Threat surface:** harness hook execution. Fails closed.
+
+**Ship gate:**
+- ≥6 tests: hook runs at session-end, candidates written to expected path, panic halts hook, rate-limit honored, integrity validated
+- Adversarial probe ≥6 cases: hook fails mid-extraction, panic flips during hook, session-id collision, oversized candidate set
+- New total: ~150 tests
+
+**Effort:** ~1 session.
+
+---
+
+### Slice 7.5 — Consensus auto-promotion eligibility (v5, NEW)
+
+**Goal:** Surface candidates that pass cryptographically verifiable consensus criteria as auto-promoted, with full audit trail and one-call rollback. Operator review becomes "demote any of these 5?" instead of "promote each of these 5?" — zero-friction discovery for the routine case; manual path preserved for unusual candidates.
+
+**Adds:**
+- `auto_promote_eligible(domain=None)` in `memory_ops.py`. Runs `_assert_promotion_eligibility` on each candidate; for passes, calls `promote_to_instinct` with `is_auto_promoted: true` + `auto_promoted_at: <iso>` flags set.
+- `recommended_for_promotion` queue surfaced at session start: list of candidates that passed consensus
+- One-call rollback: `demote_from_instinct(id)` works exactly as before; `auto_promoted_at` is preserved for audit even after demotion (becomes `auto_promoted_at` + `demoted_at` both set)
+- New invariant `_assert_promotion_eligibility(candidate)` — see §5
+
+**Consensus criteria (all cryptographically verifiable via the existing integrity layer):**
+- `recall_count >= 10` across `>= 30 days` (validated via `usage_history` chain HMAC)
+- No `demoted_at` in history
+- `confidence >= 0.9`
+- Appears in `usage_history` across `>= 5 distinct sessions`
+- `_assert_evidence_integrity` passes for the candidate's evidence trail
+- `_assert_helper_integrity` passes (no monkey-patched invariants in this process)
+
+If ANY criterion fails → surfaced for manual review per Slice 2/3B path.
+If ALL pass → auto-promoted with audit metadata.
+
+**Invariant calls (in order, per auto-promotion):**
+1. `_assert_panic_check`
+2. `_assert_rate_limit` (per-domain key)
+3. `_assert_promotion_eligibility` (NEW v5)
+4. `_assert_helper_integrity` (mutation defense from Slice 0.5)
+5. `_assert_evidence_integrity` (Slice 3C)
+6. `_assert_safety_guard_compliant("promote", candidate)` (single-id surface preserved)
+
+**Single-id surface preserved:** `auto_promote_eligible` iterates candidates one at a time, calling `promote_to_instinct(candidate_id)` for each. `_assert_single_id` still fires per call. No batch API; the iteration just happens automatically. Structurally identical to manual promotion of N candidates one-at-a-time.
+
+**Threat surface:** auto-promotion is the kill-chain endpoint Round 2 red-team flagged. In multi-operator profile this is forbidden. In single-operator profile, the kill chain requires an attacker to construct candidate content that mimics operator habits AND survives 30 days of usage history with HMAC integrity AND never gets demoted. The single-operator profile assumes no separate attacker, so the chain has no entry point. If the threat model widens (additional users added, network exposure introduced), profile switches to `multi-operator-shared` and auto-promotion reverts to forbidden.
+
+**Ship gate:**
+- ≥10 tests: criteria all pass → auto-promoted, any criterion fails → manual queue, `_assert_promotion_eligibility` blocks unverifiable consensus, `is_auto_promoted` flag set, `auto_promoted_at` timestamp set, rollback preserves audit
+- Adversarial probe ≥12 cases: forge consensus signal (recall_count manipulation) → blocked by HMAC, candidate with fake usage_history → blocked, candidate from poisoned observation log → blocked, monkey-patched eligibility check → fails via Slice 0.5 helper-integrity, panic during auto-promote loop
+- New total: ~165 tests
+
+**Profile behavior:**
+- `single-operator-local`: `MEMORY_AUTO_PROMOTE_ELIGIBLE=true` default. Auto-promotion active.
+- `multi-operator-shared`: `MEMORY_AUTO_PROMOTE_ELIGIBLE=false` permanently. Calling `auto_promote_eligible()` returns `{"enabled": False, "reason": "multi-operator-shared profile forbids auto-promotion"}`.
+
+**Effort:** ~1.5 sessions.
+
+---
+
+## 5. Invariant helpers — 7 in v2 (was 4); 11 in v4; **12 in v5**
 
 ```python
 class CarefulNotCleverError(Exception):
@@ -563,26 +712,76 @@ def _assert_evidence_integrity(candidate: dict) -> None:
             )
 
 def _assert_human_attention(candidate: dict) -> dict:
-    """v3 (NEW): pre-promotion anomaly heuristic. Mitigates T16 (familiarity
-    crafting) and T17 (approval fatigue) by adding visible friction at the
-    operator decision point. Does NOT raise — returns a structured response
-    that promote_to_instinct() must surface to the operator.
+    """v5 (profile-aware): pre-promotion anomaly heuristic.
+
+    Behavior depends on MEMORY_LEARNING_PROFILE:
+      - 'multi-operator-shared': blocks promotion if autonomous-action
+        keyword matches; caller must pass confirm=True to proceed.
+        Mitigates T16 (familiarity crafting) + T17 (approval fatigue).
+      - 'single-operator-local' (default): no separate attacker exists.
+        Logs matched terms as INFO finding via the structured response;
+        promotion proceeds. Useful for self-audit ("I keep promoting
+        autonomous-action candidates — is that intentional?") but not
+        a blocking gate.
 
     Returns:
-      {"requires_confirmation": True, "matched_terms": [...]} if candidate
-      matches any autonomous-action keyword.
-      {"requires_confirmation": False, "matched_terms": []} otherwise.
-
-    Caller (promote_to_instinct) must check the response and refuse to
-    proceed without an explicit confirmation argument when matches exist.
+      {"matched_terms": [...], "blocking": bool} — blocking only true
+      in multi-operator-shared profile.
     """
     AUTONOMOUS_KEYWORDS = [
         "auto", "every", "daily", "schedule", "automatically",
         "on its own", "without asking", "in the background",
+        "regularly", "routinely", "as a matter of course",  # T18 intent-laundering
     ]
     content = candidate.get("content", "").lower()
     matched = [k for k in AUTONOMOUS_KEYWORDS if k in content]
-    return {"requires_confirmation": bool(matched), "matched_terms": matched}
+    profile = os.environ.get("MEMORY_LEARNING_PROFILE", "single-operator-local")
+    blocking = bool(matched) and profile == "multi-operator-shared"
+    return {"matched_terms": matched, "blocking": blocking}
+
+def _assert_promotion_eligibility(candidate: dict) -> None:
+    """v5 (NEW): cryptographically validate consensus criteria before
+    auto-promotion. Raises CarefulNotCleverError if ANY criterion fails;
+    auto_promote_eligible() catches and routes the candidate to manual
+    review instead of auto-promoting. Manual promote_to_instinct() does
+    NOT call this — manual promotion is the operator's explicit choice
+    regardless of consensus.
+
+    All criteria must be cryptographically verifiable:
+      - recall_count >= 10 across >= 30 days
+      - confidence >= 0.9
+      - >= 5 distinct sessions in usage_history (HMAC-validated chain)
+      - No demoted_at in history
+      - _assert_evidence_integrity passes
+      - _assert_helper_integrity passes
+    """
+    now = time.time()
+    if candidate.get("recall_count", 0) < 10:
+        raise CarefulNotCleverError(
+            f"eligibility: recall_count {candidate.get('recall_count', 0)} < 10"
+        )
+    created_age_days = (now - _parse_ts(candidate.get("created", _now()))) / 86400
+    if created_age_days < 30:
+        raise CarefulNotCleverError(
+            f"eligibility: age {created_age_days:.1f}d < 30d minimum"
+        )
+    if candidate.get("confidence", 0) < 0.9:
+        raise CarefulNotCleverError(
+            f"eligibility: confidence {candidate.get('confidence', 0)} < 0.9"
+        )
+    history = candidate.get("usage_history", [])
+    distinct_sessions = {h["session_id"] for h in history if "session_id" in h}
+    if len(distinct_sessions) < 5:
+        raise CarefulNotCleverError(
+            f"eligibility: {len(distinct_sessions)} distinct sessions < 5"
+        )
+    if candidate.get("demoted_at"):
+        raise CarefulNotCleverError(
+            "eligibility: previously demoted — auto-promotion forbidden"
+        )
+    _assert_evidence_integrity(candidate)
+    _validate_helper_integrity()  # from Slice 0.5
+    # All checks passed; caller may proceed with auto-promotion.
 
 def _assert_rate_limit(operation: str, key: str) -> None:
     """v4 (tuned): dynamic threshold based on historical 95th percentile + 20%
@@ -682,13 +881,15 @@ This test is part of Slice 0's ship gate and stays green across every subsequent
 
 ---
 
-## 7. Sequencing rationale (v2)
+## 7. Sequencing rationale (v5)
 
 | Order | Slice | Why this position |
 |---|---|---|
 | 1 | **0** Doctrine + invariants | Scaffold lands first. Includes CI gate. |
 | 2 | **0.5** Mutation defense scaffolding (v4) | Hardens the defense layer against its own mutation BEFORE any extraction lands. Mitigates M1-M10. |
 | 3 | **1** Kill-switch | Every subsequent slice's first invariant call. Must exist before extraction. |
+| (later) | **7** Session-end auto-extract (v5) | After Slice 3B; default-on in `single-operator-local`. Removes manual extraction trigger. |
+| (later) | **7.5** Consensus auto-promotion (v5) | After Slices 5 + 7; default-on in `single-operator-local`; forbidden in `multi-operator-shared`. |
 | 3 | **2** Pull extraction | Lowest-risk extraction; exercises candidate format from real session data. |
 | 4 | **3A** Observation log infra | Disk surface. Lands before extraction-from-log so log surface is stable. |
 | 5 | **3B** Observation extraction | Reads 3A. Stub `_assert_evidence_integrity` until 3C. |

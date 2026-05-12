@@ -332,3 +332,53 @@ These limits are documented; not gaps the next round should reopen unless threat
 7. **Independent integrity-check module (GPT R2 proposal).** Would be a Slice 7+ if ever scheduled.
 
 When the next round of work begins, these are the documented limits. Any reopening of them needs an explicit decision and audit, not a quiet PR.
+
+---
+
+## v4 → v5 (operating profile decision; NOT a new LLM review round)
+
+**Trigger:** operator stated they are the sole human with access to the household. This makes the multi-actor threat model that the v4 plan was partly built against non-applicable.
+
+**Decision shape:** rather than removing defenses (which would be irreversible), introduce `MEMORY_LEARNING_PROFILE` as a configuration switch. The full v4 defense layer remains in code; the profile controls which defenses are blocking vs logging, which flags default-on, and whether auto-promotion is permitted.
+
+**Two profiles defined:**
+
+| Profile | Default? | Use case |
+|---|---|---|
+| `single-operator-local` | YES | This household — one human + AI agents, local-only, no shared filesystem |
+| `multi-operator-shared` | opt-in | Team/enterprise/shared infrastructure scenarios |
+
+**Profile-specific changes in `single-operator-local`:**
+
+- All learning flags default-ON (except `MEMORY_LEARNING_PANIC_DISABLE_ALL`)
+- `_assert_human_attention` logs-only (was blocking)
+- Candidate cap raised 3 → 20
+- 60s inter-promotion delay removed
+- `auto_promote_eligible()` available (forbidden in `multi-operator-shared`)
+- New invariant `_assert_promotion_eligibility` enforces cryptographic consensus
+
+**Threats reclassified (single-operator-local):**
+
+| Threat | v4 | v5 | Justification |
+|---|---|---|---|
+| T11 Side-channel timing | out-of-scope | non-applicable | no observer exists |
+| T16 Familiarity-crafting social engineering | mitigated (blocking) | relaxed (logging) | no separate attacker to mimic operator |
+| T17 Approval fatigue | mitigated (cap=3 + delay) | relaxed (cap=20, no delay) | self-fatigue is real but cost-asymmetry inverts |
+| T19 Local privilege escalation | out-of-scope | non-applicable | single user OS |
+| T21 Operator coercion | out-of-scope | non-applicable | cannot coerce self |
+
+**Threats NOT relaxed:**
+
+T1, T2, T8, T9, T10, T14, T15, T18, T20, T22, T23 — all unchanged. These target external-data contamination, agent drift, mutation prevention, and cryptographic correctness. None depend on operator count.
+
+T13 (indirect-influence post-promotion) **stays mitigated** — self-deception is still a real cognitive risk, addressed by `instinct_invocation_count` 30-day audit.
+
+**New slice (Slice 7.5):** consensus auto-promotion eligibility. Candidates passing `_assert_promotion_eligibility` (cryptographically verifiable consensus criteria) auto-promote with `is_auto_promoted: true` audit flag. Single-id surface preserved internally; `auto_promote_eligible` is just iteration over per-id promotion with eligibility gating.
+
+**Why this isn't a security regression:**
+
+The kill chain that Round 2's red-team constructed against v2 required a separate attacker capable of (a) controlling tool output, (b) crafting candidate content mimicking operator behavior, AND (c) inducing operator to approve. In `single-operator-local`, (b) and (c) collapse — the operator IS the only actor. The chain has no entry point. Auto-promotion in this profile is bounded by the same cryptographic integrity layer that defends against external-data contamination; the operator simply doesn't have to click through each candidate.
+
+If the threat model widens (additional users, network exposure), switching `MEMORY_LEARNING_PROFILE=multi-operator-shared` restores all v4 defenses to blocking mode without any code change.
+
+**Cost:** 0 LLM consults; this is a configuration decision applied on top of the v4 security model that the 3-round review produced. No new findings; no new vulnerabilities introduced. Cumulative spend remains ~$0.38.
