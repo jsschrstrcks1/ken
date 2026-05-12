@@ -303,6 +303,231 @@ _INVARIANT_READ_ONLY_ALLOWLIST = frozenset({
 
 
 # ─────────────────────────────────────────────
+# v5 Slice 0.5 — Mutation Defense Scaffolding
+# ─────────────────────────────────────────────
+# These helpers defend the defense layer ITSELF against silent
+# weakening over time. Five vectors covered:
+#   M2  runtime monkey-patching   →  _validate_helper_integrity + _seal_helpers
+#   M3  direct disk write bypass  →  _validate_file_integrity (HMAC sidecar)
+#   M5  config drift              →  _audit_config_integrity
+#   M6  symbol shadowing          →  _seal_helpers (identity capture)
+#   M9  HMAC key replacement      →  _validate_key_fingerprint
+#
+# All helpers ship as callables; wiring into existing read/write paths
+# is the work of Slice 3A/3C (which introduces the HMAC key + observation
+# log). Slice 0.5 ships the defenses ready for future wire-in.
+
+import hashlib  # noqa — used by 0.5 helpers
+import inspect  # noqa — used by _validate_helper_integrity
+
+# Paths used by the integrity layer.
+_INTEGRITY_KEY_PATH = os.path.expanduser("~/.memory/_integrity.key")
+_INTEGRITY_FINGERPRINT_PATH = os.path.expanduser(
+    "~/.memory/_integrity.fingerprint"
+)
+_CONFIG_FINGERPRINT_PATH = os.path.expanduser(
+    "~/.memory/_config.fingerprint"
+)
+
+# At-import-time digests of the 9 invariant helpers. Captured once via
+# _seal_helpers(); _validate_helper_integrity() re-validates on call.
+# Uses bytecode (`__code__.co_code`) rather than source so the check
+# is fast (no file I/O) and catches replacement of the function object,
+# replacement of the code object, AND bytecode-level mutation.
+_HELPER_DIGESTS = {}
+_HELPER_NAMES = (
+    "_assert_panic_check",
+    "_assert_no_silent_skip",
+    "_assert_evidence_present",
+    "_assert_single_id",
+    "_assert_safety_guard_compliant",
+    "_assert_evidence_integrity",
+    "_assert_rate_limit",
+    "_assert_temporal_consistency",
+    "_assert_human_attention",
+)
+
+
+def _seal_helpers():
+    """Capture at-import-time digests of every _assert_* helper plus their
+    function-object identities. Called once at module load (see end of this
+    block). Subsequent calls to _validate_helper_integrity compare against
+    these snapshots. Mitigates M2 (monkey-patching) + M6 (symbol shadowing).
+
+    Idempotent: calling again refreshes the snapshot, which a malicious
+    actor would use to launder a patch. The CI gate must enforce that
+    _seal_helpers is called EXACTLY ONCE at module init — see the
+    test_seal_helpers_called_once_at_load meta-test."""
+    for name in _HELPER_NAMES:
+        fn = globals().get(name)
+        if fn is None:
+            raise CarefulNotCleverError(
+                f"_seal_helpers: missing required helper {name}"
+            )
+        bytecode_digest = hashlib.sha256(fn.__code__.co_code).hexdigest()
+        _HELPER_DIGESTS[name] = (id(fn), bytecode_digest)
+
+
+def _validate_helper_integrity():
+    """Verify all _assert_* helpers still match their at-import-time
+    identity AND bytecode. Raises CarefulNotCleverError on any mismatch.
+
+    Catches three mutation shapes:
+      1. Function replaced in module namespace (globals()[name] = new_fn)
+      2. Function's __code__ replaced (fn.__code__ = new_code)
+      3. Bytecode-level mutation of the code object's co_code
+
+    Does NOT catch monkey-patches via ctypes or PyObject manipulation;
+    documented as out-of-scope (T20 supply-chain has a lower bound).
+    Mitigates M2 + T20 within Python semantics.
+
+    Cheap (~5 microseconds for 9 helpers); safe to call from every
+    invariant entry point."""
+    if not _HELPER_DIGESTS:
+        # _seal_helpers hasn't been called yet — possible during import
+        # or before module init completes. Silent no-op rather than
+        # spurious raise during normal import.
+        return
+    for name, (expected_id, expected_digest) in _HELPER_DIGESTS.items():
+        fn = globals().get(name)
+        if fn is None:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} has been removed from module"
+            )
+        if id(fn) != expected_id:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} function object replaced "
+                f"(monkey-patch detected)"
+            )
+        current_digest = hashlib.sha256(fn.__code__.co_code).hexdigest()
+        if current_digest != expected_digest:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} bytecode mutated "
+                f"(expected {expected_digest[:8]}, got {current_digest[:8]})"
+            )
+
+
+def _validate_file_integrity(path):
+    """Validate a memory file against its HMAC sidecar (`<path>.hmac`).
+
+    If a sidecar exists: computes HMAC-SHA256 of the file's contents
+    using ~/.memory/_integrity.key; raises if mismatch (direct disk
+    write detected without sidecar update).
+    If no sidecar exists: returns silently. Legacy files (pre-Slice
+    3C) are not retroactively protected; new files written via
+    record_observation() and related slices get sidecars on write.
+
+    Mitigates M3 (direct disk writes bypassing API). Slice 3A/3C
+    wires this into observation log read paths; Slice 0.5 ships it
+    as a callable ready for that wiring."""
+    import hmac  # local to keep top-level imports stable
+    sidecar = path + ".hmac"
+    if not os.path.exists(sidecar):
+        return  # legacy file; no enforcement
+    if not os.path.exists(_INTEGRITY_KEY_PATH):
+        # Sidecar exists but key is gone — that's an integrity failure
+        raise CarefulNotCleverError(
+            f"file integrity: sidecar present but key missing for {path}"
+        )
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        key = f.read()
+    with open(path, "rb") as f:
+        content = f.read()
+    expected = hmac.new(key, content, hashlib.sha256).hexdigest()
+    with open(sidecar) as f:
+        recorded = f.read().strip()
+    if not hmac.compare_digest(expected, recorded):
+        raise CarefulNotCleverError(
+            f"file integrity: HMAC mismatch for {path} "
+            f"(file content changed without sidecar update — "
+            f"direct write detected)"
+        )
+
+
+def _validate_key_fingerprint():
+    """Verify the HMAC integrity key hasn't been replaced.
+
+    On first use (no fingerprint file): registers the current key's
+    SHA256 at ~/.memory/_integrity.fingerprint with mode 0o400.
+    On subsequent calls: compares current key's SHA256 against the
+    stored fingerprint; raises on mismatch.
+
+    Mitigates M9 + T23 (HMAC key replacement attack). Grok R3 flagged
+    this as the highest-impact mutation gap: without it, an attacker
+    could swap the key, sign forged data with the new key, and all
+    integrity checks would pass against falsified data.
+
+    No-op if no key file exists (Slice 3C ships the key)."""
+    if not os.path.exists(_INTEGRITY_KEY_PATH):
+        return  # Slice 3C hasn't shipped the key yet
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        current = hashlib.sha256(f.read()).hexdigest()
+    if not os.path.exists(_INTEGRITY_FINGERPRINT_PATH):
+        # First use — register the fingerprint
+        with open(_INTEGRITY_FINGERPRINT_PATH, "w") as f:
+            f.write(current)
+        os.chmod(_INTEGRITY_FINGERPRINT_PATH, 0o400)
+        return
+    with open(_INTEGRITY_FINGERPRINT_PATH) as f:
+        recorded = f.read().strip()
+    if current != recorded:
+        raise CarefulNotCleverError(
+            f"key fingerprint: ~/.memory/_integrity.key has been replaced "
+            f"(expected {recorded[:8]}, got {current[:8]}). Either rotate "
+            f"deliberately by deleting _integrity.fingerprint first, OR "
+            f"this is an attack."
+        )
+
+
+def _audit_config_integrity(config_path=None):
+    """Audit .claude/settings.json (or any config file path) against a
+    registered SHA256 fingerprint.
+
+    Returns a structured result rather than raising — config edits are
+    a normal operator action; the audit's job is to surface them, not
+    block them. On first call (no fingerprint registered): records
+    current SHA256. On subsequent calls: detects drift.
+
+    Returns:
+        {
+          "config_path": str,
+          "drift": bool,
+          "current_sha256": str,
+          "expected_sha256": str or None  (None on first registration)
+        }
+
+    Mitigates M5 (config drift via .claude/settings.json adding a hook
+    that disables panic or weakens invariants). Operators who legitimately
+    edit settings.json acknowledge by deleting _config.fingerprint;
+    next call re-registers."""
+    if config_path is None:
+        config_path = ".claude/settings.json"
+    if not os.path.exists(config_path):
+        return {"config_path": config_path, "drift": False,
+                "current_sha256": None, "expected_sha256": None}
+    with open(config_path, "rb") as f:
+        current = hashlib.sha256(f.read()).hexdigest()
+    if not os.path.exists(_CONFIG_FINGERPRINT_PATH):
+        # First call — register
+        os.makedirs(os.path.dirname(_CONFIG_FINGERPRINT_PATH), exist_ok=True)
+        with open(_CONFIG_FINGERPRINT_PATH, "w") as f:
+            f.write(current)
+        return {"config_path": config_path, "drift": False,
+                "current_sha256": current, "expected_sha256": None}
+    with open(_CONFIG_FINGERPRINT_PATH) as f:
+        recorded = f.read().strip()
+    return {"config_path": config_path,
+            "drift": current != recorded,
+            "current_sha256": current,
+            "expected_sha256": recorded}
+
+
+# Seal helpers at module load. Must be at the very end of the helper
+# definitions so all 9 _assert_* functions are visible in globals().
+_seal_helpers()
+
+
+# ─────────────────────────────────────────────
 # Infrastructure
 # ─────────────────────────────────────────────
 
