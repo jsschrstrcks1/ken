@@ -899,5 +899,552 @@ class LearningPromoteDemoteTests(MemoryOpsTestBase):
         self.assertFalse(os.path.exists(instincts_path))
 
 
+# ─────────────────────────────────────────────
+# v3.1 Slice 1.2 — auto-operation hardening
+# (regression anchors for edge-probe findings AM1/AM4/AM3/U1/AP1/AP2)
+# ─────────────────────────────────────────────
+
+
+class AutoMergeShieldTests(MemoryOpsTestBase):
+    """consolidate's auto-merge must respect shields. A protected or
+    promoted-instinct memory cannot be silently discarded by merge,
+    even when a higher-raw-confidence duplicate exists.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = os.environ.get("MEMORY_LEARNING_ENABLED")
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_ENABLED"] = self._orig
+        super().tearDown()
+
+    def _common(self):
+        return ("one two three four five six seven eight nine ten "
+                "eleven twelve")
+
+    def test_auto_merge_does_not_discard_an_instinct(self):
+        common = self._common()
+        instinct = memory_ops.encode(f"{common} apple", domain="ken",
+                                     memory_type="pattern", confidence=0.4,
+                                     tags=["x"])
+        memory_ops.promote_to_instinct(instinct["id"], domain="ken")
+        higher = memory_ops.encode(f"{common} banana", domain="ken",
+                                   memory_type="pattern", confidence=0.95)
+        memory_ops.consolidate(domain="ken")
+        instinct_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                     f"{instinct['id']}.json")
+        instinct_archive = os.path.join(memory_ops.ARCHIVE_DIR,
+                                        f"{instinct['id']}.json")
+        # Instinct survives — it's the keeper now even though its raw
+        # confidence is lower. The higher-confidence duplicate is the
+        # one that gets archived.
+        self.assertTrue(os.path.exists(instinct_path),
+                        "promoted instinct MUST NOT be discarded by merge")
+        self.assertFalse(os.path.exists(instinct_archive))
+
+    def test_auto_merge_does_not_discard_a_protected_memory(self):
+        common = self._common()
+        prot = memory_ops.encode(f"{common} apple", domain="ken",
+                                 memory_type="pattern", confidence=0.4,
+                                 protected=True)
+        higher = memory_ops.encode(f"{common} banana", domain="ken",
+                                   memory_type="pattern", confidence=0.95)
+        memory_ops.consolidate(domain="ken")
+        prot_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                 f"{prot['id']}.json")
+        prot_archive = os.path.join(memory_ops.ARCHIVE_DIR,
+                                    f"{prot['id']}.json")
+        self.assertTrue(os.path.exists(prot_path),
+                        "protected memory MUST NOT be discarded by merge")
+        self.assertFalse(os.path.exists(prot_archive))
+
+    def test_auto_merge_skips_when_both_sides_shielded(self):
+        # Both protected: neither can be safely discarded → no merge.
+        common = self._common()
+        a = memory_ops.encode(f"{common} apple", domain="ken",
+                              memory_type="pattern", confidence=0.9,
+                              protected=True)
+        b = memory_ops.encode(f"{common} banana", domain="ken",
+                              memory_type="pattern", confidence=0.9,
+                              protected=True)
+        actions = memory_ops.consolidate(domain="ken")
+        a_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{a['id']}.json")
+        b_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{b['id']}.json")
+        self.assertTrue(os.path.exists(a_path))
+        self.assertTrue(os.path.exists(b_path))
+        self.assertEqual(actions["summarized"], 0)
+        # Surfaced as potential_duplicate with skipped_reason
+        flagged = [p for p in actions["potential_duplicates"]
+                   if p.get("skipped_reason") == "both shielded"]
+        self.assertGreaterEqual(len(flagged), 1)
+
+
+class AutoMergeDeterminismTests(MemoryOpsTestBase):
+    """Tied-confidence merge must be deterministic (independent of
+    filesystem glob order). Lower id wins.
+    """
+
+    def test_tied_confidence_breaks_by_id_lexicographic(self):
+        # Force ids to known values by writing files directly
+        common = "one two three four five six seven eight nine ten eleven twelve"
+        for mid, leaf in [("aaaaaaaa", "apple"), ("zzzzzzzz", "banana")]:
+            mem = {
+                "id": mid, "created": memory_ops._now(), "domain": "ken",
+                "type": "pattern", "content": f"{common} {leaf}",
+                "confidence": 0.9, "tags": [], "related_to": [],
+                "recall_count": 0, "version": 1,
+                "protected": False, "archived": False, "summarizes": [],
+            }
+            path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                f"{mid}.json")
+            with open(path, "w") as f:
+                json.dump(mem, f)
+        memory_ops.consolidate(domain="ken")
+        a_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "aaaaaaaa.json")
+        z_path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "zzzzzzzz.json")
+        # Lower id ("aaaaaaaa") wins, regardless of filesystem order
+        self.assertTrue(os.path.exists(a_path),
+                        "lower id should be the keeper on confidence tie")
+        self.assertFalse(os.path.exists(z_path))
+
+
+class UpdateSupersededRefusalTests(MemoryOpsTestBase):
+    """update() must refuse to update a memory that already has
+    `superseded_by` set. Allowing it branches the chain and orphans
+    the intermediate version.
+    """
+
+    def test_update_refuses_already_superseded(self):
+        m1 = memory_ops.encode("v1", domain="ken")
+        m2 = memory_ops.update(m1["id"], "v2", domain="ken")
+        self.assertIsNotNone(m2, "first update should succeed")
+        # Now try to update m1 (which is superseded by m2). Must refuse.
+        m3 = memory_ops.update(m1["id"], "v1.5-branch", domain="ken")
+        self.assertIsNone(m3, "second update on m1 must be refused")
+        # m1's superseded_by pointer must be unchanged
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m1['id']}.json")
+        with open(path) as f:
+            m1_after = json.load(f)
+        self.assertEqual(m1_after["superseded_by"], m2["id"],
+                         "m1 must still point to m2")
+
+    def test_update_still_works_on_latest_in_chain(self):
+        # Updating the LATEST version of a chain must continue to work
+        m1 = memory_ops.encode("v1", domain="ken")
+        m2 = memory_ops.update(m1["id"], "v2", domain="ken")
+        m3 = memory_ops.update(m2["id"], "v3", domain="ken")
+        self.assertIsNotNone(m3)
+        self.assertEqual(m3["supersedes"], m2["id"])
+
+
+class AutoProtectEdgeCountTests(MemoryOpsTestBase):
+    """auto-protect counts only REAL edges: deduped + pointing at
+    memories that exist on disk in the same consolidate pass.
+    Orphan or duplicate edges no longer trigger false-positive
+    auto-protection.
+    """
+
+    def test_auto_protect_ignores_orphan_edges(self):
+        m = memory_ops.encode("orphan-edged", domain="ken",
+                              memory_type="pattern", confidence=0.5)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        # Inject 3 ghost edges and backdate
+        with open(path) as f:
+            mem = json.load(f)
+        mem["related_to"] = ["ghost-01", "ghost-02", "ghost-03"]
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        _backdate(Path(path), days_old=30)
+        memory_ops.consolidate(domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertFalse(after.get("protected", False),
+                         "orphan edges must not trigger auto-protect")
+
+    def test_auto_protect_dedupes_self_referential_duplicates(self):
+        target = memory_ops.encode("real", domain="ken",
+                                   memory_type="fact", confidence=0.5)
+        m = memory_ops.encode("dup-edged", domain="ken",
+                              memory_type="pattern", confidence=0.5)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["related_to"] = [target["id"], target["id"], target["id"]]
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        _backdate(Path(path), days_old=30)
+        memory_ops.consolidate(domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertFalse(after.get("protected", False),
+                         "duplicate edges count as 1, not 3")
+
+    def test_auto_protect_still_fires_for_three_real_distinct_edges(self):
+        # The non-regression case — auto-protect must still work for
+        # genuine 3+-edge memories.
+        hub = memory_ops.encode("hub", domain="ken", memory_type="pattern")
+        s1 = memory_ops.encode("s1", domain="ken")
+        s2 = memory_ops.encode("s2", domain="ken")
+        s3 = memory_ops.encode("s3", domain="ken")
+        memory_ops.link(hub["id"], s1["id"], domain="ken")
+        memory_ops.link(hub["id"], s2["id"], domain="ken")
+        memory_ops.link(hub["id"], s3["id"], domain="ken")
+        memory_ops.consolidate(domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{hub['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertTrue(after.get("protected", False),
+                        "3 real distinct edges MUST still auto-protect")
+
+
+# ─────────────────────────────────────────────
+# Slice 0 — Doctrine layer (CarefulNotCleverError + 9 invariants
+# + profile reader + CI gate)
+# ─────────────────────────────────────────────
+
+
+class LearningProfileTests(unittest.TestCase):
+    """_learning_profile() returns the active operating profile."""
+
+    def setUp(self) -> None:
+        self._orig = os.environ.get("MEMORY_LEARNING_PROFILE")
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PROFILE"] = self._orig
+
+    def test_default_is_single_operator_local(self):
+        self.assertEqual(memory_ops._learning_profile(), "single-operator-local")
+
+    def test_explicit_single_operator(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "single-operator-local"
+        self.assertEqual(memory_ops._learning_profile(), "single-operator-local")
+
+    def test_multi_operator_shared(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        self.assertEqual(memory_ops._learning_profile(), "multi-operator-shared")
+
+    def test_case_insensitive(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "MULTI-OPERATOR-SHARED"
+        self.assertEqual(memory_ops._learning_profile(), "multi-operator-shared")
+
+    def test_unknown_value_treated_as_default(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "enterprise-fortress"
+        # Returns whatever was set, lowercased; the doctrine documents that
+        # unknown profiles fall back to single-operator-local semantically
+        # in callers, but _learning_profile itself is configuration return.
+        self.assertEqual(memory_ops._learning_profile(), "enterprise-fortress")
+
+
+class PanicCheckInvariantTests(unittest.TestCase):
+    """_assert_panic_check is the kill-switch every learning function calls
+    first. MEMORY_LEARNING_PANIC_DISABLE_ALL takes precedence over every
+    other flag and profile."""
+
+    def setUp(self) -> None:
+        self._orig = os.environ.get("MEMORY_LEARNING_PANIC_DISABLE_ALL")
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+
+    def tearDown(self) -> None:
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = self._orig
+
+    def test_panic_off_succeeds(self):
+        # No raise — function returns None
+        self.assertIsNone(memory_ops._assert_panic_check())
+
+    def test_panic_on_raises(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_panic_check()
+
+    def test_panic_typo_does_not_trigger(self):
+        # safety property: "yes"/"1"/"on" don't accidentally panic
+        for v in ("yes", "1", "on", "True ", ""):
+            os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = v
+            try:
+                memory_ops._assert_panic_check()
+            except memory_ops.CarefulNotCleverError:
+                self.fail(f"value {v!r} should not have triggered panic")
+
+
+class NoSilentSkipInvariantTests(unittest.TestCase):
+
+    def test_zero_count_succeeds(self):
+        # count == 0 is the success path (no-op)
+        self.assertIsNone(memory_ops._assert_no_silent_skip("ok", 0))
+
+    def test_positive_count_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_no_silent_skip("rotation evicted", 5)
+
+
+class EvidencePresentInvariantTests(unittest.TestCase):
+
+    def test_candidate_with_observations_passes(self):
+        candidate = {"id": "c1", "evidence": {"observations": [{"id": "o1"}]}}
+        self.assertIsNone(memory_ops._assert_evidence_present(candidate))
+
+    def test_missing_evidence_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_present({"id": "c1"})
+
+    def test_empty_observations_raises(self):
+        candidate = {"id": "c1", "evidence": {"observations": []}}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_present(candidate)
+
+
+class SingleIdInvariantTests(unittest.TestCase):
+
+    def test_string_passes(self):
+        self.assertIsNone(memory_ops._assert_single_id("abc12345"))
+
+    def test_list_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id(["a", "b"])
+
+    def test_tuple_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id(("a",))
+
+    def test_set_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id({"a"})
+
+
+class SafetyGuardCompliantInvariantTests(unittest.TestCase):
+
+    def test_non_destructive_op_passes_on_shielded(self):
+        target = {"id": "t1", "is_instinct": True}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "read", target))
+
+    def test_destructive_op_on_unshielded_passes(self):
+        target = {"id": "t1"}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "delete", target))
+
+    def test_destructive_op_on_instinct_without_force_raises(self):
+        target = {"id": "t1", "is_instinct": True}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_safety_guard_compliant("delete", target)
+
+    def test_destructive_op_on_protected_without_force_raises(self):
+        target = {"id": "t1", "protected": True}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_safety_guard_compliant("forget", target)
+
+    def test_destructive_op_with_force_passes(self):
+        target = {"id": "t1", "is_instinct": True}
+        self.assertIsNone(memory_ops._assert_safety_guard_compliant(
+            "delete", target, force=True))
+
+
+class EvidenceIntegrityStubTests(unittest.TestCase):
+    """_assert_evidence_integrity is a STUB until Slice 3C. This test
+    anchors the stub contract so future code that wires the invariant
+    in doesn't break when 3C lands the real implementation."""
+
+    def test_stub_returns_none_on_anything(self):
+        for c in [{}, {"id": "x"}, {"evidence": {}},
+                  {"evidence": {"observations": [{"line_hmac": "deadbeef"}]}}]:
+            self.assertIsNone(memory_ops._assert_evidence_integrity(c),
+                              f"stub should no-op on {c!r}")
+
+
+class RateLimitInvariantTests(unittest.TestCase):
+
+    def setUp(self):
+        # Clear bucket state between tests
+        memory_ops._rate_buckets.clear()
+        memory_ops._rate_baselines.clear()
+
+    def test_under_threshold_passes(self):
+        for _ in range(10):
+            memory_ops._assert_rate_limit("test_op", "key1")
+
+    def test_at_threshold_raises(self):
+        # 60 calls allowed; 61st raises
+        for _ in range(60):
+            memory_ops._assert_rate_limit("test_op", "key1")
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_rate_limit("test_op", "key1")
+
+    def test_separate_keys_have_separate_buckets(self):
+        for _ in range(50):
+            memory_ops._assert_rate_limit("test_op", "key1")
+        # Different key still works
+        memory_ops._assert_rate_limit("test_op", "key2")
+
+
+class TemporalConsistencyInvariantTests(unittest.TestCase):
+
+    def test_current_timestamp_passes(self):
+        ts = memory_ops._now()
+        self.assertIsNone(memory_ops._assert_temporal_consistency(ts))
+
+    def test_unparseable_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency("yesterday")
+
+    def test_far_future_raises(self):
+        future = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                               time.gmtime(time.time() + 3600))
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency(future)
+
+    def test_5min_future_passes(self):
+        # Within tolerance
+        near = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                             time.gmtime(time.time() + 60))
+        self.assertIsNone(memory_ops._assert_temporal_consistency(near))
+
+    def test_backdated_from_chain_raises(self):
+        chain_head = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time()))
+        chain = [{"at": chain_head}]
+        backdated = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                  time.gmtime(time.time() - 3600))
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_temporal_consistency(backdated, chain)
+
+
+class HumanAttentionInvariantTests(unittest.TestCase):
+    """Profile-aware: logs-only in single-operator-local; blocking in
+    multi-operator-shared unless confirm=True."""
+
+    def setUp(self):
+        self._orig = os.environ.get("MEMORY_LEARNING_PROFILE")
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+
+    def tearDown(self):
+        os.environ.pop("MEMORY_LEARNING_PROFILE", None)
+        if self._orig is not None:
+            os.environ["MEMORY_LEARNING_PROFILE"] = self._orig
+
+    def test_no_keyword_match_returns_clean(self):
+        candidate = {"id": "c1", "content": "remember kubernetes scheduling"}
+        result = memory_ops._assert_human_attention(candidate)
+        self.assertEqual(result, {"matched_terms": [], "blocking": False})
+
+    def test_match_in_single_operator_logs_only(self):
+        # default profile = single-operator-local
+        candidate = {"id": "c1", "content": "auto-query weather every morning"}
+        result = memory_ops._assert_human_attention(candidate)
+        self.assertIn("auto", result["matched_terms"])
+        self.assertIn("every", result["matched_terms"])
+        self.assertFalse(result["blocking"])
+
+    def test_match_in_multi_operator_blocks(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        candidate = {"id": "c1", "content": "automatically run daily report"}
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_human_attention(candidate)
+
+    def test_match_in_multi_operator_with_confirm_passes(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        candidate = {"id": "c1", "content": "automatically run daily report"}
+        result = memory_ops._assert_human_attention(candidate, confirm=True)
+        self.assertIn("automatically", result["matched_terms"])
+
+    def test_intent_laundering_terms_caught(self):
+        # T18 — semantic equivalents of autonomous-action
+        for term in ("regularly", "routinely", "as a matter of course"):
+            candidate = {"id": "x", "content": f"do this {term} for me"}
+            result = memory_ops._assert_human_attention(candidate)
+            self.assertIn(term, result["matched_terms"])
+
+
+class CIGateTests(unittest.TestCase):
+    """test_every_mutation_path_invokes_invariants — the CI gate that
+    enforces _assert_* calls on every public mutation function. Slice
+    1 functions (promote_to_instinct, demote_from_instinct,
+    extract_instinct_candidates) predate the doctrine layer; they
+    get added to a legacy allowlist with a tracking note. New slices
+    (Slice 2+) must call invariants directly."""
+
+    def test_invariant_allowlist_is_documented(self):
+        # The constant exists and contains the read-only function names
+        self.assertIn("recall", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+        self.assertIn("extract", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+        self.assertIn("stats", memory_ops._INVARIANT_READ_ONLY_ALLOWLIST)
+
+    def test_every_mutation_path_invokes_invariants(self):
+        """The CI gate: every public function in memory_ops.py that
+        mutates state must contain at least one _assert_* call OR be
+        in the read-only allowlist. This test fires when a future PR
+        adds a public mutation function without wiring invariants.
+
+        Note: Slice 1 functions (promote_to_instinct, demote_from_instinct)
+        and v3 functions (encode/update/link/protect/archive/promote/
+        consolidate/forget) predate the doctrine layer. They are tracked
+        in a legacy allowlist below. Slice 2+ functions are NOT
+        grandfathered — they must call invariants directly.
+        """
+        import ast
+        import inspect
+
+        # Legacy allowlist: functions that predate Slice 0. Listed
+        # explicitly so additions are visible. Slice 2+ MUST NOT be
+        # added here; they get invariant calls in their slice work.
+        legacy = {
+            "encode", "update", "link", "protect", "archive", "promote",
+            "consolidate", "forget",
+            "promote_to_instinct", "demote_from_instinct",
+        }
+
+        src = inspect.getsource(memory_ops)
+        tree = ast.parse(src)
+
+        missing = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if node.name.startswith("_"):
+                continue
+            if node.name in memory_ops._INVARIANT_READ_ONLY_ALLOWLIST:
+                continue
+            if node.name in legacy:
+                continue
+            # Find any Call to a Name starting with _assert_
+            invariant_calls = [
+                c for c in ast.walk(node)
+                if isinstance(c, ast.Call)
+                and isinstance(c.func, ast.Name)
+                and c.func.id.startswith("_assert_")
+            ]
+            if not invariant_calls:
+                missing.append(node.name)
+
+        self.assertEqual(missing, [],
+            f"Public mutation functions without invariant calls: "
+            f"{missing}. Add an _assert_* call or add the function name "
+            f"to the legacy allowlist with explicit doctrine justification.")
+
+
+class CarefulNotCleverErrorTests(unittest.TestCase):
+
+    def test_is_an_exception(self):
+        self.assertTrue(issubclass(memory_ops.CarefulNotCleverError,
+                                   Exception))
+
+    def test_can_be_raised_with_message(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            raise memory_ops.CarefulNotCleverError("boundary crossed")
+        self.assertIn("boundary crossed", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

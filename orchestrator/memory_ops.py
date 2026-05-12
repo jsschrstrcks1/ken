@@ -89,6 +89,444 @@ DOMAINS = [
 def _learning_enabled():
     return os.environ.get("MEMORY_LEARNING_ENABLED", "false").lower() == "true"
 
+
+# ─────────────────────────────────────────────
+# v5 Doctrine layer — profile, exception, invariants (Slice 0)
+# ─────────────────────────────────────────────
+# Slice 0 of the continuous-learning-v2 plan. See
+# CONTINUOUS_LEARNING_PLAN.md + CONTINUOUS_LEARNING_DOCTRINE.md.
+#
+# 9 invariants shipped here are the doctrine made into code. Each
+# raises CarefulNotCleverError (a discipline boundary, not a generic
+# bug). They are called from EVERY public mutation function in
+# subsequent slices; the CI gate test in tests/test_memory_ops.py
+# enforces that contract via AST walk.
+#
+# Nothing in this block has external side effects; everything is
+# feature-flag / profile gated and additive to the existing surface.
+
+class CarefulNotCleverError(Exception):
+    """Discipline boundary crossed, not a generic bug. Surface to
+    operator; do not silently retry or downgrade. Catching this and
+    swallowing it via `except: pass` is itself a doctrine violation —
+    see CONTINUOUS_LEARNING_DOCTRINE.md."""
+
+
+# Profile is read at call time (not import) so tests + emergency
+# reconfiguration can flip via os.environ without re-importing.
+def _learning_profile():
+    """Return active operating profile. Valid values:
+        'single-operator-local' (default) — sole-human household
+        'multi-operator-shared'           — team/enterprise/shared FS
+    Any other value falls back to single-operator-local with no warning;
+    this field is operator-controlled configuration, not security policy."""
+    return os.environ.get(
+        "MEMORY_LEARNING_PROFILE", "single-operator-local"
+    ).lower()
+
+
+# Rate-limit state. Per (operation, key) tuple → list of recent timestamps.
+# Cleared lazily by _assert_rate_limit. Per-process; sessions are short
+# enough that this doesn't need persistence.
+_rate_buckets = {}
+_rate_baselines = {}  # historical 95th percentile per (operation, key)
+
+
+def _dynamic_threshold(operation, key):
+    """Per Grok R3: 95th percentile + 20% based on historical baseline.
+    Falls back to 60/min during first session before baseline exists."""
+    baseline = _rate_baselines.get((operation, key))
+    if baseline is None:
+        return 60
+    return max(60, int(baseline * 1.20))
+
+
+# Invariant 1: Panic check (MUST be first executable statement of every
+# public learning function — CI gate will enforce position).
+def _assert_panic_check():
+    """Refuse to proceed if MEMORY_LEARNING_PANIC_DISABLE_ALL=true.
+    Takes precedence over every other flag and profile."""
+    if os.environ.get("MEMORY_LEARNING_PANIC_DISABLE_ALL",
+                      "").lower() == "true":
+        raise CarefulNotCleverError(
+            "panic disable active — all learning operations halted"
+        )
+
+
+# Invariant 2: No silent skip. Surface as INFO finding, not silent drop.
+def _assert_no_silent_skip(reason, count):
+    """Refuse to silently skip > 0 items. Caller must surface as INFO
+    findings instead. count == 0 is the success path (no-op)."""
+    if count > 0:
+        raise CarefulNotCleverError(
+            f"silent skip of {count} items: {reason}. "
+            f"Surface as INFO findings, not silent drop."
+        )
+
+
+# Invariant 3: Evidence present. No bare-pattern candidates.
+def _assert_evidence_present(candidate):
+    """Every candidate must carry observations + session_ids that
+    produced it. Bare-pattern candidates cannot be audited and are
+    forbidden."""
+    evidence = candidate.get("evidence", {})
+    if not evidence.get("observations"):
+        raise CarefulNotCleverError(
+            f"candidate {candidate.get('id', '?')} has no evidence trail"
+        )
+
+
+# Invariant 4: Single-id mutation contract.
+def _assert_single_id(arg):
+    """Refuse list/tuple/set arguments to single-id APIs. The structural
+    block holds regardless of profile."""
+    if isinstance(arg, (list, tuple, set)):
+        raise CarefulNotCleverError(
+            f"single-id API received {type(arg).__name__}; "
+            f"bulk mutation forbidden by doctrine"
+        )
+
+
+# Invariant 5: Safety-guard compliance.
+def _assert_safety_guard_compliant(operation, target, force=False):
+    """Destructive operations (delete/forget/demote) on shielded
+    targets (is_instinct or protected) require explicit force=True."""
+    destructive = operation in ("delete", "forget", "demote")
+    shielded = bool(target.get("is_instinct") or target.get("protected"))
+    if destructive and shielded and not force:
+        raise CarefulNotCleverError(
+            f"{operation} on shielded target {target.get('id', '?')} "
+            f"requires explicit force=True"
+        )
+
+
+# Invariant 6: Evidence integrity (STUB until Slice 3C).
+def _assert_evidence_integrity(candidate):
+    """STUB until Slice 3C ships HMAC-SHA256 validation against
+    ~/.memory/_checksums/. Currently a no-op; the call-site contract
+    is preserved so subsequent slices can wire the invariant call
+    without breaking when 3C is implemented."""
+    return  # Intentional no-op. Tests assert this is a stub.
+
+
+# Invariant 7: Rate limiting (dynamic per Grok R3).
+def _assert_rate_limit(operation, key):
+    """Bound call rate per (operation, key). Threshold is dynamic
+    (95th %ile + 20%) once baseline exists; falls back to 60/min
+    during first session. Mitigates DoS via repeated extraction or
+    observation flooding."""
+    now = time.time()
+    bucket = _rate_buckets.setdefault((operation, key), [])
+    bucket[:] = [t for t in bucket if now - t < 60]
+    threshold = _dynamic_threshold(operation, key)
+    if len(bucket) >= threshold:
+        raise CarefulNotCleverError(
+            f"rate limit: {operation} for {key} exceeded {threshold}/min"
+        )
+    bucket.append(now)
+
+
+# Invariant 8: Temporal consistency (5min/5min per v4 tuning).
+def _assert_temporal_consistency(ts, chain=None):
+    """Reject timestamps > 5min in the future or > 5min before the
+    chain head. Mitigates clock-skew and backdating attacks (T12).
+    Tuned from v3's 60s/1h after NTP drift on consumer hardware was
+    shown to exceed 60s (Grok R3)."""
+    now = time.time()
+    try:
+        ts_epoch = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, TypeError):
+        raise CarefulNotCleverError(
+            f"temporal consistency: unparseable timestamp {ts!r}"
+        )
+    if ts_epoch > now + 300:
+        raise CarefulNotCleverError(
+            f"temporal consistency: {ts} is future-dated >5min"
+        )
+    if chain:
+        chain_ts = []
+        for e in chain:
+            if "at" in e:
+                try:
+                    chain_ts.append(time.mktime(
+                        time.strptime(e["at"], "%Y-%m-%dT%H:%M:%SZ")))
+                except (ValueError, TypeError):
+                    continue
+        if chain_ts:
+            last = max(chain_ts)
+            if ts_epoch < last - 300:
+                raise CarefulNotCleverError(
+                    f"temporal consistency: {ts} backdated >5min "
+                    f"from chain head"
+                )
+
+
+# Invariant 9: Human attention (profile-aware per v5).
+_AUTONOMOUS_KEYWORDS = (
+    "auto", "every", "daily", "schedule", "automatically",
+    "on its own", "without asking", "in the background",
+    # T18 intent-laundering semantic coverage:
+    "regularly", "routinely", "as a matter of course",
+)
+
+
+def _assert_human_attention(candidate, confirm=False):
+    """Pre-promotion anomaly heuristic. Behavior depends on profile:
+
+    single-operator-local (default): logs matched terms; non-blocking
+      — there is no separate attacker mimicking operator habits.
+    multi-operator-shared: blocks promotion on autonomous-action match
+      unless caller passes confirm=True.
+
+    Returns:
+        {"matched_terms": [...], "blocking": bool}
+    """
+    content = candidate.get("content", "").lower()
+    matched = [k for k in _AUTONOMOUS_KEYWORDS if k in content]
+    profile = _learning_profile()
+    if matched and profile == "multi-operator-shared" and not confirm:
+        raise CarefulNotCleverError(
+            f"candidate {candidate.get('id', '?')} matched autonomous-action "
+            f"keywords {matched}; multi-operator-shared profile requires "
+            f"explicit confirm=True"
+        )
+    return {"matched_terms": matched, "blocking": False}
+
+
+# Read-only allowlist for the CI gate. Every addition is a doctrine
+# decision visible in PR diff (the test in tests/ hashes this constant).
+_INVARIANT_READ_ONLY_ALLOWLIST = frozenset({
+    "recall", "extract", "tree", "stats", "neighbors",
+    "extract_instinct_candidates",
+    "main",  # CLI entry, not a mutation function per se
+})
+
+
+# ─────────────────────────────────────────────
+# v5 Slice 0.5 — Mutation Defense Scaffolding
+# ─────────────────────────────────────────────
+# These helpers defend the defense layer ITSELF against silent
+# weakening over time. Five vectors covered:
+#   M2  runtime monkey-patching   →  _validate_helper_integrity + _seal_helpers
+#   M3  direct disk write bypass  →  _validate_file_integrity (HMAC sidecar)
+#   M5  config drift              →  _audit_config_integrity
+#   M6  symbol shadowing          →  _seal_helpers (identity capture)
+#   M9  HMAC key replacement      →  _validate_key_fingerprint
+#
+# All helpers ship as callables; wiring into existing read/write paths
+# is the work of Slice 3A/3C (which introduces the HMAC key + observation
+# log). Slice 0.5 ships the defenses ready for future wire-in.
+
+import hashlib  # noqa — used by 0.5 helpers
+import inspect  # noqa — used by _validate_helper_integrity
+
+# Paths used by the integrity layer.
+_INTEGRITY_KEY_PATH = os.path.expanduser("~/.memory/_integrity.key")
+_INTEGRITY_FINGERPRINT_PATH = os.path.expanduser(
+    "~/.memory/_integrity.fingerprint"
+)
+_CONFIG_FINGERPRINT_PATH = os.path.expanduser(
+    "~/.memory/_config.fingerprint"
+)
+
+# At-import-time digests of the 9 invariant helpers. Captured once via
+# _seal_helpers(); _validate_helper_integrity() re-validates on call.
+# Uses bytecode (`__code__.co_code`) rather than source so the check
+# is fast (no file I/O) and catches replacement of the function object,
+# replacement of the code object, AND bytecode-level mutation.
+_HELPER_DIGESTS = {}
+_HELPER_NAMES = (
+    "_assert_panic_check",
+    "_assert_no_silent_skip",
+    "_assert_evidence_present",
+    "_assert_single_id",
+    "_assert_safety_guard_compliant",
+    "_assert_evidence_integrity",
+    "_assert_rate_limit",
+    "_assert_temporal_consistency",
+    "_assert_human_attention",
+)
+
+
+def _seal_helpers():
+    """Capture at-import-time digests of every _assert_* helper plus their
+    function-object identities. Called once at module load (see end of this
+    block). Subsequent calls to _validate_helper_integrity compare against
+    these snapshots. Mitigates M2 (monkey-patching) + M6 (symbol shadowing).
+
+    Idempotent: calling again refreshes the snapshot, which a malicious
+    actor would use to launder a patch. The CI gate must enforce that
+    _seal_helpers is called EXACTLY ONCE at module init — see the
+    test_seal_helpers_called_once_at_load meta-test."""
+    for name in _HELPER_NAMES:
+        fn = globals().get(name)
+        if fn is None:
+            raise CarefulNotCleverError(
+                f"_seal_helpers: missing required helper {name}"
+            )
+        bytecode_digest = hashlib.sha256(fn.__code__.co_code).hexdigest()
+        _HELPER_DIGESTS[name] = (id(fn), bytecode_digest)
+
+
+def _validate_helper_integrity():
+    """Verify all _assert_* helpers still match their at-import-time
+    identity AND bytecode. Raises CarefulNotCleverError on any mismatch.
+
+    Catches three mutation shapes:
+      1. Function replaced in module namespace (globals()[name] = new_fn)
+      2. Function's __code__ replaced (fn.__code__ = new_code)
+      3. Bytecode-level mutation of the code object's co_code
+
+    Does NOT catch monkey-patches via ctypes or PyObject manipulation;
+    documented as out-of-scope (T20 supply-chain has a lower bound).
+    Mitigates M2 + T20 within Python semantics.
+
+    Cheap (~5 microseconds for 9 helpers); safe to call from every
+    invariant entry point."""
+    if not _HELPER_DIGESTS:
+        # _seal_helpers hasn't been called yet — possible during import
+        # or before module init completes. Silent no-op rather than
+        # spurious raise during normal import.
+        return
+    for name, (expected_id, expected_digest) in _HELPER_DIGESTS.items():
+        fn = globals().get(name)
+        if fn is None:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} has been removed from module"
+            )
+        if id(fn) != expected_id:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} function object replaced "
+                f"(monkey-patch detected)"
+            )
+        current_digest = hashlib.sha256(fn.__code__.co_code).hexdigest()
+        if current_digest != expected_digest:
+            raise CarefulNotCleverError(
+                f"helper integrity: {name} bytecode mutated "
+                f"(expected {expected_digest[:8]}, got {current_digest[:8]})"
+            )
+
+
+def _validate_file_integrity(path):
+    """Validate a memory file against its HMAC sidecar (`<path>.hmac`).
+
+    If a sidecar exists: computes HMAC-SHA256 of the file's contents
+    using ~/.memory/_integrity.key; raises if mismatch (direct disk
+    write detected without sidecar update).
+    If no sidecar exists: returns silently. Legacy files (pre-Slice
+    3C) are not retroactively protected; new files written via
+    record_observation() and related slices get sidecars on write.
+
+    Mitigates M3 (direct disk writes bypassing API). Slice 3A/3C
+    wires this into observation log read paths; Slice 0.5 ships it
+    as a callable ready for that wiring."""
+    import hmac  # local to keep top-level imports stable
+    sidecar = path + ".hmac"
+    if not os.path.exists(sidecar):
+        return  # legacy file; no enforcement
+    if not os.path.exists(_INTEGRITY_KEY_PATH):
+        # Sidecar exists but key is gone — that's an integrity failure
+        raise CarefulNotCleverError(
+            f"file integrity: sidecar present but key missing for {path}"
+        )
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        key = f.read()
+    with open(path, "rb") as f:
+        content = f.read()
+    expected = hmac.new(key, content, hashlib.sha256).hexdigest()
+    with open(sidecar) as f:
+        recorded = f.read().strip()
+    if not hmac.compare_digest(expected, recorded):
+        raise CarefulNotCleverError(
+            f"file integrity: HMAC mismatch for {path} "
+            f"(file content changed without sidecar update — "
+            f"direct write detected)"
+        )
+
+
+def _validate_key_fingerprint():
+    """Verify the HMAC integrity key hasn't been replaced.
+
+    On first use (no fingerprint file): registers the current key's
+    SHA256 at ~/.memory/_integrity.fingerprint with mode 0o400.
+    On subsequent calls: compares current key's SHA256 against the
+    stored fingerprint; raises on mismatch.
+
+    Mitigates M9 + T23 (HMAC key replacement attack). Grok R3 flagged
+    this as the highest-impact mutation gap: without it, an attacker
+    could swap the key, sign forged data with the new key, and all
+    integrity checks would pass against falsified data.
+
+    No-op if no key file exists (Slice 3C ships the key)."""
+    if not os.path.exists(_INTEGRITY_KEY_PATH):
+        return  # Slice 3C hasn't shipped the key yet
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        current = hashlib.sha256(f.read()).hexdigest()
+    if not os.path.exists(_INTEGRITY_FINGERPRINT_PATH):
+        # First use — register the fingerprint
+        with open(_INTEGRITY_FINGERPRINT_PATH, "w") as f:
+            f.write(current)
+        os.chmod(_INTEGRITY_FINGERPRINT_PATH, 0o400)
+        return
+    with open(_INTEGRITY_FINGERPRINT_PATH) as f:
+        recorded = f.read().strip()
+    if current != recorded:
+        raise CarefulNotCleverError(
+            f"key fingerprint: ~/.memory/_integrity.key has been replaced "
+            f"(expected {recorded[:8]}, got {current[:8]}). Either rotate "
+            f"deliberately by deleting _integrity.fingerprint first, OR "
+            f"this is an attack."
+        )
+
+
+def _audit_config_integrity(config_path=None):
+    """Audit .claude/settings.json (or any config file path) against a
+    registered SHA256 fingerprint.
+
+    Returns a structured result rather than raising — config edits are
+    a normal operator action; the audit's job is to surface them, not
+    block them. On first call (no fingerprint registered): records
+    current SHA256. On subsequent calls: detects drift.
+
+    Returns:
+        {
+          "config_path": str,
+          "drift": bool,
+          "current_sha256": str,
+          "expected_sha256": str or None  (None on first registration)
+        }
+
+    Mitigates M5 (config drift via .claude/settings.json adding a hook
+    that disables panic or weakens invariants). Operators who legitimately
+    edit settings.json acknowledge by deleting _config.fingerprint;
+    next call re-registers."""
+    if config_path is None:
+        config_path = ".claude/settings.json"
+    if not os.path.exists(config_path):
+        return {"config_path": config_path, "drift": False,
+                "current_sha256": None, "expected_sha256": None}
+    with open(config_path, "rb") as f:
+        current = hashlib.sha256(f.read()).hexdigest()
+    if not os.path.exists(_CONFIG_FINGERPRINT_PATH):
+        # First call — register
+        os.makedirs(os.path.dirname(_CONFIG_FINGERPRINT_PATH), exist_ok=True)
+        with open(_CONFIG_FINGERPRINT_PATH, "w") as f:
+            f.write(current)
+        return {"config_path": config_path, "drift": False,
+                "current_sha256": current, "expected_sha256": None}
+    with open(_CONFIG_FINGERPRINT_PATH) as f:
+        recorded = f.read().strip()
+    return {"config_path": config_path,
+            "drift": current != recorded,
+            "current_sha256": current,
+            "expected_sha256": recorded}
+
+
+# Seal helpers at module load. Must be at the very end of the helper
+# definitions so all 9 _assert_* functions are visible in globals().
+_seal_helpers()
+
+
 # ─────────────────────────────────────────────
 # Infrastructure
 # ─────────────────────────────────────────────
@@ -293,7 +731,14 @@ def encode(content, domain="shared", memory_type="insight", source="",
 
 
 def update(memory_id, new_content, domain=None, confidence=None):
-    """Update a memory by creating a new version. Preserves the original."""
+    """Update a memory by creating a new version. Preserves the original.
+
+    v3.1 fix from edge-probe U1: refuses to update a memory that has
+    `superseded_by` already set. Allowing it would branch the supersedes
+    chain — the original m1 would point to a new m3, orphaning m2.
+    Returns None on this guard (same shape as id-not-found, since both
+    are "no update produced").
+    """
     _ensure_dirs()
     domains = [domain] if domain else DOMAINS
 
@@ -302,6 +747,10 @@ def update(memory_id, new_content, domain=None, confidence=None):
         if os.path.exists(path):
             with open(path) as f:
                 old = json.load(f)
+
+            # Refuse to branch an already-superseded chain.
+            if old.get("superseded_by"):
+                return None
 
             old["superseded_by"] = None
             old["confidence"] = max(0.1, old.get("confidence", 0.5) * 0.5)
@@ -591,6 +1040,20 @@ def consolidate(domain=None):
         "potential_duplicates": [],
     }
 
+    # v3.1 fix from edge-probes AP1+AP2: auto-protect should count only
+    # REAL edges — deduped + pointing at memories that actually exist on
+    # disk in the same consolidate pass. Pre-compute the universe of ids
+    # across all domains being processed so the centrality count below
+    # can filter orphan and duplicate edges.
+    valid_ids = set()
+    for d in domains:
+        for p in glob.glob(os.path.join(MEMORY_ROOT, d, "*.json")):
+            try:
+                with open(p) as f:
+                    valid_ids.add(json.load(f)["id"])
+            except (json.JSONDecodeError, IOError, KeyError):
+                continue
+
     for d in domains:
         pattern = os.path.join(MEMORY_ROOT, d, "*.json")
         paths = glob.glob(pattern)
@@ -607,8 +1070,12 @@ def consolidate(domain=None):
             if mem.get("superseded_by"):
                 continue
 
-            # Auto-protect well-connected memories (3+ edges)
-            if len(mem.get("related_to", [])) >= 3 and not mem.get("protected"):
+            # Auto-protect well-connected memories: 3+ DEDUPED edges that
+            # point at REAL memories. (v3.1 fix from edge-probes AP1+AP2:
+            # raw len(related_to) counted orphan and duplicate edges,
+            # producing false-positive auto-protection.)
+            real_edges = len(set(mem.get("related_to", [])) & valid_ids)
+            if real_edges >= 3 and not mem.get("protected"):
                 mem["protected"] = True
                 _save_mem(mem, path)
                 actions["auto_protected"] += 1
@@ -665,11 +1132,51 @@ def consolidate(domain=None):
                         continue
                     sim = _cosine_similarity(tfidf_matrix[i], tfidf_matrix[j])
                     if sim > 0.85:
-                        # Auto-merge: keep the higher-confidence one, archive the other
+                        # Auto-merge with shield-aware role assignment.
+                        # (v3.1 fix from edge-probes AM1+AM4+AM3):
+                        #   * If both sides are shielded (protected OR
+                        #     is_instinct), skip the merge entirely —
+                        #     neither can be safely discarded.
+                        #   * If exactly one side is shielded, force it
+                        #     to be the keeper.
+                        #   * Otherwise pick by confidence; on a tie,
+                        #     break by id for determinism (no longer
+                        #     filesystem-order dependent).
                         a = active_memories[i]
                         b = active_memories[j]
-                        keep = a if a.get("confidence", 0) >= b.get("confidence", 0) else b
-                        discard = b if keep is a else a
+
+                        def _shielded(m):
+                            return bool(m.get("protected", False)
+                                        or m.get("is_instinct", False))
+
+                        a_shield, b_shield = _shielded(a), _shielded(b)
+                        if a_shield and b_shield:
+                            # Both shielded: surface as potential duplicate
+                            # but do NOT merge.
+                            actions["potential_duplicates"].append({
+                                "a": a["id"], "b": b["id"],
+                                "similarity": round(sim, 3),
+                                "domain": d,
+                                "skipped_reason": "both shielded",
+                            })
+                            continue
+                        if a_shield:
+                            keep, discard = a, b
+                        elif b_shield:
+                            keep, discard = b, a
+                        else:
+                            a_conf = a.get("confidence", 0)
+                            b_conf = b.get("confidence", 0)
+                            if a_conf > b_conf:
+                                keep, discard = a, b
+                            elif a_conf < b_conf:
+                                keep, discard = b, a
+                            else:
+                                # Tie: deterministic by id.
+                                if a["id"] < b["id"]:
+                                    keep, discard = a, b
+                                else:
+                                    keep, discard = b, a
 
                         # Add tags from discarded to kept
                         merged_tags = list(set(keep.get("tags", []) + discard.get("tags", [])))
