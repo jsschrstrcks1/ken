@@ -872,6 +872,40 @@ def recall(query, domain=None, limit=10, min_score=0.05, include_archive=False):
     for score, mem in scored[:limit]:
         mem["last_recalled"] = _now()
         mem["recall_count"] = mem.get("recall_count", 0) + 1
+
+        # Slice 5: usage history append (profile-aware, default-on).
+        # Only timestamp + session_id are stored; query content is
+        # never retained (privacy invariant). Capped at 20 entries
+        # (FIFO). Per-entry temporal consistency validated against
+        # the existing chain.
+        if _usage_history_enabled():
+            history = mem.get("usage_history", [])
+            # Defensive: if corrupted to non-list, reinitialize
+            if not isinstance(history, list):
+                history = []
+            new_entry = {
+                "at": mem["last_recalled"],
+                "session_id": _current_session_id(),
+            }
+            # _assert_temporal_consistency raises on future-dated or
+            # backdated-from-chain; surfaces tampering visibly.
+            try:
+                _assert_temporal_consistency(new_entry["at"], chain=history)
+            except CarefulNotCleverError:
+                # Tampered chain: skip the append (don't add the new
+                # entry) but DO surface to operator via _assert_no_silent_skip
+                _assert_no_silent_skip(
+                    f"usage_history append for {mem.get('id', '?')} "
+                    f"failed temporal consistency",
+                    1
+                )
+                # Unreachable: _assert_no_silent_skip raised above
+            history.append(new_entry)
+            # FIFO cap at the most recent _USAGE_HISTORY_CAP entries
+            if len(history) > _USAGE_HISTORY_CAP:
+                history = history[-_USAGE_HISTORY_CAP:]
+            mem["usage_history"] = history
+
         mem["_score"] = round(score, 4)
         mem["_domain"] = mem.get("domain", "unknown")
         path = mem.get("_path")
@@ -1556,6 +1590,34 @@ def _confidence_promotion_enabled():
     if env_val in ("false", "0", "no"):
         return False
     return _learning_profile() == "single-operator-local"
+
+
+def _usage_history_enabled():
+    """Profile-aware flag for Slice 5 usage history. Defaults ON in
+    single-operator-local; OFF in multi-operator-shared.
+    Override via MEMORY_USAGE_HISTORY_ENABLED env var.
+
+    When ON, every recall that bumps a memory appends an entry to
+    that memory's usage_history list, capped at the most recent 20
+    entries (FIFO). Privacy: only timestamp + session_id are stored;
+    queries are not retained because queries can contain sensitive
+    prose."""
+    env_val = os.environ.get("MEMORY_USAGE_HISTORY_ENABLED", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    return _learning_profile() == "single-operator-local"
+
+
+# Slice 5 cap. Documented inline (audit-visible in PR diff).
+_USAGE_HISTORY_CAP = 20
+
+
+def _current_session_id():
+    """Read MEMORY_SESSION_ID from env; default to 'unknown' if unset.
+    Slice 5 stores only timestamp + session_id; never query content."""
+    return os.environ.get("MEMORY_SESSION_ID", "unknown")
 
 
 # Slice 4 thresholds. Documented inline (auditable in PR history).

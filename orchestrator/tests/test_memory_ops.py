@@ -2153,5 +2153,227 @@ class ConfidencePromotionAdversarialTests(_ConfidencePromotionBase):
         self.assertEqual(actions["confidence_promoted"], 1)
 
 
+# ─────────────────────────────────────────────
+# Slice 5 — Usage history
+# ─────────────────────────────────────────────
+
+
+class _UsageHistoryBase(MemoryOpsTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self._orig_flags = {}
+        for k in ("MEMORY_USAGE_HISTORY_ENABLED",
+                  "MEMORY_LEARNING_PROFILE",
+                  "MEMORY_SESSION_ID"):
+            self._orig_flags[k] = os.environ.get(k)
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._orig_flags.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        super().tearDown()
+
+
+class UsageHistoryFlagTests(_UsageHistoryBase):
+
+    def test_default_on_in_single_operator(self):
+        self.assertTrue(memory_ops._usage_history_enabled())
+
+    def test_default_off_in_multi_operator(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        self.assertFalse(memory_ops._usage_history_enabled())
+
+    def test_explicit_disable_overrides_profile(self):
+        os.environ["MEMORY_USAGE_HISTORY_ENABLED"] = "false"
+        self.assertFalse(memory_ops._usage_history_enabled())
+
+    def test_session_id_from_env(self):
+        os.environ["MEMORY_SESSION_ID"] = "test-session-abc"
+        self.assertEqual(memory_ops._current_session_id(),
+                         "test-session-abc")
+
+    def test_session_id_unknown_when_unset(self):
+        self.assertEqual(memory_ops._current_session_id(), "unknown")
+
+
+class UsageHistoryAppendTests(_UsageHistoryBase):
+
+    def test_history_appended_on_recall(self):
+        os.environ["MEMORY_SESSION_ID"] = "sess-1"
+        m = memory_ops.encode("alpha kubernetes", domain="ken")
+        memory_ops.recall("alpha", domain="ken")
+        # Read back
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertIn("usage_history", mem)
+        self.assertEqual(len(mem["usage_history"]), 1)
+        self.assertEqual(mem["usage_history"][0]["session_id"], "sess-1")
+        self.assertIn("at", mem["usage_history"][0])
+
+    def test_legacy_memory_gets_history_initialized(self):
+        # Memory predating Slice 5 has no usage_history field
+        m = memory_ops.encode("alpha bravo", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem.pop("usage_history", None)
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        # Now recall — history gets initialized
+        memory_ops.recall("alpha", domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertIn("usage_history", after)
+        self.assertEqual(len(after["usage_history"]), 1)
+
+    def test_history_disabled_no_field_added(self):
+        os.environ["MEMORY_USAGE_HISTORY_ENABLED"] = "false"
+        m = memory_ops.encode("alpha", domain="ken")
+        memory_ops.recall("alpha", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        # Field not added (or remains absent)
+        self.assertFalse(mem.get("usage_history"))
+
+    def test_only_timestamp_and_session_id_stored(self):
+        """Privacy invariant: no query content retained."""
+        os.environ["MEMORY_SESSION_ID"] = "sess-x"
+        m = memory_ops.encode("private kubernetes context", domain="ken")
+        memory_ops.recall("private kubernetes", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        entry = mem["usage_history"][0]
+        # Exactly two keys: at + session_id
+        self.assertEqual(set(entry.keys()), {"at", "session_id"})
+        # Query text NOT in entry values
+        for v in entry.values():
+            self.assertNotIn("kubernetes", str(v))
+            self.assertNotIn("private", str(v))
+
+    def test_distinct_session_ids_accumulate(self):
+        m = memory_ops.encode("alpha bravo charlie", domain="ken")
+        os.environ["MEMORY_SESSION_ID"] = "sess-1"
+        memory_ops.recall("alpha", domain="ken")
+        os.environ["MEMORY_SESSION_ID"] = "sess-2"
+        memory_ops.recall("bravo", domain="ken")
+        os.environ["MEMORY_SESSION_ID"] = "sess-3"
+        memory_ops.recall("charlie", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        sessions = [e["session_id"] for e in mem["usage_history"]]
+        self.assertEqual(sessions, ["sess-1", "sess-2", "sess-3"])
+
+
+class UsageHistoryAdversarialTests(_UsageHistoryBase):
+
+    def test_cap_at_20_entries(self):
+        os.environ["MEMORY_SESSION_ID"] = "sess"
+        m = memory_ops.encode("unique-aardvark token", domain="ken")
+        # Recall 25 times
+        for _ in range(25):
+            memory_ops.recall("aardvark", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertEqual(len(mem["usage_history"]),
+                         memory_ops._USAGE_HISTORY_CAP)
+
+    def test_corrupted_history_field_reinitialized(self):
+        m = memory_ops.encode("alpha", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["usage_history"] = "not a list"  # corrupt
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        # Recall should reinitialize rather than crash
+        memory_ops.recall("alpha", domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertIsInstance(after["usage_history"], list)
+        self.assertEqual(len(after["usage_history"]), 1)
+
+    def test_session_id_collision_both_entries_appear(self):
+        m = memory_ops.encode("alpha bravo charlie", domain="ken")
+        os.environ["MEMORY_SESSION_ID"] = "same-session"
+        memory_ops.recall("alpha", domain="ken")
+        memory_ops.recall("bravo", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        # Both entries appear; session_id is duplicated (expected)
+        self.assertEqual(len(mem["usage_history"]), 2)
+        self.assertEqual(mem["usage_history"][0]["session_id"], "same-session")
+        self.assertEqual(mem["usage_history"][1]["session_id"], "same-session")
+
+    def test_rapid_fire_recalls_in_same_session(self):
+        os.environ["MEMORY_SESSION_ID"] = "burst"
+        m = memory_ops.encode("alpha bravo charlie delta echo", domain="ken")
+        for _ in range(5):
+            memory_ops.recall("alpha", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertEqual(len(mem["usage_history"]), 5)
+
+    def test_clock_jumped_backward_raises_no_silent_skip(self):
+        """Backdating attack: history entry timestamp older than
+        chain head. _assert_temporal_consistency catches; the
+        append step surfaces via _assert_no_silent_skip."""
+        m = memory_ops.encode("alpha", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        # Seed a history chain with a future entry already
+        with open(path) as f:
+            mem = json.load(f)
+        # Place a chain head far in the future (relative to current time)
+        far_future = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time() + 86400))
+        mem["usage_history"] = [{"at": far_future, "session_id": "old"}]
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        # Now recall — new entry's "at" is now (< chain head by 1 day).
+        # _assert_temporal_consistency raises; _assert_no_silent_skip
+        # propagates as CarefulNotCleverError.
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.recall("alpha", domain="ken")
+
+    def test_cap_overflow_drops_oldest(self):
+        """FIFO discipline: oldest entries are discarded when cap hit."""
+        os.environ["MEMORY_SESSION_ID"] = "marker-newest"
+        m = memory_ops.encode("alpha bravo charlie", domain="ken")
+        # First 21 recalls with default session_id
+        for _ in range(21):
+            os.environ["MEMORY_SESSION_ID"] = "marker-old"
+            memory_ops.recall("alpha", domain="ken")
+        # Now switch to marker-newest for the final recall
+        os.environ["MEMORY_SESSION_ID"] = "marker-newest"
+        memory_ops.recall("bravo", domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        sessions = [e["session_id"] for e in mem["usage_history"]]
+        # Last entry must be marker-newest; total cap honored
+        self.assertEqual(len(sessions), memory_ops._USAGE_HISTORY_CAP)
+        self.assertEqual(sessions[-1], "marker-newest")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
