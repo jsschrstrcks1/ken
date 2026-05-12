@@ -1502,6 +1502,232 @@ def demote_from_instinct(memory_id, domain=None):
 
 
 # ─────────────────────────────────────────────
+# v5 Slice 2 — Pull-based session extraction
+# ─────────────────────────────────────────────
+# extract_candidates_from_session reads orchestrator state files
+# (orchestrator/state/<session_id>.json) and surfaces candidate
+# patterns / facts / preferences for operator review. Read-only;
+# never promotes. Per v5 plan §3 Slice 2.
+#
+# Invariant call order (enforced by Slice 1 AST rule):
+#   1. _assert_panic_check
+#   2. _assert_rate_limit("extract_from_session", session_id)
+#   3. per-candidate: _assert_evidence_present + _assert_evidence_integrity
+#   4. _assert_no_silent_skip if any session-state file was unreadable
+
+def _learning_from_sessions_enabled():
+    """Profile-aware flag check. In single-operator-local profile:
+    defaults ON. In multi-operator-shared: defaults OFF.
+    Override via MEMORY_LEARNING_FROM_SESSIONS env var."""
+    env_val = os.environ.get("MEMORY_LEARNING_FROM_SESSIONS", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    # Profile-driven default
+    return _learning_profile() == "single-operator-local"
+
+
+def _validate_session_id(session_id):
+    """Defend against path traversal in session_id. Session IDs must be
+    a basename with no path separators and no parent-directory references."""
+    if not session_id or not isinstance(session_id, str):
+        raise CarefulNotCleverError(
+            f"session_id must be a non-empty string, got {session_id!r}"
+        )
+    if os.path.basename(session_id) != session_id:
+        raise CarefulNotCleverError(
+            f"session_id {session_id!r} contains path separators"
+        )
+    if ".." in session_id:
+        raise CarefulNotCleverError(
+            f"session_id {session_id!r} contains parent-directory reference"
+        )
+
+
+def _state_dir_default():
+    """Return orchestrator/state/ relative to this module's location."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+
+
+def _extract_candidates_from_blackboard(snapshot, session_id):
+    """Pure function: given an immutable snapshot of the blackboard,
+    return a list of candidate dicts. No I/O; testable in isolation.
+
+    Three candidate kinds in v1:
+      - 'fact' from verified_claims (high-confidence)
+      - 'pattern' from repeated pipeline roles (3+ same role)
+      - 'preference' from the task description itself
+
+    Each candidate carries full provenance: source session_id, the
+    observation references that produced it, and a 'delta' field
+    describing what behavior would change if promoted (per v3 plan
+    Perplexity R2 Differential Memory Review).
+    """
+    candidates = []
+
+    # Kind 1: facts from verified_claims
+    for i, claim in enumerate(snapshot.get("verified_claims", [])):
+        if not isinstance(claim, dict):
+            continue
+        content = claim.get("claim") or claim.get("text") or ""
+        if not content:
+            continue
+        candidates.append({
+            "id": f"{session_id}:claim:{i}",
+            "content": content,
+            "type": "fact",
+            "confidence": 0.95,
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "verified_claim",
+                     "ref": f"verified_claims[{i}]"}
+                ],
+                "observation_count": 1,
+            },
+            "delta": f"future recalls would return verified claim: "
+                     f"'{content[:80]}'",
+        })
+
+    # Kind 2: patterns from repeated pipeline roles
+    role_counts = {}
+    role_refs = {}
+    for i, step in enumerate(snapshot.get("pipeline", [])):
+        if not isinstance(step, dict):
+            continue
+        role = step.get("role")
+        if not role:
+            continue
+        role_counts[role] = role_counts.get(role, 0) + 1
+        role_refs.setdefault(role, []).append(i)
+    for role, count in role_counts.items():
+        if count < 3:
+            continue
+        candidates.append({
+            "id": f"{session_id}:pattern:{role}",
+            "content": f"operator used '{role}' role {count} times in session",
+            "type": "pattern",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "pipeline_step",
+                     "ref": f"pipeline[{i}]"}
+                    for i in role_refs[role]
+                ],
+                "observation_count": count,
+            },
+            "delta": f"future sessions would weight '{role}' role higher "
+                     f"in recall scoring",
+        })
+
+    # Kind 3: preference from task description
+    task = snapshot.get("task", "")
+    if task and len(task) > 20:
+        candidates.append({
+            "id": f"{session_id}:preference:task",
+            "content": f"operator interested in: {task[:200]}",
+            "type": "preference",
+            "confidence": 0.7,
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "task_description",
+                     "ref": "task"}
+                ],
+                "observation_count": 1,
+            },
+            "delta": f"future recalls would prioritize content related "
+                     f"to: {task[:80]}",
+        })
+
+    return candidates
+
+
+def extract_candidates_from_session(session_id, dry_run=True, state_dir=None):
+    """Read orchestrator state file at <state_dir>/<session_id>.json and
+    surface candidate patterns/facts/preferences for operator review.
+
+    Profile-aware default-on/off (MEMORY_LEARNING_FROM_SESSIONS);
+    enforced read-only when dry_run=True (the v1 contract — never
+    writes memory from this slice).
+
+    Returns:
+        {
+          "enabled": bool,
+          "session_id": str,
+          "candidates": [...],
+          "skipped": int,
+          "reason": str (only present on early-return)
+        }
+
+    Mitigates T9 (TOCTOU) via single-read snapshot pattern: the entire
+    state file is loaded into memory before any scanning, and the
+    extraction operates on the immutable snapshot. Concurrent writes
+    after the read are visible to subsequent calls but not this one.
+    """
+    _assert_panic_check()
+
+    if not _learning_enabled():
+        return {"enabled": False, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    if not _learning_from_sessions_enabled():
+        return {"enabled": False, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": "MEMORY_LEARNING_FROM_SESSIONS disabled"}
+
+    # Defend against path traversal in session_id
+    _validate_session_id(session_id)
+
+    # Rate-limit per-session extraction
+    _assert_rate_limit("extract_from_session", session_id)
+
+    if state_dir is None:
+        state_dir = _state_dir_default()
+    state_path = os.path.join(state_dir, f"{session_id}.json")
+
+    # Snapshot pattern: single read, then operate on immutable copy
+    if not os.path.exists(state_path):
+        return {"enabled": True, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": f"no state file at {state_path}"}
+    try:
+        with open(state_path) as f:
+            snapshot = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        # Surface as INFO finding rather than crash
+        _assert_no_silent_skip(
+            f"state file unreadable for {session_id}: "
+            f"{type(e).__name__}",
+            1
+        )
+        # _assert_no_silent_skip raised; unreachable
+
+    candidates = _extract_candidates_from_blackboard(snapshot, session_id)
+
+    # Per-candidate invariant validation
+    for candidate in candidates:
+        _assert_evidence_present(candidate)
+        _assert_evidence_integrity(candidate)  # stub until Slice 3C
+
+    # If dry_run (always true in v1), do not write anything.
+    # The caller decides what to do with the candidate list.
+    return {
+        "enabled": True,
+        "session_id": session_id,
+        "candidates": candidates,
+        "skipped": 0,
+        "dry_run": dry_run,
+    }
+
+
+# ─────────────────────────────────────────────
 # CLI Interface
 # ─────────────────────────────────────────────
 
