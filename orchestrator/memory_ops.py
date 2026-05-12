@@ -1896,18 +1896,30 @@ def _should_bump_confidence(mem, now_epoch):
 
 def _validate_session_id(session_id):
     """Defend against path traversal in session_id. Session IDs must be
-    a basename with no path separators and no parent-directory references."""
+    a basename with no path separators and no parent-directory or
+    current-directory references.
+
+    The raw-parts check below catches bare `"."` and embedded `"./"`
+    segments that `os.path.basename` silently normalizes. Pattern
+    lifted from OpenAgentd `validate_wiki_path` (their `wiki.py`)
+    which documents the same Python behaviour: `Path("topics/./test.md")`
+    becomes `("topics", "test.md")` — the dot is silently dropped before
+    the parts check runs. We check the RAW string before any path
+    operation."""
     if not session_id or not isinstance(session_id, str):
         raise CarefulNotCleverError(
             f"session_id must be a non-empty string, got {session_id!r}"
         )
+    # Normalize backslash → slash for cross-platform consistency, then
+    # check raw parts before Path/os.path touch the value.
+    raw_parts = session_id.replace("\\", "/").split("/")
+    if any(part in ("..", ".") for part in raw_parts):
+        raise CarefulNotCleverError(
+            f"session_id {session_id!r} contains '..' or '.' segment"
+        )
     if os.path.basename(session_id) != session_id:
         raise CarefulNotCleverError(
             f"session_id {session_id!r} contains path separators"
-        )
-    if ".." in session_id:
-        raise CarefulNotCleverError(
-            f"session_id {session_id!r} contains parent-directory reference"
         )
 
 

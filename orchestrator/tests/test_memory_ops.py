@@ -1761,7 +1761,32 @@ class SessionExtractionAdversarialTests(_SessionExtractionBase):
         with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
             memory_ops.extract_candidates_from_session(
                 "../../etc/passwd", state_dir=self.state_dir)
-        self.assertIn("path separators", str(ctx.exception))
+        # The raw-parts check fires first (OpenAgentd-style) and catches
+        # the `..` segment; the basename check is the fallback if the
+        # raw-parts check is ever bypassed.
+        self.assertTrue(
+            "'..' or '.'" in str(ctx.exception)
+            or "path separators" in str(ctx.exception),
+            f"unexpected error: {ctx.exception}"
+        )
+
+    def test_path_traversal_single_dot(self):
+        """Lift from OpenAgentd validate_wiki_path: bare '.' was a gap.
+        Path() and os.path.basename() silently normalize it away, so
+        a session_id of '.' previously passed all checks. The raw-parts
+        check closes the gap."""
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.extract_candidates_from_session(
+                ".", state_dir=self.state_dir)
+        self.assertIn("'.' segment", str(ctx.exception))
+
+    def test_path_traversal_embedded_dot_segment(self):
+        """`foo/./bar` would have basename `bar`, so the basename check
+        would actually reject it (foo/./bar != bar). The raw-parts
+        check catches it earlier with a clearer error."""
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_candidates_from_session(
+                "foo/./bar", state_dir=self.state_dir)
 
     def test_path_traversal_absolute(self):
         with self.assertRaises(memory_ops.CarefulNotCleverError):
