@@ -1364,6 +1364,7 @@ def extract_instinct_candidates(domain=None, limit=20):
     promotion still requires an explicit single-id promote_to_instinct
     call per item. There is no bulk-promote API.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "candidates": []}
 
@@ -1423,6 +1424,7 @@ def promote_to_instinct(memory_id, domain=None):
     Idempotent: re-promoting an already-promoted memory returns success
     without changing the timestamp.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "promoted": False,
                 "reason": "MEMORY_LEARNING_ENABLED is not set"}
@@ -1465,6 +1467,7 @@ def demote_from_instinct(memory_id, domain=None):
     """Reverse of promote_to_instinct. Sets `is_instinct: false` and
     `demoted_at: <iso>`. Idempotent.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "demoted": False,
                 "reason": "MEMORY_LEARNING_ENABLED is not set"}

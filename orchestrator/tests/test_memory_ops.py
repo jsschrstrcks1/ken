@@ -1396,13 +1396,14 @@ class CIGateTests(unittest.TestCase):
         import ast
         import inspect
 
-        # Legacy allowlist: functions that predate Slice 0. Listed
-        # explicitly so additions are visible. Slice 2+ MUST NOT be
-        # added here; they get invariant calls in their slice work.
+        # Legacy allowlist: v1-v3 functions predating the doctrine layer.
+        # promote_to_instinct + demote_from_instinct were grandfathered
+        # in Slice 0; Slice 1 wired _assert_panic_check into them, so
+        # they no longer need allowlist exemption. Slice 2+ functions
+        # MUST NOT be added here; they call invariants directly.
         legacy = {
             "encode", "update", "link", "protect", "archive", "promote",
             "consolidate", "forget",
-            "promote_to_instinct", "demote_from_instinct",
         }
 
         src = inspect.getsource(memory_ops)
@@ -1444,6 +1445,132 @@ class CarefulNotCleverErrorTests(unittest.TestCase):
         with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
             raise memory_ops.CarefulNotCleverError("boundary crossed")
         self.assertIn("boundary crossed", str(ctx.exception))
+
+
+# ─────────────────────────────────────────────
+# Slice 1 — Kill-switch completion: AST ordering rule
+# + panic-flip-mid-operation adversarial probe
+# ─────────────────────────────────────────────
+
+
+class PanicCheckOrderingTests(unittest.TestCase):
+    """AST rule: every public function in memory_ops.py that calls
+    _assert_panic_check must call it as the FIRST executable statement
+    (after the docstring). Mitigates the bypass shape where the
+    panic-check exists but runs after state-mutating logic.
+
+    This is the structural complement to the kill-switch: presence
+    alone is insufficient; order matters."""
+
+    def test_panic_check_is_first_executable_statement(self):
+        import ast
+        import inspect
+        src = inspect.getsource(memory_ops)
+        tree = ast.parse(src)
+
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if node.name.startswith("_"):
+                continue
+            # Skip the helper itself (it doesn't call itself)
+            if node.name == "_assert_panic_check":
+                continue
+
+            # Find any panic-check call anywhere in the function body
+            has_panic = any(
+                isinstance(c, ast.Call)
+                and isinstance(c.func, ast.Name)
+                and c.func.id == "_assert_panic_check"
+                for c in ast.walk(node)
+            )
+            if not has_panic:
+                # Function doesn't call panic-check; ordering rule
+                # doesn't apply (the CI gate handles "must call invariant"
+                # separately).
+                continue
+
+            # Identify the first non-docstring statement in the body
+            body = list(node.body)
+            if (body
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                # First statement is a docstring — peel it off
+                body = body[1:]
+            if not body:
+                offenders.append((node.name, "empty body"))
+                continue
+
+            first = body[0]
+            is_panic_first = (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Call)
+                and isinstance(first.value.func, ast.Name)
+                and first.value.func.id == "_assert_panic_check"
+            )
+            if not is_panic_first:
+                offenders.append((
+                    node.name,
+                    f"panic check at line {first.lineno} but not first"
+                ))
+
+        self.assertEqual(
+            offenders, [],
+            f"_assert_panic_check ordering violations: {offenders}. "
+            f"The panic check is the kill-switch. If a function calls "
+            f"it, it must be the FIRST executable statement. Otherwise "
+            f"state-mutating logic runs before the kill-switch can "
+            f"fire, defeating the purpose."
+        )
+
+
+class PanicFlipMidOperationTests(unittest.TestCase):
+    """Adversarial probe for the v5 plan §3 Slice 1 ship-gate:
+    "panic mid-operation (set after extraction starts) still allows
+    in-flight to finish but blocks next call." We can't pause a
+    Python call to flip env mid-function, but we can verify the
+    boundary behavior at the next invariant call."""
+
+    def setUp(self):
+        self._orig_panic = os.environ.get("MEMORY_LEARNING_PANIC_DISABLE_ALL")
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+
+    def tearDown(self):
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        if self._orig_panic is not None:
+            os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = self._orig_panic
+
+    def test_panic_off_then_on_halts_subsequent_call(self):
+        # First call succeeds
+        memory_ops._assert_panic_check()
+        # Panic flipped on mid-session
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        # Subsequent call raises
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_panic_check()
+
+    def test_panic_on_then_off_recovers(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_panic_check()
+        # Operator flips back off
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL")
+        # Now succeeds again — kill-switch is reversible
+        memory_ops._assert_panic_check()
+
+    def test_panic_blocks_slice_1_1_functions(self):
+        """End-to-end: panic-check wired into the Slice 1.1 functions
+        means flipping panic on halts them too — not just the helper."""
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        # extract_instinct_candidates is the cheapest to call
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_instinct_candidates()
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.promote_to_instinct("x")
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.demote_from_instinct("x")
 
 
 if __name__ == "__main__":
