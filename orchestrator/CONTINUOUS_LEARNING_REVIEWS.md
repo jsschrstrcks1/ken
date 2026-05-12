@@ -190,3 +190,145 @@ These are documented as known limits in the plan, but worth surfacing:
 ## How to read this ledger
 
 When a future PR proposes changing or removing any v3 element, search this ledger for the element name. The originating finding tells you (a) why it's there, (b) which model said it, (c) whether multiple models converged, and (d) whether published research cites the concern. That context lets reviewers decide whether to keep, modify, or remove with appropriate caution.
+
+---
+
+## Round 3 — mutation-prevention + v3 open-question pass (v3 → v4)
+
+**Prompt:** Two parts. Part A asks each model to answer the 10 open questions left at the end of v3. Part B introduces 10 specific MUTATION VECTORS (M1-M10) and asks whether v3 defends against each, what concrete fix to add, and what test would catch the mutation. Concludes by asking the highest-impact mutation gap, whether mutation prevention deserves its own slice, and what vectors fall outside M1-M10. Mutation prevention is the inviolable-doctrine concern — what stops the system from mutating its own defenses?
+
+**Round 3 costs:**
+
+| Model | Role | In | Out | Cost |
+|---|---|---|---|---|
+| GPT (gpt-5) | challenge | 11,049 | 1,153 | $0.0426 |
+| Grok | challenge | 11,033 | 4,267 | $0.0966 |
+| Perplexity (sonar-pro) | research (mutation defense lit) | 1,121 | 819 | $0.0093 |
+| You.com | research | 1,121 | 4,500+ | (priced per call) |
+
+Round 3 spend ≈ $0.16; cumulative across rounds 1-3 ≈ $0.34.
+
+### GPT (challenge) — confidence 0.8
+
+Raw: `/tmp/cl_r3/gpt.json`
+
+**Part A** answered all 10 open questions. Most consequential answers:
+- Q1: integrity strong enough? No; same-disk checksum is tamperable. Need asymmetric signing or separate volume.
+- Q6: CI gate covers actual drift? No — extend for try/except swallow patterns.
+- Q7: panic-check positioning? Should be first line; v3 doesn't enforce.
+- Q8: missing threats — insider, physical, supply-chain.
+
+**Part B** rated each M1-M10:
+- M1 partial (PR justification), M2 NO (highest impact per GPT), M3 NO, M4 partial, M5 NO, M6 NO, M7 partial, M8 NO, M9 NO, M10 NO. 7 of 10 vectors with no defense.
+
+| Finding | Plan v4 disposition |
+|---|---|
+| M2 monkey-patching highest-impact gap | Adopted via Slice 0.5 `_validate_helper_integrity` + `_seal_helpers` |
+| M3 direct disk writes | Adopted via Slice 0.5 `_validate_file_integrity` HMAC sidecar |
+| M5 settings.json drift | Adopted via Slice 0.5 `_audit_config_integrity` |
+| M8 test deletion | Adopted via Slice 0.5 `test_regression_test_count` meta-test |
+| Test wrap-in-try/except weakening | Adopted into v3's CI gate (Round 2 partial) + v4 runtime tracer |
+| Insider / physical / supply-chain gaps | T19 + T20 added to threat model; T19 out-of-scope |
+
+### Grok (challenge) — confidence not stated (verbose JSON, partial truncation)
+
+Raw: `/tmp/cl_r3/grok.json`
+
+**Most consequential round of either round so far.** Answered Part A in depth and gave concrete file-path + code-shape fixes for every M1-M10.
+
+Part A highlights:
+- Q2: rate limit dynamic threshold = 95th percentile + 20%
+- Q3: temporal 5min/5min not 60s/1h (NTP drift exceeds 60s)
+- Q5: 9 slices = scope creep; would consolidate to 5-6
+- Q7: AST rule to require panic-check as FIRST executable statement
+- Q9: "1 sprint" → "≥3 sessions × ≥2 weeks × ≥10 extractions"
+
+Part B verdicts:
+- **M9 HMAC key replacement = highest-impact gap** (Grok's pick — silently invalidates all defenses)
+- Concrete proposal for every vector: `_validate_helper_integrity`, `_validate_file_integrity` (HMAC sidecar), `_validate_key_fingerprint`, `_seal_helpers`, `_audit_config_integrity`, `test_ci_gate_immutability`, `test_regression_test_count`, plus CI extensions
+
+All Part B proposals adopted into Slice 0.5. Tuning of existing invariants (rate limit, temporal) adopted from Part A.
+
+### Perplexity (research) — confidence 0.85
+
+Raw: `/tmp/cl_r3/perplexity.json`
+
+6 sourced findings on mutation-defense literature:
+
+| Finding | Source | Plan v4 disposition |
+|---|---|---|
+| `safe_instantiate` allowlist pattern (Hydra/NeMo RCE defenses) | Palo Alto Unit42 2026 | Cited in `_validate_helper_integrity` provenance |
+| Intent laundering 87% bypass rate | arXiv:2602.16729 2026 | Adopted → new T18 |
+| CoSAI: pin to hashes not names | CoSAI 2026 | Reinforces `_validate_helper_integrity` SHA approach |
+| AI drift / governance drift | Bytex 2026 | Reinforces need for Slice 0.5 |
+| Auto-approve CI bypass debate | Resilient Cyber 2026 (Anthropic auto-approve) | Documented; out-of-scope for v4 |
+| Continuous Assurance + Runtime Behavioral Detection paradigm | (multiple) | Validates Slice 0.5 approach |
+
+### You.com (research) — confidence 0.6
+
+Raw: `/tmp/cl_r3/youdotcom.json`
+
+**Most thorough literature review of any round.** Lowest confidence (0.6) because You.com explicitly noted that for several mutation vectors, NO published vendor playbook exists.
+
+Published-pattern citations adopted into v4 provenance table:
+- **Nitro tamper-evident eBPF logging** (CCS 2024) — strongest published M2/M3 defense
+- **Nono Merkle-tree agent audit** (nono.sh 2026) — strongest published M3/M8 pattern
+- **GitHub push-protection bypass controls** (github.blog 2024-10-23) — M7 defense pattern
+- **Reproducible Builds + Sigstore Cosign** — M1/M4/M8 pattern
+- **Palo Alto Prisma AIRS** — M2 external-enforcement pattern
+- **AWS KMS HMAC docs** — confirms M9 has no automatic-rotation defense; manual only
+- **PAdES tamper-evident PDFs** — doctrine doc tamper-evidence pattern
+- **SEI Carnegie Mellon contract-driven programming** — M3 invariants-at-API-boundary pattern
+
+Explicit gap acknowledgments from You.com:
+- M6 decorator escapes / import shadows: NO published AI-safety-specific guidance
+- M10 test skipping as AI safety attack: NO published guidance
+- M9 HMAC key replacement: NO defense beyond manual rotation discipline
+
+v4 marks these as "novel pattern" in the Slice 0.5 provenance table, signaling to future reviewers that we're authoring rather than copying.
+
+---
+
+## Convergence table — Round 3
+
+| Finding | GPT | Grok | Perplexity | You.com | Convergence |
+|---|---|---|---|---|---|
+| `_assert_panic_check` should be first line + AST-enforced | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| Rate limit needs dynamic threshold | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| Temporal bounds too tight/loose, tune | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| 9 slices = scope creep concern | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| CI gate misses conditional weakening | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| M2 monkey-patching highest-impact gap | ✓ R3 (top) | — | (`safe_instantiate`) | (Prisma AIRS) | 1 of 4 with academic backing |
+| M9 HMAC key swap highest-impact gap | — | ✓ R3 (top) | — | (AWS KMS unsolved) | 1 of 4 with vendor admission |
+| Mutation prevention deserves its own slice | — | ✓ R3 (explicit) | (drift paradigm) | (governance drift) | 1 explicit + 2 implicit |
+| Decorator/import shadow defense NOT in published lit | — | — | — | ✓ R3 (explicit) | 1 of 4 (honest gap) |
+| Intent laundering (T18) | — | — | ✓ R3 (cite) | — | 1 of 4 (academic) |
+| Privilege escalation + supply-chain + coercion gaps | ✓ R3 | ✓ R3 | — | — | 2 of 4 |
+| Hash-pin over name-pin | — | (via `_validate_helper_integrity`) | ✓ R3 (CoSAI cite) | — | 2 of 4 |
+
+---
+
+## Cumulative cost & coverage across all 3 rounds
+
+| Round | Consults | Cost | Plan delta |
+|---|---|---|---|
+| 1 (design review) | 4 (GPT critique, Grok challenge, Gemini safety, Perplexity research) | $0.13 | v1 → v2: 5 new threats T8-T12, 3 new invariants, 9 slices (was 7), CI gate, kill-switch, log split, integrity slice |
+| 2 (red-team kill chain) | 4 (GPT challenge, Grok challenge, Gemini critique, Perplexity research) | $0.09 | v2 → v3: 5 new threats T13-T17, 1 new invariant, HMAC-SHA256 swap, AST hardening, delta UI |
+| 3 (mutation prevention + open questions) | 4 (GPT challenge, Grok challenge, Perplexity research, You.com research) | $0.16 | v3 → v4: 6 new threats T18-T23, 3 new invariants, new Slice 0.5, invariant tuning, answers to 10 open questions |
+| **Total** | **12 successful consults + 2 truncated Gemini calls** | **$0.38** | **v1 → v4: threat model 7 → 23, invariants 4 → 11, slices 7 → 10** |
+
+---
+
+## What v4 explicitly does NOT cover (after 3 rounds)
+
+These limits are documented; not gaps the next round should reopen unless threat model changes:
+
+1. **Local OS privilege escalation (T19).** Household model trusts the OS.
+2. **Operator coercion (T21).** Doctrine + literacy; no structural defense.
+3. **Side-channel timing on `consolidate()` (T11).** Co-located trusted operators assumed.
+4. **Supply-chain compromise of Python itself.** Beyond defense layer's reach.
+5. **HSM/TPM for HMAC keys.** Household-grade is `_validate_key_fingerprint`; enterprise upgrade path is documented but not in v4.
+6. **eBPF / syscall tracing as M2 supplement.** Too heavy for household scale; documented as the enterprise next step if threat model widens.
+7. **Independent integrity-check module (GPT R2 proposal).** Would be a Slice 7+ if ever scheduled.
+
+When the next round of work begins, these are the documented limits. Any reopening of them needs an explicit decision and audit, not a quiet PR.
