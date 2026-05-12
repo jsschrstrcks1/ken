@@ -1037,6 +1037,7 @@ def consolidate(domain=None):
     actions = {
         "decayed": 0, "removed": 0, "kept": 0,
         "auto_protected": 0, "summarized": 0, "auto_archived": 0,
+        "confidence_promoted": 0,
         "potential_duplicates": [],
     }
 
@@ -1096,6 +1097,23 @@ def consolidate(domain=None):
                 _save_mem(mem, path)
             else:
                 actions["kept"] += 1
+
+            # Slice 4: confidence promotion. Frequently-recalled memories
+            # get a +0.05 bump, capped at 1.0. Profile-aware flag default-on
+            # in single-operator-local; off in multi-operator-shared.
+            # Fires once per consolidate pass (not per recall) so rapid-
+            # fire recalls don't produce runaway promotion.
+            if _confidence_promotion_enabled():
+                now_epoch = time.time()
+                if _should_bump_confidence(mem, now_epoch):
+                    new_conf = min(
+                        mem.get("confidence", 0.0) + _CONFIDENCE_PROMOTION_BUMP,
+                        _CONFIDENCE_PROMOTION_CAP
+                    )
+                    if new_conf > mem.get("confidence", 0.0):
+                        mem["confidence"] = new_conf
+                        actions["confidence_promoted"] += 1
+                        _save_mem(mem, path)
 
             # Auto-archive: old, low-confidence, unprotected, not an instinct.
             # is_instinct shields like `protected` does — an instinct that
@@ -1526,6 +1544,52 @@ def _learning_from_sessions_enabled():
         return False
     # Profile-driven default
     return _learning_profile() == "single-operator-local"
+
+
+def _confidence_promotion_enabled():
+    """Profile-aware flag for Slice 4 confidence promotion. Defaults ON
+    in single-operator-local; OFF in multi-operator-shared.
+    Override via MEMORY_CONFIDENCE_PROMOTION_ENABLED env var."""
+    env_val = os.environ.get("MEMORY_CONFIDENCE_PROMOTION_ENABLED", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    return _learning_profile() == "single-operator-local"
+
+
+# Slice 4 thresholds. Documented inline (auditable in PR history).
+_CONFIDENCE_PROMOTION_MIN_RECALL = 5
+_CONFIDENCE_PROMOTION_RECENT_DAYS = 14
+_CONFIDENCE_PROMOTION_BUMP = 0.05
+_CONFIDENCE_PROMOTION_CAP = 1.0
+
+
+def _should_bump_confidence(mem, now_epoch):
+    """Pure predicate: does this memory qualify for a Slice 4 confidence
+    bump? Returns False on missing/malformed fields (defensive)."""
+    if mem.get("superseded_by"):
+        return False
+    if mem.get("archived"):
+        return False
+    if mem.get("recall_count", 0) < _CONFIDENCE_PROMOTION_MIN_RECALL:
+        return False
+    if mem.get("confidence", 0.0) >= _CONFIDENCE_PROMOTION_CAP:
+        return False
+    last_recalled = mem.get("last_recalled")
+    if not last_recalled:
+        return False  # corrupt: recall_count >= 5 but no last_recalled
+    try:
+        recalled_epoch = time.mktime(
+            time.strptime(last_recalled, "%Y-%m-%dT%H:%M:%SZ")
+        )
+    except (ValueError, TypeError):
+        return False  # malformed timestamp; skip silently per defensive default
+    # Reject future-dated last_recalled (clock skew or attack)
+    if recalled_epoch > now_epoch + 300:
+        return False
+    age_days = (now_epoch - recalled_epoch) / 86400
+    return age_days <= _CONFIDENCE_PROMOTION_RECENT_DAYS
 
 
 def _validate_session_id(session_id):

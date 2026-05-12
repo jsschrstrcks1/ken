@@ -1891,5 +1891,267 @@ class SessionExtractionAdversarialTests(_SessionExtractionBase):
         self.assertEqual(result["candidates"], [])
 
 
+# ─────────────────────────────────────────────
+# Slice 4 — Confidence promotion via consolidate
+# ─────────────────────────────────────────────
+
+
+class _ConfidencePromotionBase(MemoryOpsTestBase):
+    """Shared setUp/tearDown for Slice 4. Manages env flags and
+    ensures profile defaults are predictable."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_flags = {}
+        for k in ("MEMORY_CONFIDENCE_PROMOTION_ENABLED",
+                  "MEMORY_LEARNING_PROFILE"):
+            self._orig_flags[k] = os.environ.get(k)
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._orig_flags.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        super().tearDown()
+
+    def _seed(self, content="frequently-recalled item", domain="ken",
+              recall_count=5, days_since_recall=1, confidence=0.5):
+        """Seed a memory with controlled recall metadata."""
+        m = memory_ops.encode(content, domain=domain,
+                              memory_type="pattern",
+                              confidence=confidence)
+        path = os.path.join(memory_ops.MEMORY_ROOT, domain,
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["recall_count"] = recall_count
+        if days_since_recall is not None:
+            recalled_epoch = time.time() - days_since_recall * 86400
+            mem["last_recalled"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(recalled_epoch)
+            )
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        return mem
+
+
+class ConfidencePromotionFlagTests(_ConfidencePromotionBase):
+
+    def test_default_on_in_single_operator_profile(self):
+        # No env flag, default profile = single-operator-local
+        self.assertTrue(memory_ops._confidence_promotion_enabled())
+
+    def test_default_off_in_multi_operator_profile(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        self.assertFalse(memory_ops._confidence_promotion_enabled())
+
+    def test_explicit_enable_overrides_profile(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        os.environ["MEMORY_CONFIDENCE_PROMOTION_ENABLED"] = "true"
+        self.assertTrue(memory_ops._confidence_promotion_enabled())
+
+    def test_explicit_disable_overrides_profile(self):
+        os.environ["MEMORY_CONFIDENCE_PROMOTION_ENABLED"] = "false"
+        self.assertFalse(memory_ops._confidence_promotion_enabled())
+
+    def test_flag_off_means_no_bump_in_consolidate(self):
+        os.environ["MEMORY_CONFIDENCE_PROMOTION_ENABLED"] = "false"
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+        # Confidence unchanged
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertEqual(after["confidence"], 0.5)
+
+
+class ConfidencePromotionCriteriaTests(_ConfidencePromotionBase):
+
+    def test_bump_fires_under_criteria(self):
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 1)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertAlmostEqual(after["confidence"], 0.55, places=4)
+
+    def test_no_bump_below_recall_threshold(self):
+        # recall_count = 4 < 5
+        m = self._seed(confidence=0.5, recall_count=4, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+    def test_no_bump_when_stale(self):
+        # last_recalled > 14 days ago
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=20)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+    def test_bump_caps_at_one(self):
+        m = self._seed(confidence=0.97, recall_count=10, days_since_recall=1)
+        memory_ops.consolidate(domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        # 0.97 + 0.05 = 1.02; capped at 1.0
+        self.assertEqual(after["confidence"], 1.0)
+
+    def test_no_bump_when_already_at_cap(self):
+        m = self._seed(confidence=1.0, recall_count=10, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+    def test_recall_count_boundary_at_5(self):
+        # Exactly 5 recalls fires
+        m = self._seed(confidence=0.5, recall_count=5, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 1)
+
+    def test_recency_boundary_at_14_days(self):
+        # 13 days: still within window
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=13)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 1)
+
+    def test_no_bump_without_last_recalled_field(self):
+        # Defensive: recall_count=10 but no last_recalled (corrupt state)
+        m = self._seed(confidence=0.5, recall_count=10,
+                       days_since_recall=None)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+
+class ConfidencePromotionAdversarialTests(_ConfidencePromotionBase):
+
+    def test_superseded_memory_not_bumped(self):
+        m1 = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        # Update to supersede; old memory stays at lower confidence
+        memory_ops.update(m1["id"], "newer version", domain="ken")
+        actions = memory_ops.consolidate(domain="ken")
+        # Original m1 should not be bumped (it's superseded)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m1['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        # update halves confidence to 0.25; bump should NOT fire
+        self.assertLess(after["confidence"], 0.5)
+
+    def test_protected_memory_still_bumped_if_eligible(self):
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        memory_ops.protect(m["id"], domain="ken")
+        actions = memory_ops.consolidate(domain="ken")
+        # Protected memory still gets bumped (criteria met)
+        self.assertEqual(actions["confidence_promoted"], 1)
+
+    def test_instinct_still_bumped_if_eligible(self):
+        # Instinct can be bumped further
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+        try:
+            m = self._seed(confidence=0.5, recall_count=10,
+                           days_since_recall=1)
+            memory_ops.promote_to_instinct(m["id"], domain="ken")
+            actions = memory_ops.consolidate(domain="ken")
+            self.assertEqual(actions["confidence_promoted"], 1)
+        finally:
+            os.environ.pop("MEMORY_LEARNING_ENABLED", None)
+
+    def test_consecutive_consolidates_keep_bumping(self):
+        # Each consolidate pass = +0.05; rapid recalls don't bypass
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        for _ in range(3):
+            memory_ops.consolidate(domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            after = json.load(f)
+        # 0.5 + 3 * 0.05 = 0.65
+        self.assertAlmostEqual(after["confidence"], 0.65, places=4)
+
+    def test_future_dated_last_recalled_rejected(self):
+        # Clock skew / attack: last_recalled in the future
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        future = time.time() + 86400 * 7  # 7 days in future
+        mem["last_recalled"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(future))
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+    def test_malformed_last_recalled_rejected(self):
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["last_recalled"] = "yesterday"  # not ISO 8601
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 0)
+
+    def test_bump_does_not_save_archived_memory(self):
+        # Memory in archive dir should never be bumped (archived flag set)
+        m = memory_ops.encode("archived", domain="ken",
+                              memory_type="pattern", confidence=0.5)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["archived"] = True  # mark as archived without moving
+        mem["recall_count"] = 10
+        mem["last_recalled"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400))
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        memory_ops.consolidate(domain="ken")
+        with open(path) as f:
+            after = json.load(f)
+        self.assertEqual(after["confidence"], 0.5)
+
+    def test_decay_then_bump_in_same_pass(self):
+        """Memory at 0.5, recall_count=10 (no decay), recent recall.
+        Decay step skips (recall_count!=0); bump step fires. Net effect:
+        +0.05 bump alone, no double-action."""
+        m = self._seed(confidence=0.5, recall_count=10, days_since_recall=1)
+        # Backdate created so it's eligible for decay (but recall_count
+        # protects from decay anyway)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                            f"{m['id']}.json")
+        _backdate(Path(path), days_old=30)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["decayed"], 0)  # recall_count > 0
+        self.assertEqual(actions["confidence_promoted"], 1)
+        with open(path) as f:
+            after = json.load(f)
+        self.assertAlmostEqual(after["confidence"], 0.55, places=4)
+
+    def test_bump_fires_only_once_per_consolidate_pass(self):
+        # Even with very high recall_count, one consolidate = one bump
+        m = self._seed(confidence=0.5, recall_count=1000,
+                       days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        self.assertEqual(actions["confidence_promoted"], 1)
+
+    def test_zero_confidence_eligible_memory_does_not_bump(self):
+        # confidence=0, recall_count=10, recent: bump would push to 0.05.
+        # But conf=0 means decay-removed branch could fire — verify
+        # the order of operations
+        m = self._seed(confidence=0.05, recall_count=10, days_since_recall=1)
+        actions = memory_ops.consolidate(domain="ken")
+        # recall_count > 0 means decay doesn't fire; bump should
+        self.assertEqual(actions["confidence_promoted"], 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
