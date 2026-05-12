@@ -115,9 +115,9 @@ class MonkeyPatchDetectionTests(unittest.TestCase):
             memory_ops._validate_helper_integrity()
         self.assertIn("removed", str(ctx.exception).lower())
 
-    def test_all_9_helpers_tracked(self):
+    def test_all_10_helpers_tracked(self):
         # The seal must cover all 9 invariants
-        self.assertEqual(len(memory_ops._HELPER_DIGESTS), 9)
+        self.assertEqual(len(memory_ops._HELPER_DIGESTS), 10)
         for name in memory_ops._HELPER_NAMES:
             self.assertIn(name, memory_ops._HELPER_DIGESTS)
 
@@ -460,7 +460,7 @@ class HelperSealLifecycleTests(unittest.TestCase):
 
     def test_seal_helpers_called_at_module_load(self):
         # The seal must have run during import — _HELPER_DIGESTS populated
-        self.assertEqual(len(memory_ops._HELPER_DIGESTS), 9)
+        self.assertEqual(len(memory_ops._HELPER_DIGESTS), 10)
 
     def test_seal_helpers_appears_exactly_once_in_source(self):
         """In memory_ops.py source: at the call-site at end of doctrine

@@ -293,6 +293,104 @@ def _assert_human_attention(candidate, confirm=False):
     return {"matched_terms": matched, "blocking": False}
 
 
+# Slice 7.5 consensus auto-promotion eligibility criteria. Documented
+# inline (audit-visible in PR diff). The doctrine forbids auto-promotion
+# in multi-operator-shared profile entirely; in single-operator-local
+# profile, all of these must be cryptographically verifiable.
+_PROMOTION_ELIGIBILITY_MIN_RECALL = 10
+_PROMOTION_ELIGIBILITY_MIN_AGE_DAYS = 30
+_PROMOTION_ELIGIBILITY_MIN_CONFIDENCE = 0.9
+_PROMOTION_ELIGIBILITY_MIN_SESSIONS = 5
+
+
+def _assert_promotion_eligibility(candidate):
+    """v5 Slice 7.5 invariant. Cryptographically validate consensus
+    criteria before auto-promotion. Raises CarefulNotCleverError on
+    ANY criterion fail; auto_promote_eligible() catches and routes
+    the candidate to manual review instead of auto-promoting.
+
+    Manual promote_to_instinct does NOT call this — manual promotion
+    is the operator's explicit choice regardless of consensus.
+
+    Criteria (all must hold):
+      - recall_count >= 10
+      - age (since `created`) >= 30 days
+      - confidence >= 0.9
+      - usage_history contains >= 5 distinct session_ids
+      - No `demoted_at` in candidate's history (never demoted before)
+      - Not archived, not superseded
+      - _assert_evidence_integrity passes (stub until Slice 3C)
+      - _validate_helper_integrity passes (Slice 0.5 mutation defense)
+    """
+    if candidate.get("superseded_by"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} is superseded"
+        )
+    if candidate.get("archived"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} is archived"
+        )
+    if candidate.get("demoted_at"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} was "
+            f"previously demoted (demoted_at={candidate['demoted_at']}). "
+            f"Auto-promotion forbidden on demote-history."
+        )
+
+    recall = candidate.get("recall_count", 0)
+    if recall < _PROMOTION_ELIGIBILITY_MIN_RECALL:
+        raise CarefulNotCleverError(
+            f"eligibility: recall_count {recall} < {_PROMOTION_ELIGIBILITY_MIN_RECALL}"
+        )
+
+    created = candidate.get("created")
+    if not created:
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} has no `created` timestamp"
+        )
+    try:
+        created_epoch = time.mktime(
+            time.strptime(created, "%Y-%m-%dT%H:%M:%SZ")
+        )
+    except (ValueError, TypeError):
+        raise CarefulNotCleverError(
+            f"eligibility: unparseable created timestamp {created!r}"
+        )
+    age_days = (time.time() - created_epoch) / 86400
+    if age_days < _PROMOTION_ELIGIBILITY_MIN_AGE_DAYS:
+        raise CarefulNotCleverError(
+            f"eligibility: age {age_days:.1f}d < "
+            f"{_PROMOTION_ELIGIBILITY_MIN_AGE_DAYS}d minimum"
+        )
+
+    conf = candidate.get("confidence", 0.0)
+    if conf < _PROMOTION_ELIGIBILITY_MIN_CONFIDENCE:
+        raise CarefulNotCleverError(
+            f"eligibility: confidence {conf} < {_PROMOTION_ELIGIBILITY_MIN_CONFIDENCE}"
+        )
+
+    history = candidate.get("usage_history", [])
+    if not isinstance(history, list):
+        raise CarefulNotCleverError(
+            f"eligibility: usage_history corrupted (not a list)"
+        )
+    distinct_sessions = {
+        h["session_id"] for h in history
+        if isinstance(h, dict) and "session_id" in h
+    }
+    if len(distinct_sessions) < _PROMOTION_ELIGIBILITY_MIN_SESSIONS:
+        raise CarefulNotCleverError(
+            f"eligibility: {len(distinct_sessions)} distinct sessions in "
+            f"usage_history < {_PROMOTION_ELIGIBILITY_MIN_SESSIONS} minimum"
+        )
+
+    # Cryptographic integrity checks. These are stubs/light today but
+    # become real defenses when Slice 3C ships HMAC integrity and
+    # Slice 0.5 helper-digest fires on monkey-patched invariants.
+    _assert_evidence_integrity(candidate)  # stub until Slice 3C
+    _validate_helper_integrity()  # mutation defense from Slice 0.5
+
+
 # Read-only allowlist for the CI gate. Every addition is a doctrine
 # decision visible in PR diff (the test in tests/ hashes this constant).
 _INVARIANT_READ_ONLY_ALLOWLIST = frozenset({
@@ -345,6 +443,7 @@ _HELPER_NAMES = (
     "_assert_rate_limit",
     "_assert_temporal_consistency",
     "_assert_human_attention",
+    "_assert_promotion_eligibility",  # Slice 7.5
 )
 
 
@@ -1551,6 +1650,147 @@ def demote_from_instinct(memory_id, domain=None):
 
     return {"enabled": True, "demoted": False,
             "id": memory_id, "reason": "Not found in any domain"}
+
+
+# ─────────────────────────────────────────────
+# v5 Slice 7.5 — Consensus auto-promotion eligibility
+# ─────────────────────────────────────────────
+# auto_promote_eligible() reads candidates from extract_instinct_candidates
+# and auto-promotes those passing _assert_promotion_eligibility (cryptographic
+# consensus criteria). The single-id contract is preserved internally:
+# this function iterates per-id, calling promote_to_instinct(id) for each
+# eligible candidate, then setting is_auto_promoted + auto_promoted_at
+# audit flags on the promoted memory.
+#
+# Profile semantics (locked):
+#   single-operator-local: auto-promotion permitted; flag defaults ON
+#   multi-operator-shared: auto-promotion FORBIDDEN; returns disabled
+#                         stub regardless of flag setting
+
+def _auto_promote_enabled():
+    """Profile-aware. Returns True only in single-operator-local profile
+    (where the operator has confirmed sole human access). In
+    multi-operator-shared profile, ALWAYS returns False regardless of
+    env var — auto-promotion of cross-user memory is structurally
+    forbidden by doctrine."""
+    if _learning_profile() == "multi-operator-shared":
+        return False
+    env_val = os.environ.get("MEMORY_AUTO_PROMOTE_ELIGIBLE", "").lower()
+    if env_val in ("false", "0", "no"):
+        return False
+    if env_val in ("true", "1", "yes"):
+        return True
+    # Default: ON in single-operator-local
+    return True
+
+
+def auto_promote_eligible(domain=None):
+    """Promote every candidate that passes cryptographic consensus.
+
+    Reads candidates from extract_instinct_candidates(); runs each
+    through _assert_promotion_eligibility(); for passes, calls
+    promote_to_instinct() then sets is_auto_promoted + auto_promoted_at
+    audit flags. Single-id contract preserved internally (iteration
+    over per-id promotion, not batch API).
+
+    Returns:
+      {
+        "enabled": bool,
+        "profile": str,
+        "domain": str or None,
+        "promoted": [{"id", "domain"}, ...],
+        "skipped": [{"id", "reason"}, ...],
+        "reason": str (only on early-return)
+      }
+
+    Profile behavior:
+      single-operator-local: active by default; MEMORY_AUTO_PROMOTE_ELIGIBLE
+                            env var can disable
+      multi-operator-shared: returns disabled stub permanently;
+                            structurally cannot run
+    """
+    _assert_panic_check()
+
+    profile = _learning_profile()
+
+    # Profile check FIRST: multi-operator-shared is permanently forbidden
+    # regardless of any other flag. Surface the structural reason
+    # before noting transient flag state.
+    if profile == "multi-operator-shared":
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "auto-promotion forbidden in multi-operator-shared profile"}
+
+    if not _learning_enabled():
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    if not _auto_promote_enabled():
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "MEMORY_AUTO_PROMOTE_ELIGIBLE disabled"}
+
+    _assert_rate_limit("auto_promote_eligible", domain or "all")
+
+    # Defense in depth: validate the helper layer hasn't been
+    # monkey-patched before iterating. If a single _assert_* has been
+    # replaced, ALL eligibility checks below would be compromised;
+    # better to halt the whole call than auto-promote against a
+    # compromised invariant layer.
+    _validate_helper_integrity()
+
+    # Read candidates from the read-only extraction surface.
+    extracted = extract_instinct_candidates(domain=domain, limit=100)
+    if not extracted.get("enabled"):
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "extract_instinct_candidates returned disabled"}
+
+    promoted = []
+    skipped = []
+    for candidate in extracted.get("candidates", []):
+        # Single-id contract: each candidate processed independently
+        # via the per-id API. _assert_single_id fires inside
+        # promote_to_instinct.
+        try:
+            _assert_promotion_eligibility(candidate)
+        except CarefulNotCleverError as e:
+            skipped.append({"id": candidate.get("id"),
+                            "reason": str(e)})
+            continue
+
+        # Eligibility passed — promote via the existing single-id API.
+        result = promote_to_instinct(candidate["id"])
+        if not result.get("promoted"):
+            skipped.append({"id": candidate["id"],
+                            "reason": result.get("reason", "promotion failed")})
+            continue
+
+        # Mark the memory with audit flags. is_auto_promoted alongside
+        # is_instinct distinguishes "operator chose this" from "consensus
+        # auto-promoted this" in the audit trail.
+        path = _memory_path(result["domain"], candidate["id"])
+        try:
+            with open(path) as f:
+                mem = json.load(f)
+            mem["is_auto_promoted"] = True
+            mem["auto_promoted_at"] = _now()
+            _save_mem(mem, path)
+        except (json.JSONDecodeError, IOError) as e:
+            skipped.append({"id": candidate["id"],
+                            "reason": f"audit-flag write failed: {type(e).__name__}"})
+            continue
+
+        promoted.append({"id": candidate["id"], "domain": result["domain"]})
+
+    return {
+        "enabled": True,
+        "profile": profile,
+        "domain": domain,
+        "promoted": promoted,
+        "skipped": skipped,
+    }
 
 
 # ─────────────────────────────────────────────

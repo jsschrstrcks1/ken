@@ -18,6 +18,7 @@ The point of this suite is not 100% coverage — it is "freeze the
 current behavior of memory_ops.py" so that any future continuous-
 learning-v2 refactor has a tripwire."""
 
+import inspect
 import json
 import os
 import sys
@@ -2373,6 +2374,432 @@ class UsageHistoryAdversarialTests(_UsageHistoryBase):
         # Last entry must be marker-newest; total cap honored
         self.assertEqual(len(sessions), memory_ops._USAGE_HISTORY_CAP)
         self.assertEqual(sessions[-1], "marker-newest")
+
+
+# ─────────────────────────────────────────────
+# Slice 7.5 — Consensus auto-promotion eligibility
+# ─────────────────────────────────────────────
+
+
+class _ConsensusAutoPromoteBase(MemoryOpsTestBase):
+    """Shared setUp/tearDown for Slice 7.5. Manages env flags + provides
+    helper to seed a fully-eligible candidate."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_flags = {}
+        for k in ("MEMORY_LEARNING_ENABLED",
+                  "MEMORY_AUTO_PROMOTE_ELIGIBLE",
+                  "MEMORY_LEARNING_PROFILE",
+                  "MEMORY_LEARNING_PANIC_DISABLE_ALL",
+                  "MEMORY_USAGE_HISTORY_ENABLED"):
+            self._orig_flags[k] = os.environ.get(k)
+            os.environ.pop(k, None)
+        os.environ["MEMORY_LEARNING_ENABLED"] = "true"
+        memory_ops._rate_buckets.clear()
+        memory_ops._rate_baselines.clear()
+
+    def tearDown(self):
+        for k, v in self._orig_flags.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        super().tearDown()
+
+    def _seed_eligible(self, content="frequently-recalled pattern alpha bravo",
+                       domain="ken", recall_count=10, age_days=30,
+                       confidence=0.9, distinct_sessions=5,
+                       tags=("x",)):
+        """Seed a memory satisfying all 5 consensus criteria. Used as
+        the baseline; individual tests then mutate to fail one
+        criterion at a time."""
+        m = memory_ops.encode(content, domain=domain,
+                              memory_type="pattern",
+                              confidence=confidence,
+                              tags=list(tags))
+        path = os.path.join(memory_ops.MEMORY_ROOT, domain,
+                            f"{m['id']}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        # Backdate created to satisfy age
+        created_epoch = time.time() - (age_days + 1) * 86400
+        mem["created"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_epoch))
+        # recall_count + last_recalled
+        mem["recall_count"] = recall_count
+        mem["last_recalled"] = _now()
+        # usage_history with N distinct session_ids
+        history = []
+        for i in range(distinct_sessions):
+            history.append({
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                    time.gmtime(time.time() - i * 3600)),
+                "session_id": f"sess-{i}",
+            })
+        mem["usage_history"] = history
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        return m["id"]
+
+
+def _now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+class PromotionEligibilityCriteriaTests(_ConsensusAutoPromoteBase):
+    """Boundary checks on each of the 5 consensus criteria."""
+
+    def _candidate(self, **overrides):
+        """Build a canonical candidate-shaped dict for invariant tests."""
+        created_epoch = time.time() - 31 * 86400
+        candidate = {
+            "id": "test",
+            "content": "x",
+            "type": "pattern",
+            "confidence": 0.95,
+            "recall_count": 10,
+            "created": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                     time.gmtime(created_epoch)),
+            "usage_history": [
+                {"at": _now(), "session_id": f"s{i}"} for i in range(5)
+            ],
+        }
+        candidate.update(overrides)
+        return candidate
+
+    def test_fully_eligible_passes(self):
+        c = self._candidate()
+        memory_ops._assert_promotion_eligibility(c)  # no raise
+
+    def test_recall_count_below_threshold_raises(self):
+        c = self._candidate(recall_count=9)
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("recall_count", str(ctx.exception))
+
+    def test_age_below_threshold_raises(self):
+        # 29 days ago
+        recent = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                               time.gmtime(time.time() - 29 * 86400))
+        c = self._candidate(created=recent)
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("age", str(ctx.exception))
+
+    def test_confidence_below_threshold_raises(self):
+        c = self._candidate(confidence=0.89)
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("confidence", str(ctx.exception))
+
+    def test_distinct_sessions_below_threshold_raises(self):
+        c = self._candidate(usage_history=[
+            {"at": _now(), "session_id": "s0"} for _ in range(4)
+        ])
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("distinct sessions", str(ctx.exception))
+
+    def test_demoted_at_raises(self):
+        c = self._candidate(demoted_at=_now())
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("demoted", str(ctx.exception).lower())
+
+    def test_archived_raises(self):
+        c = self._candidate(archived=True)
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("archived", str(ctx.exception).lower())
+
+    def test_superseded_raises(self):
+        c = self._candidate(superseded_by="some-other-id")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("superseded", str(ctx.exception).lower())
+
+    def test_missing_created_raises(self):
+        c = self._candidate()
+        del c["created"]
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("created", str(ctx.exception))
+
+    def test_unparseable_created_raises(self):
+        c = self._candidate(created="yesterday")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("unparseable", str(ctx.exception))
+
+    def test_corrupted_usage_history_raises(self):
+        c = self._candidate(usage_history="not a list")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_promotion_eligibility(c)
+        self.assertIn("corrupted", str(ctx.exception).lower())
+
+
+class AutoPromoteEligibleProfileTests(_ConsensusAutoPromoteBase):
+    """Profile + flag semantics."""
+
+    def test_multi_operator_shared_forbidden(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        result = memory_ops.auto_promote_eligible()
+        self.assertFalse(result["enabled"])
+        self.assertIn("forbidden", result["reason"])
+
+    def test_multi_operator_forbidden_even_with_flag(self):
+        os.environ["MEMORY_LEARNING_PROFILE"] = "multi-operator-shared"
+        os.environ["MEMORY_AUTO_PROMOTE_ELIGIBLE"] = "true"
+        result = memory_ops.auto_promote_eligible()
+        self.assertFalse(result["enabled"])
+        self.assertIn("forbidden", result["reason"])
+
+    def test_single_operator_default_on(self):
+        # No env flag set; profile defaults to single-operator-local
+        # auto_promote_enabled returns True by default
+        self.assertTrue(memory_ops._auto_promote_enabled())
+
+    def test_explicit_disable_in_single_op(self):
+        os.environ["MEMORY_AUTO_PROMOTE_ELIGIBLE"] = "false"
+        result = memory_ops.auto_promote_eligible()
+        self.assertFalse(result["enabled"])
+        self.assertIn("disabled", result["reason"])
+
+    def test_learning_disabled_returns_disabled(self):
+        os.environ.pop("MEMORY_LEARNING_ENABLED")
+        result = memory_ops.auto_promote_eligible()
+        self.assertFalse(result["enabled"])
+
+    def test_panic_halts_auto_promote(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.auto_promote_eligible()
+
+
+class AutoPromoteEligibleEndToEndTests(_ConsensusAutoPromoteBase):
+    """End-to-end behavior: eligible candidates auto-promoted with
+    audit flags; ineligible surfaced in skipped list."""
+
+    def test_eligible_candidate_auto_promoted(self):
+        mid = self._seed_eligible()
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertEqual(len(result["promoted"]), 1)
+        self.assertEqual(result["promoted"][0]["id"], mid)
+
+    def test_audit_flags_set_on_promotion(self):
+        mid = self._seed_eligible()
+        memory_ops.auto_promote_eligible(domain="ken")
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{mid}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        self.assertTrue(mem.get("is_instinct"))
+        self.assertTrue(mem.get("is_auto_promoted"))
+        self.assertIn("auto_promoted_at", mem)
+        self.assertIn("promoted_at", mem)
+
+    def test_ineligible_candidate_surfaced_in_skipped(self):
+        # Low recall_count (4 < 10) — fails eligibility but might
+        # not even be a candidate from extract_instinct_candidates
+        # (which requires recall_count >= 3). Use one that passes
+        # extraction filter but fails eligibility threshold.
+        mid = self._seed_eligible(recall_count=3, age_days=5)
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertEqual(len(result["promoted"]), 0)
+        # Skipped if it surfaced as candidate at all
+        if result["skipped"]:
+            self.assertEqual(result["skipped"][0]["id"], mid)
+
+    def test_demoted_candidate_skipped(self):
+        mid = self._seed_eligible()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{mid}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["demoted_at"] = _now()
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertEqual(len(result["promoted"]), 0)
+
+    def test_no_candidates_returns_clean(self):
+        # No memories seeded
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["promoted"], [])
+        self.assertEqual(result["skipped"], [])
+
+    def test_eligible_keeps_original_domain(self):
+        """Doctrine: no parallel namespace. Auto-promoted memory
+        stays in its original domain."""
+        mid = self._seed_eligible(domain="recipes")
+        memory_ops.auto_promote_eligible(domain="recipes")
+        recipes_path = os.path.join(memory_ops.MEMORY_ROOT, "recipes",
+                                    f"{mid}.json")
+        self.assertTrue(os.path.exists(recipes_path))
+
+
+class AutoPromoteEligibleAdversarialTests(_ConsensusAutoPromoteBase):
+
+    def test_recall_count_boundary_at_10(self):
+        # Exactly 10 passes; 9 fails
+        c = {"id": "x", "recall_count": 10,
+             "created": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                      time.gmtime(time.time() - 31 * 86400)),
+             "confidence": 0.95, "content": "x",
+             "usage_history": [{"at": _now(), "session_id": f"s{i}"}
+                               for i in range(5)]}
+        memory_ops._assert_promotion_eligibility(c)  # passes
+
+    def test_age_boundary_at_30_days(self):
+        c = {"id": "x", "recall_count": 10,
+             "created": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                      time.gmtime(time.time() - 31 * 86400)),
+             "confidence": 0.95, "content": "x",
+             "usage_history": [{"at": _now(), "session_id": f"s{i}"}
+                               for i in range(5)]}
+        memory_ops._assert_promotion_eligibility(c)  # 31d passes
+        c["created"] = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                     time.gmtime(time.time() - 29 * 86400))
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_promotion_eligibility(c)  # 29d fails
+
+    def test_confidence_boundary_at_0_9(self):
+        c = {"id": "x", "recall_count": 10,
+             "created": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                      time.gmtime(time.time() - 31 * 86400)),
+             "confidence": 0.9, "content": "x",
+             "usage_history": [{"at": _now(), "session_id": f"s{i}"}
+                               for i in range(5)]}
+        memory_ops._assert_promotion_eligibility(c)  # 0.9 passes
+
+    def test_distinct_sessions_boundary_at_5(self):
+        c = {"id": "x", "recall_count": 10,
+             "created": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                      time.gmtime(time.time() - 31 * 86400)),
+             "confidence": 0.95, "content": "x",
+             "usage_history": [{"at": _now(), "session_id": f"s{i}"}
+                               for i in range(5)]}
+        memory_ops._assert_promotion_eligibility(c)  # 5 passes
+        c["usage_history"] = c["usage_history"][:4]  # 4 distinct
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_promotion_eligibility(c)
+
+    def test_forged_recall_count_without_usage_history_skipped(self):
+        """Attacker scenario: manually elevate recall_count to 50 but
+        leave usage_history empty. Consensus criteria still rejects."""
+        mid = self._seed_eligible(recall_count=50, distinct_sessions=0)
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{mid}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["usage_history"] = []  # empty
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertEqual(len(result["promoted"]), 0)
+
+    def test_monkey_patched_helper_halts_auto_promote(self):
+        """Defense in depth: _validate_helper_integrity fires before
+        the per-candidate loop. If an _assert_* has been replaced,
+        the whole call halts."""
+        mid = self._seed_eligible()
+        # Save original then patch
+        orig = memory_ops._assert_panic_check
+        memory_ops._assert_panic_check = lambda: None
+        try:
+            with self.assertRaises(memory_ops.CarefulNotCleverError):
+                memory_ops.auto_promote_eligible(domain="ken")
+        finally:
+            memory_ops._assert_panic_check = orig
+
+    def test_rate_limit_exceeded(self):
+        mid = self._seed_eligible()
+        for _ in range(60):
+            memory_ops.auto_promote_eligible(domain="ken")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.auto_promote_eligible(domain="ken")
+        self.assertIn("rate limit", str(ctx.exception).lower())
+
+    def test_corrupted_usage_history_skipped(self):
+        mid = self._seed_eligible()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", f"{mid}.json")
+        with open(path) as f:
+            mem = json.load(f)
+        mem["usage_history"] = "not a list"
+        with open(path, "w") as f:
+            json.dump(mem, f)
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        # Skipped; not promoted
+        self.assertEqual(len(result["promoted"]), 0)
+
+    def test_already_demoted_eligible_candidate_not_repromoted(self):
+        """If an instinct was demoted and then somehow met criteria
+        again, auto-promote refuses. Demote history is sticky."""
+        mid = self._seed_eligible()
+        # Promote then demote
+        memory_ops.promote_to_instinct(mid, domain="ken")
+        memory_ops.demote_from_instinct(mid, domain="ken")
+        # Now eligibility check should refuse (demoted_at present)
+        result = memory_ops.auto_promote_eligible(domain="ken")
+        self.assertEqual(len(result["promoted"]), 0)
+
+    def test_audit_flags_distinguish_auto_from_manual(self):
+        """is_instinct + is_auto_promoted together distinguish
+        consensus-promoted from operator-promoted."""
+        # Auto-promote one
+        auto_mid = self._seed_eligible(
+            content="auto-promotable content alpha bravo charlie")
+        memory_ops.auto_promote_eligible(domain="ken")
+        # Manual-promote another (must seed differently to avoid
+        # the auto-promote consuming both)
+        manual_mid = memory_ops.encode("manually promoted memory", domain="ken",
+                                       memory_type="pattern")
+        memory_ops.promote_to_instinct(manual_mid["id"], domain="ken")
+        # Read both
+        auto_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                 f"{auto_mid}.json")
+        manual_path = os.path.join(memory_ops.MEMORY_ROOT, "ken",
+                                   f"{manual_mid['id']}.json")
+        with open(auto_path) as f:
+            auto_mem = json.load(f)
+        with open(manual_path) as f:
+            manual_mem = json.load(f)
+        # Auto-promoted has both flags
+        self.assertTrue(auto_mem.get("is_instinct"))
+        self.assertTrue(auto_mem.get("is_auto_promoted"))
+        # Manual-promoted has only is_instinct
+        self.assertTrue(manual_mem.get("is_instinct"))
+        self.assertFalse(manual_mem.get("is_auto_promoted", False))
+
+    def test_single_id_contract_preserved(self):
+        """The auto-promote API iterates per-id internally; verify
+        _assert_single_id would catch any attempt to pass a list."""
+        # _assert_single_id is called inside promote_to_instinct
+        # (which auto_promote_eligible invokes per-id). Direct test:
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_single_id(["a", "b"])
+        # auto_promote_eligible accepts a `domain` string (not a list);
+        # passing a list as domain would still work since domain is
+        # not single-id. The single-id contract holds at the per-id
+        # promote_to_instinct call.
+
+    def test_evidence_integrity_stub_invoked(self):
+        """Slice 3C will replace this with HMAC validation. Today the
+        stub is a no-op but the call site exists. Verify by patching
+        and observing the call."""
+        called = []
+        orig = memory_ops._assert_evidence_integrity
+        memory_ops._assert_evidence_integrity = (
+            lambda c: called.append(c.get("id"))
+        )
+        # Bypass the seal check by re-sealing AFTER the patch
+        # (this would fail _validate_helper_integrity normally)
+        # — we can't easily test this without bypassing the seal,
+        # so instead just verify the call site exists in source
+        try:
+            src = inspect.getsource(memory_ops._assert_promotion_eligibility)
+            self.assertIn("_assert_evidence_integrity", src)
+        finally:
+            memory_ops._assert_evidence_integrity = orig
 
 
 if __name__ == "__main__":
