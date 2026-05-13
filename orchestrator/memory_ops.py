@@ -73,7 +73,40 @@ import re
 import time
 import uuid
 
-MEMORY_ROOT = os.path.expanduser("~/.memory")
+MEMORY_ROOT_ENV = "MEMORY_ROOT"
+
+
+def _resolve_memory_root() -> str:
+    """Return the active MEMORY_ROOT path.
+
+    Priority:
+      1. ``MEMORY_ROOT`` env var (operator override; honored verbatim, with
+         ``~`` expansion).
+      2. ``<sibling>/open-claw-stuff/.memory/`` — when this module lives at
+         ``<parent>/ken/orchestrator/memory_ops.py`` and a sibling
+         ``open-claw-stuff/`` exists. This is the canonical persistent
+         location: git-tracked, survives container teardown via clone/pull.
+      3. ``~/.memory/`` — legacy fallback. **EPHEMERAL** in web containers
+         (each session destroys it). Kept only so CLI/desktop installs that
+         lack the sibling repo still work.
+
+    The resolution is one-shot at module import; tests override via
+    ``memory_ops.MEMORY_ROOT = "..."`` in setUp as before.
+    """
+    env = os.environ.get(MEMORY_ROOT_ENV)
+    if env:
+        return os.path.expanduser(env)
+    here = os.path.dirname(os.path.abspath(__file__))      # .../orchestrator
+    ken_repo = os.path.dirname(here)                        # .../ken
+    parent = os.path.dirname(ken_repo)                      # ...
+    sibling = os.path.join(parent, "open-claw-stuff", ".memory")
+    if os.path.isdir(os.path.dirname(sibling)):
+        # open-claw-stuff/ exists as a sibling repo. Use it.
+        return sibling
+    return os.path.expanduser("~/.memory")
+
+
+MEMORY_ROOT = _resolve_memory_root()
 ARCHIVE_DIR = os.path.join(MEMORY_ROOT, "_archive")
 DOMAINS = [
     "romans", "sheep", "cruising", "recipes",

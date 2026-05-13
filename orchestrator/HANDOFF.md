@@ -105,3 +105,16 @@ Dogfood gate reminder encoded in cognitive memory under domain `ken` with type `
 ```
 python3 /home/user/ken/orchestrator/memory_ops.py recall "dogfood gate"
 ```
+
+## MEMORY_ROOT relocated (2026-05-13)
+
+The persistence hole was identified: `~/.memory/` (→ `/root/.memory/` in web containers) is destroyed when each Claude Code web container ends. Solution: `memory_ops._resolve_memory_root()` now prefers `<parent>/open-claw-stuff/.memory/` — git-tracked, syncs via clone/pull/push across CLI and web environments.
+
+Priority order:
+1. `MEMORY_ROOT` env var (operator override)
+2. `<parent>/open-claw-stuff/.memory/` (sibling repo; persistent canonical default)
+3. `~/.memory/` legacy fallback (CLI/desktop only; ephemeral in web)
+
+**Privacy:** `open-claw-stuff` is public-domain. Every encoded memory committed there becomes permanently public. See `open-claw-stuff/.memory/README.md` for the full posture and override paths.
+
+The one memory present (dogfood reminder `a92e68ca`) has been migrated to the new location and is recallable end-to-end.
