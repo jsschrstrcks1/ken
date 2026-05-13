@@ -382,3 +382,58 @@ The kill chain that Round 2's red-team constructed against v2 required a separat
 If the threat model widens (additional users, network exposure), switching `MEMORY_LEARNING_PROFILE=multi-operator-shared` restores all v4 defenses to blocking mode without any code change.
 
 **Cost:** 0 LLM consults; this is a configuration decision applied on top of the v4 security model that the 3-round review produced. No new findings; no new vulnerabilities introduced. Cumulative spend remains ~$0.38.
+
+---
+
+## External-influence review — OpenAgentd (post-v5, 2026-05-12)
+
+**Trigger:** operator requested a malware + concept scan of `github.com/lthoangg/OpenAgentd/` to identify any patterns worth lifting.
+
+**Repository:** OpenAgentd v0.4.1 (AGPL-3.0, 148 stars, 25 forks, last update 2026-05-11). Self-hosted multi-agent OS with FastAPI backend + React frontend + three-tier wiki memory + cron-driven "dream agent" for consolidation. Substantial conceptual overlap with our continuous-learning-v2 work.
+
+**Cost:** 0 LLM consults; static code review.
+
+### Malware-scan verdict: CLEAN
+
+Scanned for: `eval()` / `exec()` / `compile()` on input, `subprocess shell=True`, `pickle.loads`, `os.system`, `__import__` abuse, base64-decode-then-exec, binary blobs, committed secrets, suspicious network destinations. None found.
+
+Two surfaces flagged as intentional + well-engineered (NOT malware):
+- Plugin loader uses `importlib.util.spec_from_file_location` + `exec_module` with synthetic module naming (standard Python plugin pattern; operator-controlled directory).
+- Self-update endpoint (`POST /update/install`) uses `shlex.quote()` for command construction, logs to file, requires authenticated call, documented in source.
+
+Install scripts (`install.sh`, `install.ps1`) — clean. Both download `uv` installer to a temp file before executing (defends against partial-download exec). Never run as root. Idempotent.
+
+All network destinations are legitimate LLM provider APIs (OpenAI, Google, DeepSeek, xAI, z.ai, GitHub Copilot, Ollama).
+
+### Concept-lift verdict
+
+| Pattern | Disposition | Where adopted |
+|---|---|---|
+| Raw-parts path-traversal check (`validate_wiki_path`) | **Adopted** | `_validate_session_id` hardened; 2 new tests anchor `.` rejection |
+| Three-tier memory model (Raw / Episodic / Wiki) framing | **Documented** | Plan §7a maps their tiers to ours; episodic = Slice 3A future |
+| `wiki/notes/{date}.md` append-only daily shape | **Deferred design alt** | Plan §7a Slice 3A design notes — alternative to structured JSONL |
+| Empty-session auto-skip + mark-processed | **Deferred design alt** | Plan §7a Slice 7 design notes — sidecar `_processed_sessions` log |
+| Cron-driven dream agent | **Rejected** | Violates cross-slice invariant #6 (no always-on daemon) |
+| `USER.md` auto-injection into every prompt | **Rejected (with reconsideration option)** | Expands prompt-injection surface; reconsidering = new slice + new threat-model entries |
+| Plugin loader via `exec_module` | **Rejected** | We have no plugin surface; adding one expands attack surface for negative return |
+| Last-match-wins glob permission rules | **Rejected** | Our invariant model is more structural; composes with CI gate |
+| BM25 over TF-IDF | **Rejected** | Switching cost > benefit at household scale |
+| Self-update endpoint | **Not applicable** | We ship inside ken, not as standalone tool |
+
+### One concrete code change shipped
+
+Post-v5: `_validate_session_id` now uses the OpenAgentd-style raw-parts check. Before the fix, bare `"."` passed all our checks because `os.path.basename(".") == "."`. After: raw_parts check fires first, rejects any segment matching `".."` or `"."`. Two new regression tests in `SessionExtractionAdversarialTests`:
+
+- `test_path_traversal_single_dot`
+- `test_path_traversal_embedded_dot_segment`
+
+Test count: 251 → 253.
+
+### Honest gap acknowledgment
+
+OpenAgentd's `USER.md` auto-injection is the highest-leverage pattern we did NOT adopt. In their model, every LLM call gets stable user facts injected into the system prompt without the agent needing to call `wiki_search`. That's a real DX improvement we're choosing not to take because the attack surface (every memory entry could be prompt-injection content) isn't bounded by our current threat model. Revisiting this is a separate-slice decision with its own brief + adversarial review.
+
+### Future external influences
+
+When the dogfood gate expires and we revisit Slice 3A, the comparison of OpenAgentd's daily-markdown shape vs our planned structured JSONL is a genuine design choice — not a default-to-our-plan situation. The OpenAgentd shape has been in production for months and survives 148-star user pressure; our JSONL is unimplemented.
+

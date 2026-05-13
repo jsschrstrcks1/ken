@@ -902,6 +902,56 @@ This test is part of Slice 0's ship gate and stays green across every subsequent
 
 ---
 
+## 7a. Influences from related projects (post-v5 reading)
+
+Concept review of `github.com/lthoangg/OpenAgentd` v0.4.1 (2026-05-11, AGPL-3.0) — a self-hosted multi-agent OS with three-tier memory. Patterns adopted, deferred, or rejected.
+
+### Adopted
+
+- **Raw-parts path-traversal check** (`_validate_session_id`). Their `validate_wiki_path` in `app/services/wiki.py` documents the Python `Path` behaviour that bit us silently: `Path("topics/./test.md")` becomes `("topics", "test.md")` — the dot is silently dropped before `parts` check runs. Their fix: check the **raw string** before any path operation. We adopted this; bare `"."` and embedded `"./"` segments now reject explicitly. Before the fix: bare `"."` passed our check. Shipped post-v5; tests `test_path_traversal_single_dot` and `test_path_traversal_embedded_dot_segment` anchor it.
+
+### Deferred design alternatives (documented for future slice work)
+
+- **Slice 3A — observation log shape.** OpenAgentd uses **append-only daily markdown** (`wiki/notes/{date}.md`) instead of structured JSONL. Trade-off: simpler write path, smaller surface, no JSON-injection risk, but extraction becomes string parsing instead of `json.loads`. When Slice 3A is on deck, brainstorm which shape fits the household model better. Their format:
+  ```markdown
+  ## HH:MM UTC
+
+  observation text
+
+  ## HH:MM UTC
+
+  next observation
+  ```
+  vs our planned JSONL one-line-per-observation. Both bounded; both rotation-friendly. Decision deferred.
+
+- **Slice 7 — empty-session auto-skip + mark-processed.** OpenAgentd's dream agent does: "Sessions with no messages are auto-skipped (marked processed, no batch slot consumed)." Pattern is "the no-op is recorded, so the queue doesn't re-process it" — different from "skip silently" which would cause re-entry. Slice 7's session-end auto-extract should adopt this: when `extract_candidates_from_session` finds an empty session, record the session_id as processed in a sidecar log (`~/.memory/_processed_sessions`) without consuming a rate-limit slot. Prevents the next harness invocation from re-trying the same empty session.
+
+### Rejected (intentional doctrine departures)
+
+- **Cron-driven dream agent** (their `app/services/dream_scheduler.py`). Violates our cross-slice invariant #6 (no always-on daemon, no background process). Their model uses APScheduler cron expressions. We deliberately chose synchronous-on-demand. Their dream agent runs detached with a fresh agent instance per item — closer to a job system than a daemon, but still requires the scheduler process to be running. Our Slice 7 design uses harness session-end hook (harness-driven, not process-driven).
+
+- **Plugin loader via `importlib.util.spec_from_file_location` + `exec_module`** (their `app/agent/plugins/loader.py`). Standard Python plugin pattern with synthetic module naming for isolation. Their threat model accepts the plugins directory as operator-controlled. We have no plugin surface and adding one would expand attack surface for negative return.
+
+- **`USER.md` auto-injected into every prompt** (their `WikiInjectionHook`). They inject stable user facts into the system prompt on every LLM call. Powerful but expands the prompt-injection attack surface — every memory-derived string ends up in the agent's context. Our pull-based recall is read-on-demand by the agent or operator; memories don't auto-inject. **Reconsidering this is a future slice decision, not a v5 change** — would need new threat-model entries for prompt-injection-via-memory.
+
+- **Last-match-wins glob permission rules** (their `app/agent/permission.py`, mirrors opencode). More granular than our invariant model but less structural. Our `_assert_*` family is "function-level boundary"; theirs is "per-call wildcard rule." Both work; ours composes better with the CI gate.
+
+- **BM25 over our TF-IDF.** They use BM25 (likely `rank_bm25`); we use TF-IDF inline. Both work for household-scale corpora. Switching cost > benefit at this scale.
+
+### Three-tier model — observation worth recording
+
+Their tier framing maps onto ours like this:
+
+| OpenAgentd tier | Our equivalent |
+|---|---|
+| Raw (`session_messages` in SQLite) | `orchestrator/state/*.json` |
+| Episodic (`wiki/notes/{date}.md` append-only daily) | (no equivalent yet — Slice 3A would add this) |
+| Wiki (`wiki/topics/`, `USER.md`, `INDEX.md`) | `~/.memory/{domain}/*.json` |
+
+The middle tier (episodic) is what Slice 3A would introduce. OpenAgentd's daily-markdown shape is a viable simpler alternative to the JSONL structured-observation log we currently plan.
+
+---
+
 ## 8. Explicitly NOT in plan (deferred indefinitely, expanded)
 
 (Carried from v1, plus new entries from round-1 review:)
