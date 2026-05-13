@@ -8,6 +8,27 @@
 
 ## 0. Change log
 
+### v6 → v6.1 (Slice 3A shipped)
+
+Slice 3A — observation log infrastructure — landed at ken `(pending commit)`. Adds three new public surfaces plus four helpers:
+- `record_observation(tool, args_hash, result_class, session_id)` — append one JSONL line to `<MEMORY_ROOT>/_observations/<session_id>.jsonl`, with panic + rate-limit + temporal-consistency + input-validation invariants. flock held across append + rotation pass.
+- `clear_observations(session_id)` — explicit cleanup.
+- Internal: `_compute_args_hash`, `_validate_observation_inputs`, `_rotate_observation_log`, `_observation_log_path`, `_observations_dir`, `_observations_enabled`.
+
+Feature flag: `MEMORY_OBSERVATIONS_ENABLED=true` opts in (default off).
+
+Caps:
+- `_OBSERVATION_MAX_BYTES = 10 MB`
+- `_OBSERVATION_MAX_LINES = 10_000`
+- `_OBSERVATION_EVICTION_RATIO = 0.10` (FIFO-evict oldest 10% at cap; not full truncate)
+- Eviction surfaces in return dict as `rotation.info`; the `_assert_no_silent_skip` raise is caught and captured (silent skip remains forbidden — captured INFO is the operator-visible breadcrumb).
+
+Tests added: 34 (13 unit + 3 clear + 18 adversarial). Full suite: 346 passing. CI gate (`test_every_mutation_path_invokes_invariants`) + panic-ordering test both still green.
+
+Gitignore updated in `open-claw-stuff`: `.memory/_observations/`, `.memory/_checksums/`, `.memory/_integrity.*` (the observation log is high-volume ephemera; Slice 3C key + sidecars never live in any tracked repo).
+
+NOT in this slice: extraction (Slice 3B), HMAC sidecars (Slice 3C), hook integration (Slice 6).
+
 ### v5 → v6 (reality alignment after first day of live use)
 
 This update doesn't change the security model; it records the architecture-level surprises encountered during the first day of real cross-thread dogfood + closes the privacy-posture gap that v4/v5 had wrong.

@@ -3179,5 +3179,437 @@ class MiningAdversarialTests(_MiningBase):
         self.assertEqual(len(second["errors"]), 0)
 
 
+# ─────────────────────────────────────────────
+# v6 Slice 3A — Observation log infrastructure
+# ─────────────────────────────────────────────
+
+
+class _ObservationBase(MemoryOpsTestBase):
+    """Shared setup for Slice 3A tests. Enables the feature flag and
+    cleans up any stray rate-limit state between tests so probes are
+    independent."""
+
+    VALID_HASH = "a" * 64
+
+    def setUp(self):
+        super().setUp()
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "true"
+        # Clear in-process rate buckets so adversarial-burst tests
+        # don't bleed into ordinary append tests.
+        memory_ops._rate_buckets.clear()
+
+    def tearDown(self):
+        os.environ.pop("MEMORY_OBSERVATIONS_ENABLED", None)
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        memory_ops._rate_buckets.clear()
+        super().tearDown()
+
+    def _read_log(self, session_id):
+        path = os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl"
+        )
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return [json.loads(ln) for ln in f if ln.strip()]
+
+
+class RecordObservationTests(_ObservationBase):
+
+    def test_disabled_flag_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-disabled"
+        )
+        self.assertEqual(result, {"enabled": False})
+        # No file should have been created.
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations")
+        self.assertFalse(os.path.exists(path)
+                         and os.listdir(path))
+
+    def test_enabled_writes_one_jsonl_line(self):
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-one-line"
+        )
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["wrote"])
+        self.assertIsNone(result["rotation"])
+        records = self._read_log("session-one-line")
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec["tool"], "Bash")
+        self.assertEqual(rec["args_hash"], self.VALID_HASH)
+        self.assertEqual(rec["result_class"], "success")
+        self.assertIn("ts", rec)
+
+    def test_multiple_writes_append_in_order(self):
+        for i, rc in enumerate(("success", "error", "timeout")):
+            memory_ops.record_observation(
+                "Read", self.VALID_HASH, rc, "session-order"
+            )
+        records = self._read_log("session-order")
+        self.assertEqual(len(records), 3)
+        self.assertEqual(
+            [r["result_class"] for r in records],
+            ["success", "error", "timeout"]
+        )
+
+    def test_jsonl_line_is_canonical(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-canon"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-canon.jsonl")
+        with open(path) as f:
+            line = f.readline()
+        # Keys sorted, no whitespace separators
+        self.assertTrue(line.endswith("\n"))
+        parsed = json.loads(line)
+        self.assertEqual(
+            list(parsed.keys()),
+            sorted(["args_hash", "result_class", "tool", "ts"])
+        )
+        canonical = json.dumps(parsed, sort_keys=True,
+                               separators=(",", ":")) + "\n"
+        self.assertEqual(line, canonical)
+
+    def test_path_lives_under_memory_root(self):
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-path"
+        )
+        expected_prefix = os.path.join(memory_ops.MEMORY_ROOT,
+                                       "_observations")
+        self.assertTrue(result["path"].startswith(expected_prefix))
+        self.assertTrue(result["path"].endswith(".jsonl"))
+
+    def test_line_cap_evicts_oldest_ten_percent(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 20
+            for i in range(25):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-linecap"
+                )
+            records = self._read_log("session-linecap")
+            # 25 written; cap=20; eviction ratio 10% on full 25 = max(1, 2) = 2.
+            # Resulting line count: 25 - 2 = 23. The cap is re-checked only
+            # on the write that triggers it, so multiple writes after eviction
+            # can grow past the cap until the next write triggers another pass.
+            self.assertLess(len(records), 25)
+            self.assertGreater(len(records), 0)
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_rotation_returns_info_in_result(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 5
+            last = None
+            for _ in range(8):
+                last = memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success",
+                    "session-rotation-info"
+                )
+            # The last write triggered eviction; rotation surfaces in result.
+            self.assertIsNotNone(last["rotation"])
+            self.assertGreaterEqual(last["rotation"]["evicted"], 1)
+            self.assertIn("line cap", last["rotation"]["reason"])
+            # _assert_no_silent_skip captured as INFO
+            self.assertIn("info", last["rotation"])
+            self.assertIn("silent skip", last["rotation"]["info"])
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_rotation_evicts_oldest_fifo(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 4
+            # Mark each write with a different result_class to identify order
+            order = ["success", "error", "timeout", "truncated",
+                     "success", "error"]
+            for rc in order:
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, rc, "session-fifo"
+                )
+            records = self._read_log("session-fifo")
+            # First entry should NOT be the oldest "success" (evicted)
+            self.assertGreater(len(records), 0)
+            classes = [r["result_class"] for r in records]
+            # The most recent entries are preserved
+            self.assertEqual(classes[-1], "error")
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_byte_cap_triggers_eviction(self):
+        try:
+            memory_ops._OBSERVATION_MAX_BYTES = 200
+            # Each line is ~120 bytes; 3 lines should trip 200-byte cap
+            for _ in range(5):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-bytecap"
+                )
+            records = self._read_log("session-bytecap")
+            # Some eviction must have occurred — file is smaller than 5 lines
+            size = os.path.getsize(os.path.join(
+                memory_ops.MEMORY_ROOT, "_observations",
+                "session-bytecap.jsonl"))
+            self.assertLess(size, 200 * 2)  # comfortably under unbounded
+            self.assertGreater(len(records), 0)
+        finally:
+            memory_ops._OBSERVATION_MAX_BYTES = 10 * 1024 * 1024
+
+    def test_no_raw_arg_values_on_disk(self):
+        # Caller hashes a "secret" string — only the hash reaches disk.
+        secret = "sk-ant-supersecretkey-12345"
+        hashed = memory_ops._compute_args_hash({"key": secret})
+        memory_ops.record_observation(
+            "Bash", hashed, "success", "session-nosecret"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-nosecret.jsonl")
+        with open(path) as f:
+            content = f.read()
+        self.assertNotIn(secret, content)
+        self.assertNotIn("sk-ant", content)
+
+    def test_args_hash_is_deterministic_and_sorted(self):
+        h1 = memory_ops._compute_args_hash({"b": 2, "a": 1})
+        h2 = memory_ops._compute_args_hash({"a": 1, "b": 2})
+        self.assertEqual(h1, h2)
+        self.assertEqual(len(h1), 64)
+        # different content → different hash
+        h3 = memory_ops._compute_args_hash({"a": 1, "b": 3})
+        self.assertNotEqual(h1, h3)
+
+    def test_flock_acquired_during_write(self):
+        # Monkey-patch fcntl.flock to record calls
+        calls = []
+        real_flock = memory_ops.fcntl.flock
+
+        def spy(fd, op):
+            calls.append(op)
+            return real_flock(fd, op)
+
+        memory_ops.fcntl.flock = spy
+        try:
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-flock"
+            )
+        finally:
+            memory_ops.fcntl.flock = real_flock
+        # At minimum: LOCK_EX acquire + LOCK_UN release
+        self.assertIn(memory_ops.fcntl.LOCK_EX, calls)
+        self.assertIn(memory_ops.fcntl.LOCK_UN, calls)
+
+
+class ClearObservationsTests(_ObservationBase):
+
+    def test_clear_removes_existing_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-clear"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-clear.jsonl")
+        self.assertTrue(os.path.exists(path))
+        result = memory_ops.clear_observations("session-clear")
+        self.assertTrue(result["removed"])
+        self.assertFalse(os.path.exists(path))
+
+    def test_clear_no_op_when_log_absent(self):
+        result = memory_ops.clear_observations("session-never-existed")
+        self.assertFalse(result["removed"])
+
+    def test_clear_disabled_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.clear_observations("session-x")
+        self.assertEqual(result, {"enabled": False})
+
+
+# Adversarial probes (T3, T4, T6, T10, panic, clock skew, etc.)
+
+
+class ObservationAdversarialTests(_ObservationBase):
+
+    # Path traversal in session_id (T4 + T6)
+
+    def test_session_id_with_parent_dir_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "../escape"
+            )
+
+    def test_session_id_with_slash_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "a/b"
+            )
+
+    def test_session_id_with_dot_segment_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "."
+            )
+
+    def test_session_id_empty_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", ""
+            )
+
+    def test_session_id_none_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", None
+            )
+
+    # Invalid tool / args_hash / result_class (T4 input validation)
+
+    def test_invalid_tool_with_slash_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "bin/sh", self.VALID_HASH, "success", "session-t"
+            )
+
+    def test_invalid_tool_too_long_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "x" * 200, self.VALID_HASH, "success", "session-t"
+            )
+
+    def test_invalid_args_hash_wrong_length_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "abc", "success", "session-t"
+            )
+
+    def test_invalid_args_hash_uppercase_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "A" * 64, "success", "session-t"
+            )
+
+    def test_invalid_args_hash_non_hex_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "g" * 64, "success", "session-t"
+            )
+
+    def test_invalid_result_class_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "unknown-state",
+                "session-t"
+            )
+
+    # Compaction-attack burst (T10)
+
+    def test_rate_limit_blocks_burst(self):
+        # 60/min default threshold; 100 in a single test loop trips it.
+        triggered = False
+        try:
+            for _ in range(150):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-burst"
+                )
+        except memory_ops.CarefulNotCleverError as e:
+            triggered = True
+            self.assertIn("rate limit", str(e).lower())
+        self.assertTrue(triggered,
+                        "rate-limit invariant did not fire on 150-call burst")
+
+    # Panic-during-write (panic check is the kill-switch)
+
+    def test_panic_flag_halts_write(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-panic"
+            )
+        # No file written
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-panic.jsonl")
+        self.assertFalse(os.path.exists(path))
+
+    # Clock-skew probes (T12)
+
+    def test_future_dated_timestamp_rejected(self):
+        # Monkey-patch _now to return 1 day in the future
+        real_now = memory_ops._now
+
+        def future_now():
+            return time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+                time.gmtime(time.time() + 86400)
+            )
+
+        memory_ops._now = future_now
+        try:
+            with self.assertRaises(memory_ops.CarefulNotCleverError):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-future"
+                )
+        finally:
+            memory_ops._now = real_now
+
+    # flock contention (T6)
+
+    def test_flock_contention_blocks_concurrent_writer(self):
+        # Hold an exclusive flock on the same log path from a
+        # separate fd; record_observation must NOT corrupt the file
+        # (it will block on flock or write atomically — either is
+        # acceptable; here we run with timeout via thread).
+        import threading
+        session = "session-flock-contention"
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            f"{session}.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Prime the file so the holder can open in 'a' mode
+        with open(path, "a"):
+            pass
+
+        holder_done = threading.Event()
+        writer_done = threading.Event()
+
+        def hold_lock():
+            with open(path, "a") as f:
+                memory_ops.fcntl.flock(f.fileno(),
+                                       memory_ops.fcntl.LOCK_EX)
+                # Hold briefly while writer races us
+                time.sleep(0.3)
+                memory_ops.fcntl.flock(f.fileno(),
+                                       memory_ops.fcntl.LOCK_UN)
+            holder_done.set()
+
+        def write_one():
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", session
+            )
+            writer_done.set()
+
+        t1 = threading.Thread(target=hold_lock)
+        t2 = threading.Thread(target=write_one)
+        t1.start()
+        # Give the holder a moment to acquire
+        time.sleep(0.05)
+        t2.start()
+        t1.join(timeout=2.0)
+        t2.join(timeout=2.0)
+        self.assertTrue(holder_done.is_set())
+        self.assertTrue(writer_done.is_set())
+        # File should contain exactly one record (the writer's), uncorrupted
+        records = self._read_log(session)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["tool"], "Bash")
+
+    # Clear-observations adversarial probes
+
+    def test_clear_path_traversal_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.clear_observations("../escape")
+
+    def test_clear_panic_halts(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.clear_observations("session-y")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

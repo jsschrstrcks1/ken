@@ -2473,6 +2473,214 @@ def ingest_relayed_memories(json_list, dedup=True):
 
 
 # ─────────────────────────────────────────────
+# v6 Slice 3A — Observation log infrastructure
+# ─────────────────────────────────────────────
+# OPTIONAL append-only log of tool invocations, keyed per session_id.
+# Operator opts in via MEMORY_OBSERVATIONS_ENABLED=true. The log lives
+# at <MEMORY_ROOT>/_observations/<session_id>.jsonl and stores only
+# hashed args + a coarse result_class — no raw values (T4 sensitive
+# data mitigation).
+#
+# Bounded: 10MB or 10,000 lines per session, whichever fires first.
+# At cap, FIFO-evicts the oldest 10% (not a full truncate) and
+# surfaces the eviction as an INFO finding via _assert_no_silent_skip
+# (T3 disk exhaustion, T10 log-compaction attack).
+#
+# flock() held during every write, mitigating T6 (cross-session race)
+# and T9 (TOCTOU during extraction). Hook integration is Slice 6;
+# integrity sidecars are Slice 3C.
+
+import fcntl  # POSIX advisory locking
+
+_OBSERVATIONS_SUBDIR = "_observations"
+_OBSERVATION_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_OBSERVATION_MAX_LINES = 10_000
+_OBSERVATION_EVICTION_RATIO = 0.10
+_OBSERVATION_RESULT_CLASSES = frozenset({
+    "success", "error", "timeout", "truncated"
+})
+_OBSERVATION_TOOL_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_OBSERVATION_HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _observations_enabled():
+    """MEMORY_OBSERVATIONS_ENABLED=true to opt in. Default off."""
+    return os.environ.get(
+        "MEMORY_OBSERVATIONS_ENABLED", "false"
+    ).lower() == "true"
+
+
+def _observations_dir():
+    """Return <MEMORY_ROOT>/_observations/, creating if needed."""
+    path = os.path.join(MEMORY_ROOT, _OBSERVATIONS_SUBDIR)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _observation_log_path(session_id):
+    """Return jsonl path for session_id. Caller must have already
+    validated session_id via _validate_session_id."""
+    return os.path.join(_observations_dir(), f"{session_id}.jsonl")
+
+
+def _compute_args_hash(args):
+    """Deterministic SHA256 over normalized args. Used by hook callers
+    (Slice 6) to convert raw tool args into the hash that
+    record_observation persists. Raw values never reach disk."""
+    if isinstance(args, (dict, list)):
+        serialized = json.dumps(args, sort_keys=True, separators=(",", ":"))
+    else:
+        serialized = str(args)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _validate_observation_inputs(tool, hash_value, result_class):
+    if not isinstance(tool, str) or not _OBSERVATION_TOOL_PATTERN.match(tool):
+        raise CarefulNotCleverError(
+            f"record_observation: invalid tool name {tool!r} "
+            f"(expected /{_OBSERVATION_TOOL_PATTERN.pattern}/)"
+        )
+    if (not isinstance(hash_value, str)
+            or not _OBSERVATION_HASH_PATTERN.match(hash_value)):
+        raise CarefulNotCleverError(
+            f"record_observation: args_hash must be 64-char lowercase hex "
+            f"sha256, got {hash_value!r}"
+        )
+    if result_class not in _OBSERVATION_RESULT_CLASSES:
+        raise CarefulNotCleverError(
+            f"record_observation: result_class must be one of "
+            f"{sorted(_OBSERVATION_RESULT_CLASSES)}, got {result_class!r}"
+        )
+
+
+def _rotate_observation_log(path):
+    """FIFO-evict oldest 10% of the log if over size or line cap.
+    Returns (evicted_count, reason) — (0, None) when no rotation needed.
+
+    Caller must hold the flock on a separate handle. This function
+    reads the file fresh and writes via os.replace, so concurrent
+    readers see either the pre- or post-rotation contents — never
+    a torn write."""
+    if not os.path.exists(path):
+        return 0, None
+    size = os.path.getsize(path)
+    over_bytes = size > _OBSERVATION_MAX_BYTES
+    with open(path) as f:
+        lines = f.readlines()
+    over_lines = len(lines) > _OBSERVATION_MAX_LINES
+    if not (over_bytes or over_lines):
+        return 0, None
+    reason_parts = []
+    if over_bytes:
+        reason_parts.append(f"byte cap {_OBSERVATION_MAX_BYTES}")
+    if over_lines:
+        reason_parts.append(f"line cap {_OBSERVATION_MAX_LINES}")
+    reason = " + ".join(reason_parts)
+    evict = max(1, int(len(lines) * _OBSERVATION_EVICTION_RATIO))
+    kept = lines[evict:]
+    tmp = path + ".rotating"
+    with open(tmp, "w") as f:
+        f.writelines(kept)
+    os.replace(tmp, path)
+    return evict, reason
+
+
+def record_observation(tool, args_hash, result_class, session_id):
+    """Append a single observation to <MEMORY_ROOT>/_observations/<session_id>.jsonl.
+
+    Args:
+        tool: short identifier of the tool invoked (e.g. "Bash", "Read");
+            must match /[A-Za-z0-9_.-]{1,64}/
+        args_hash: 64-char lowercase hex sha256 of normalized args;
+            raw args MUST NOT be passed — the hash is the evidence
+        result_class: one of {"success", "error", "timeout", "truncated"}
+        session_id: opaque session identifier; path-traversal-checked
+
+    Returns:
+        {"enabled": False} when feature flag off, otherwise
+        {
+            "enabled": True,
+            "path": str,
+            "wrote": True,
+            "rotation": None or {"evicted": int, "reason": str, "info": str}
+        }
+
+    Raises CarefulNotCleverError on panic flag, invalid input,
+    rate-limit, or future-dated/temporal-inconsistent timestamp.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _validate_observation_inputs(tool, args_hash, result_class)
+    _assert_rate_limit("record_observation", session_id)
+
+    ts = _now()
+    _assert_temporal_consistency(ts)
+
+    path = _observation_log_path(session_id)
+    record = {
+        "ts": ts,
+        "tool": tool,
+        "args_hash": args_hash,
+        "result_class": result_class,
+    }
+    line = json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
+
+    # Exclusive flock around append + rotation pass. Held on the
+    # same fd to keep concurrent writers blocked across both phases.
+    with open(path, "a") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+            evicted, reason = _rotate_observation_log(path)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    rotation = None
+    if evicted > 0:
+        rotation = {"evicted": evicted, "reason": reason}
+        # _assert_no_silent_skip raises by design — capture as INFO
+        # so the rotation surfaces in the return dict instead of being
+        # a silent drop.
+        try:
+            _assert_no_silent_skip(
+                reason=f"observation log rotation: {reason}",
+                count=evicted,
+            )
+        except CarefulNotCleverError as e:
+            rotation["info"] = str(e)
+
+    return {
+        "enabled": True,
+        "path": path,
+        "wrote": True,
+        "rotation": rotation,
+    }
+
+
+def clear_observations(session_id):
+    """Delete the observation log for session_id. Explicit cleanup;
+    callers use this between sessions or to drop a corrupted log.
+
+    Returns {"enabled": False} when feature off, else
+    {"removed": bool, "path": str}.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("clear_observations", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {"removed": False, "path": path}
+    os.remove(path)
+    return {"removed": True, "path": path}
+
+
+# ─────────────────────────────────────────────
 # CLI Interface
 # ─────────────────────────────────────────────
 
