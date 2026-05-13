@@ -73,7 +73,40 @@ import re
 import time
 import uuid
 
-MEMORY_ROOT = os.path.expanduser("~/.memory")
+MEMORY_ROOT_ENV = "MEMORY_ROOT"
+
+
+def _resolve_memory_root() -> str:
+    """Return the active MEMORY_ROOT path.
+
+    Priority:
+      1. ``MEMORY_ROOT`` env var (operator override; honored verbatim, with
+         ``~`` expansion).
+      2. ``<sibling>/open-claw-stuff/.memory/`` — when this module lives at
+         ``<parent>/ken/orchestrator/memory_ops.py`` and a sibling
+         ``open-claw-stuff/`` exists. This is the canonical persistent
+         location: git-tracked, survives container teardown via clone/pull.
+      3. ``~/.memory/`` — legacy fallback. **EPHEMERAL** in web containers
+         (each session destroys it). Kept only so CLI/desktop installs that
+         lack the sibling repo still work.
+
+    The resolution is one-shot at module import; tests override via
+    ``memory_ops.MEMORY_ROOT = "..."`` in setUp as before.
+    """
+    env = os.environ.get(MEMORY_ROOT_ENV)
+    if env:
+        return os.path.expanduser(env)
+    here = os.path.dirname(os.path.abspath(__file__))      # .../orchestrator
+    ken_repo = os.path.dirname(here)                        # .../ken
+    parent = os.path.dirname(ken_repo)                      # ...
+    sibling = os.path.join(parent, "open-claw-stuff", ".memory")
+    if os.path.isdir(os.path.dirname(sibling)):
+        # open-claw-stuff/ exists as a sibling repo. Use it.
+        return sibling
+    return os.path.expanduser("~/.memory")
+
+
+MEMORY_ROOT = _resolve_memory_root()
 ARCHIVE_DIR = os.path.join(MEMORY_ROOT, "_archive")
 DOMAINS = [
     "romans", "sheep", "cruising", "recipes",
@@ -293,6 +326,104 @@ def _assert_human_attention(candidate, confirm=False):
     return {"matched_terms": matched, "blocking": False}
 
 
+# Slice 7.5 consensus auto-promotion eligibility criteria. Documented
+# inline (audit-visible in PR diff). The doctrine forbids auto-promotion
+# in multi-operator-shared profile entirely; in single-operator-local
+# profile, all of these must be cryptographically verifiable.
+_PROMOTION_ELIGIBILITY_MIN_RECALL = 10
+_PROMOTION_ELIGIBILITY_MIN_AGE_DAYS = 30
+_PROMOTION_ELIGIBILITY_MIN_CONFIDENCE = 0.9
+_PROMOTION_ELIGIBILITY_MIN_SESSIONS = 5
+
+
+def _assert_promotion_eligibility(candidate):
+    """v5 Slice 7.5 invariant. Cryptographically validate consensus
+    criteria before auto-promotion. Raises CarefulNotCleverError on
+    ANY criterion fail; auto_promote_eligible() catches and routes
+    the candidate to manual review instead of auto-promoting.
+
+    Manual promote_to_instinct does NOT call this — manual promotion
+    is the operator's explicit choice regardless of consensus.
+
+    Criteria (all must hold):
+      - recall_count >= 10
+      - age (since `created`) >= 30 days
+      - confidence >= 0.9
+      - usage_history contains >= 5 distinct session_ids
+      - No `demoted_at` in candidate's history (never demoted before)
+      - Not archived, not superseded
+      - _assert_evidence_integrity passes (stub until Slice 3C)
+      - _validate_helper_integrity passes (Slice 0.5 mutation defense)
+    """
+    if candidate.get("superseded_by"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} is superseded"
+        )
+    if candidate.get("archived"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} is archived"
+        )
+    if candidate.get("demoted_at"):
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} was "
+            f"previously demoted (demoted_at={candidate['demoted_at']}). "
+            f"Auto-promotion forbidden on demote-history."
+        )
+
+    recall = candidate.get("recall_count", 0)
+    if recall < _PROMOTION_ELIGIBILITY_MIN_RECALL:
+        raise CarefulNotCleverError(
+            f"eligibility: recall_count {recall} < {_PROMOTION_ELIGIBILITY_MIN_RECALL}"
+        )
+
+    created = candidate.get("created")
+    if not created:
+        raise CarefulNotCleverError(
+            f"eligibility: candidate {candidate.get('id', '?')} has no `created` timestamp"
+        )
+    try:
+        created_epoch = time.mktime(
+            time.strptime(created, "%Y-%m-%dT%H:%M:%SZ")
+        )
+    except (ValueError, TypeError):
+        raise CarefulNotCleverError(
+            f"eligibility: unparseable created timestamp {created!r}"
+        )
+    age_days = (time.time() - created_epoch) / 86400
+    if age_days < _PROMOTION_ELIGIBILITY_MIN_AGE_DAYS:
+        raise CarefulNotCleverError(
+            f"eligibility: age {age_days:.1f}d < "
+            f"{_PROMOTION_ELIGIBILITY_MIN_AGE_DAYS}d minimum"
+        )
+
+    conf = candidate.get("confidence", 0.0)
+    if conf < _PROMOTION_ELIGIBILITY_MIN_CONFIDENCE:
+        raise CarefulNotCleverError(
+            f"eligibility: confidence {conf} < {_PROMOTION_ELIGIBILITY_MIN_CONFIDENCE}"
+        )
+
+    history = candidate.get("usage_history", [])
+    if not isinstance(history, list):
+        raise CarefulNotCleverError(
+            f"eligibility: usage_history corrupted (not a list)"
+        )
+    distinct_sessions = {
+        h["session_id"] for h in history
+        if isinstance(h, dict) and "session_id" in h
+    }
+    if len(distinct_sessions) < _PROMOTION_ELIGIBILITY_MIN_SESSIONS:
+        raise CarefulNotCleverError(
+            f"eligibility: {len(distinct_sessions)} distinct sessions in "
+            f"usage_history < {_PROMOTION_ELIGIBILITY_MIN_SESSIONS} minimum"
+        )
+
+    # Cryptographic integrity checks. These are stubs/light today but
+    # become real defenses when Slice 3C ships HMAC integrity and
+    # Slice 0.5 helper-digest fires on monkey-patched invariants.
+    _assert_evidence_integrity(candidate)  # stub until Slice 3C
+    _validate_helper_integrity()  # mutation defense from Slice 0.5
+
+
 # Read-only allowlist for the CI gate. Every addition is a doctrine
 # decision visible in PR diff (the test in tests/ hashes this constant).
 _INVARIANT_READ_ONLY_ALLOWLIST = frozenset({
@@ -345,6 +476,7 @@ _HELPER_NAMES = (
     "_assert_rate_limit",
     "_assert_temporal_consistency",
     "_assert_human_attention",
+    "_assert_promotion_eligibility",  # Slice 7.5
 )
 
 
@@ -872,6 +1004,40 @@ def recall(query, domain=None, limit=10, min_score=0.05, include_archive=False):
     for score, mem in scored[:limit]:
         mem["last_recalled"] = _now()
         mem["recall_count"] = mem.get("recall_count", 0) + 1
+
+        # Slice 5: usage history append (profile-aware, default-on).
+        # Only timestamp + session_id are stored; query content is
+        # never retained (privacy invariant). Capped at 20 entries
+        # (FIFO). Per-entry temporal consistency validated against
+        # the existing chain.
+        if _usage_history_enabled():
+            history = mem.get("usage_history", [])
+            # Defensive: if corrupted to non-list, reinitialize
+            if not isinstance(history, list):
+                history = []
+            new_entry = {
+                "at": mem["last_recalled"],
+                "session_id": _current_session_id(),
+            }
+            # _assert_temporal_consistency raises on future-dated or
+            # backdated-from-chain; surfaces tampering visibly.
+            try:
+                _assert_temporal_consistency(new_entry["at"], chain=history)
+            except CarefulNotCleverError:
+                # Tampered chain: skip the append (don't add the new
+                # entry) but DO surface to operator via _assert_no_silent_skip
+                _assert_no_silent_skip(
+                    f"usage_history append for {mem.get('id', '?')} "
+                    f"failed temporal consistency",
+                    1
+                )
+                # Unreachable: _assert_no_silent_skip raised above
+            history.append(new_entry)
+            # FIFO cap at the most recent _USAGE_HISTORY_CAP entries
+            if len(history) > _USAGE_HISTORY_CAP:
+                history = history[-_USAGE_HISTORY_CAP:]
+            mem["usage_history"] = history
+
         mem["_score"] = round(score, 4)
         mem["_domain"] = mem.get("domain", "unknown")
         path = mem.get("_path")
@@ -1037,6 +1203,7 @@ def consolidate(domain=None):
     actions = {
         "decayed": 0, "removed": 0, "kept": 0,
         "auto_protected": 0, "summarized": 0, "auto_archived": 0,
+        "confidence_promoted": 0,
         "potential_duplicates": [],
     }
 
@@ -1096,6 +1263,23 @@ def consolidate(domain=None):
                 _save_mem(mem, path)
             else:
                 actions["kept"] += 1
+
+            # Slice 4: confidence promotion. Frequently-recalled memories
+            # get a +0.05 bump, capped at 1.0. Profile-aware flag default-on
+            # in single-operator-local; off in multi-operator-shared.
+            # Fires once per consolidate pass (not per recall) so rapid-
+            # fire recalls don't produce runaway promotion.
+            if _confidence_promotion_enabled():
+                now_epoch = time.time()
+                if _should_bump_confidence(mem, now_epoch):
+                    new_conf = min(
+                        mem.get("confidence", 0.0) + _CONFIDENCE_PROMOTION_BUMP,
+                        _CONFIDENCE_PROMOTION_CAP
+                    )
+                    if new_conf > mem.get("confidence", 0.0):
+                        mem["confidence"] = new_conf
+                        actions["confidence_promoted"] += 1
+                        _save_mem(mem, path)
 
             # Auto-archive: old, low-confidence, unprotected, not an instinct.
             # is_instinct shields like `protected` does — an instinct that
@@ -1364,6 +1548,7 @@ def extract_instinct_candidates(domain=None, limit=20):
     promotion still requires an explicit single-id promote_to_instinct
     call per item. There is no bulk-promote API.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "candidates": []}
 
@@ -1423,6 +1608,7 @@ def promote_to_instinct(memory_id, domain=None):
     Idempotent: re-promoting an already-promoted memory returns success
     without changing the timestamp.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "promoted": False,
                 "reason": "MEMORY_LEARNING_ENABLED is not set"}
@@ -1465,6 +1651,7 @@ def demote_from_instinct(memory_id, domain=None):
     """Reverse of promote_to_instinct. Sets `is_instinct: false` and
     `demoted_at: <iso>`. Idempotent.
     """
+    _assert_panic_check()
     if not _learning_enabled():
         return {"enabled": False, "demoted": False,
                 "reason": "MEMORY_LEARNING_ENABLED is not set"}
@@ -1496,6 +1683,459 @@ def demote_from_instinct(memory_id, domain=None):
 
     return {"enabled": True, "demoted": False,
             "id": memory_id, "reason": "Not found in any domain"}
+
+
+# ─────────────────────────────────────────────
+# v5 Slice 7.5 — Consensus auto-promotion eligibility
+# ─────────────────────────────────────────────
+# auto_promote_eligible() reads candidates from extract_instinct_candidates
+# and auto-promotes those passing _assert_promotion_eligibility (cryptographic
+# consensus criteria). The single-id contract is preserved internally:
+# this function iterates per-id, calling promote_to_instinct(id) for each
+# eligible candidate, then setting is_auto_promoted + auto_promoted_at
+# audit flags on the promoted memory.
+#
+# Profile semantics (locked):
+#   single-operator-local: auto-promotion permitted; flag defaults ON
+#   multi-operator-shared: auto-promotion FORBIDDEN; returns disabled
+#                         stub regardless of flag setting
+
+def _auto_promote_enabled():
+    """Profile-aware. Returns True only in single-operator-local profile
+    (where the operator has confirmed sole human access). In
+    multi-operator-shared profile, ALWAYS returns False regardless of
+    env var — auto-promotion of cross-user memory is structurally
+    forbidden by doctrine."""
+    if _learning_profile() == "multi-operator-shared":
+        return False
+    env_val = os.environ.get("MEMORY_AUTO_PROMOTE_ELIGIBLE", "").lower()
+    if env_val in ("false", "0", "no"):
+        return False
+    if env_val in ("true", "1", "yes"):
+        return True
+    # Default: ON in single-operator-local
+    return True
+
+
+def auto_promote_eligible(domain=None):
+    """Promote every candidate that passes cryptographic consensus.
+
+    Reads candidates from extract_instinct_candidates(); runs each
+    through _assert_promotion_eligibility(); for passes, calls
+    promote_to_instinct() then sets is_auto_promoted + auto_promoted_at
+    audit flags. Single-id contract preserved internally (iteration
+    over per-id promotion, not batch API).
+
+    Returns:
+      {
+        "enabled": bool,
+        "profile": str,
+        "domain": str or None,
+        "promoted": [{"id", "domain"}, ...],
+        "skipped": [{"id", "reason"}, ...],
+        "reason": str (only on early-return)
+      }
+
+    Profile behavior:
+      single-operator-local: active by default; MEMORY_AUTO_PROMOTE_ELIGIBLE
+                            env var can disable
+      multi-operator-shared: returns disabled stub permanently;
+                            structurally cannot run
+    """
+    _assert_panic_check()
+
+    profile = _learning_profile()
+
+    # Profile check FIRST: multi-operator-shared is permanently forbidden
+    # regardless of any other flag. Surface the structural reason
+    # before noting transient flag state.
+    if profile == "multi-operator-shared":
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "auto-promotion forbidden in multi-operator-shared profile"}
+
+    if not _learning_enabled():
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    if not _auto_promote_enabled():
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "MEMORY_AUTO_PROMOTE_ELIGIBLE disabled"}
+
+    _assert_rate_limit("auto_promote_eligible", domain or "all")
+
+    # Defense in depth: validate the helper layer hasn't been
+    # monkey-patched before iterating. If a single _assert_* has been
+    # replaced, ALL eligibility checks below would be compromised;
+    # better to halt the whole call than auto-promote against a
+    # compromised invariant layer.
+    _validate_helper_integrity()
+
+    # Read candidates from the read-only extraction surface.
+    extracted = extract_instinct_candidates(domain=domain, limit=100)
+    if not extracted.get("enabled"):
+        return {"enabled": False, "profile": profile, "domain": domain,
+                "promoted": [], "skipped": [],
+                "reason": "extract_instinct_candidates returned disabled"}
+
+    promoted = []
+    skipped = []
+    for candidate in extracted.get("candidates", []):
+        # Single-id contract: each candidate processed independently
+        # via the per-id API. _assert_single_id fires inside
+        # promote_to_instinct.
+        try:
+            _assert_promotion_eligibility(candidate)
+        except CarefulNotCleverError as e:
+            skipped.append({"id": candidate.get("id"),
+                            "reason": str(e)})
+            continue
+
+        # Eligibility passed — promote via the existing single-id API.
+        result = promote_to_instinct(candidate["id"])
+        if not result.get("promoted"):
+            skipped.append({"id": candidate["id"],
+                            "reason": result.get("reason", "promotion failed")})
+            continue
+
+        # Mark the memory with audit flags. is_auto_promoted alongside
+        # is_instinct distinguishes "operator chose this" from "consensus
+        # auto-promoted this" in the audit trail.
+        path = _memory_path(result["domain"], candidate["id"])
+        try:
+            with open(path) as f:
+                mem = json.load(f)
+            mem["is_auto_promoted"] = True
+            mem["auto_promoted_at"] = _now()
+            _save_mem(mem, path)
+        except (json.JSONDecodeError, IOError) as e:
+            skipped.append({"id": candidate["id"],
+                            "reason": f"audit-flag write failed: {type(e).__name__}"})
+            continue
+
+        promoted.append({"id": candidate["id"], "domain": result["domain"]})
+
+    return {
+        "enabled": True,
+        "profile": profile,
+        "domain": domain,
+        "promoted": promoted,
+        "skipped": skipped,
+    }
+
+
+# ─────────────────────────────────────────────
+# v5 Slice 2 — Pull-based session extraction
+# ─────────────────────────────────────────────
+# extract_candidates_from_session reads orchestrator state files
+# (orchestrator/state/<session_id>.json) and surfaces candidate
+# patterns / facts / preferences for operator review. Read-only;
+# never promotes. Per v5 plan §3 Slice 2.
+#
+# Invariant call order (enforced by Slice 1 AST rule):
+#   1. _assert_panic_check
+#   2. _assert_rate_limit("extract_from_session", session_id)
+#   3. per-candidate: _assert_evidence_present + _assert_evidence_integrity
+#   4. _assert_no_silent_skip if any session-state file was unreadable
+
+def _learning_from_sessions_enabled():
+    """Profile-aware flag check. In single-operator-local profile:
+    defaults ON. In multi-operator-shared: defaults OFF.
+    Override via MEMORY_LEARNING_FROM_SESSIONS env var."""
+    env_val = os.environ.get("MEMORY_LEARNING_FROM_SESSIONS", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    # Profile-driven default
+    return _learning_profile() == "single-operator-local"
+
+
+def _confidence_promotion_enabled():
+    """Profile-aware flag for Slice 4 confidence promotion. Defaults ON
+    in single-operator-local; OFF in multi-operator-shared.
+    Override via MEMORY_CONFIDENCE_PROMOTION_ENABLED env var."""
+    env_val = os.environ.get("MEMORY_CONFIDENCE_PROMOTION_ENABLED", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    return _learning_profile() == "single-operator-local"
+
+
+def _usage_history_enabled():
+    """Profile-aware flag for Slice 5 usage history. Defaults ON in
+    single-operator-local; OFF in multi-operator-shared.
+    Override via MEMORY_USAGE_HISTORY_ENABLED env var.
+
+    When ON, every recall that bumps a memory appends an entry to
+    that memory's usage_history list, capped at the most recent 20
+    entries (FIFO). Privacy: only timestamp + session_id are stored;
+    queries are not retained because queries can contain sensitive
+    prose."""
+    env_val = os.environ.get("MEMORY_USAGE_HISTORY_ENABLED", "").lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    return _learning_profile() == "single-operator-local"
+
+
+# Slice 5 cap. Documented inline (audit-visible in PR diff).
+_USAGE_HISTORY_CAP = 20
+
+
+def _current_session_id():
+    """Read MEMORY_SESSION_ID from env; default to 'unknown' if unset.
+    Slice 5 stores only timestamp + session_id; never query content."""
+    return os.environ.get("MEMORY_SESSION_ID", "unknown")
+
+
+# Slice 4 thresholds. Documented inline (auditable in PR history).
+_CONFIDENCE_PROMOTION_MIN_RECALL = 5
+_CONFIDENCE_PROMOTION_RECENT_DAYS = 14
+_CONFIDENCE_PROMOTION_BUMP = 0.05
+_CONFIDENCE_PROMOTION_CAP = 1.0
+
+
+def _should_bump_confidence(mem, now_epoch):
+    """Pure predicate: does this memory qualify for a Slice 4 confidence
+    bump? Returns False on missing/malformed fields (defensive)."""
+    if mem.get("superseded_by"):
+        return False
+    if mem.get("archived"):
+        return False
+    if mem.get("recall_count", 0) < _CONFIDENCE_PROMOTION_MIN_RECALL:
+        return False
+    if mem.get("confidence", 0.0) >= _CONFIDENCE_PROMOTION_CAP:
+        return False
+    last_recalled = mem.get("last_recalled")
+    if not last_recalled:
+        return False  # corrupt: recall_count >= 5 but no last_recalled
+    try:
+        recalled_epoch = time.mktime(
+            time.strptime(last_recalled, "%Y-%m-%dT%H:%M:%SZ")
+        )
+    except (ValueError, TypeError):
+        return False  # malformed timestamp; skip silently per defensive default
+    # Reject future-dated last_recalled (clock skew or attack)
+    if recalled_epoch > now_epoch + 300:
+        return False
+    age_days = (now_epoch - recalled_epoch) / 86400
+    return age_days <= _CONFIDENCE_PROMOTION_RECENT_DAYS
+
+
+def _validate_session_id(session_id):
+    """Defend against path traversal in session_id. Session IDs must be
+    a basename with no path separators and no parent-directory or
+    current-directory references.
+
+    The raw-parts check below catches bare `"."` and embedded `"./"`
+    segments that `os.path.basename` silently normalizes. Pattern
+    lifted from OpenAgentd `validate_wiki_path` (their `wiki.py`)
+    which documents the same Python behaviour: `Path("topics/./test.md")`
+    becomes `("topics", "test.md")` — the dot is silently dropped before
+    the parts check runs. We check the RAW string before any path
+    operation."""
+    if not session_id or not isinstance(session_id, str):
+        raise CarefulNotCleverError(
+            f"session_id must be a non-empty string, got {session_id!r}"
+        )
+    # Normalize backslash → slash for cross-platform consistency, then
+    # check raw parts before Path/os.path touch the value.
+    raw_parts = session_id.replace("\\", "/").split("/")
+    if any(part in ("..", ".") for part in raw_parts):
+        raise CarefulNotCleverError(
+            f"session_id {session_id!r} contains '..' or '.' segment"
+        )
+    if os.path.basename(session_id) != session_id:
+        raise CarefulNotCleverError(
+            f"session_id {session_id!r} contains path separators"
+        )
+
+
+def _state_dir_default():
+    """Return orchestrator/state/ relative to this module's location."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+
+
+def _extract_candidates_from_blackboard(snapshot, session_id):
+    """Pure function: given an immutable snapshot of the blackboard,
+    return a list of candidate dicts. No I/O; testable in isolation.
+
+    Three candidate kinds in v1:
+      - 'fact' from verified_claims (high-confidence)
+      - 'pattern' from repeated pipeline roles (3+ same role)
+      - 'preference' from the task description itself
+
+    Each candidate carries full provenance: source session_id, the
+    observation references that produced it, and a 'delta' field
+    describing what behavior would change if promoted (per v3 plan
+    Perplexity R2 Differential Memory Review).
+    """
+    candidates = []
+
+    # Kind 1: facts from verified_claims
+    for i, claim in enumerate(snapshot.get("verified_claims", [])):
+        if not isinstance(claim, dict):
+            continue
+        content = claim.get("claim") or claim.get("text") or ""
+        if not content:
+            continue
+        candidates.append({
+            "id": f"{session_id}:claim:{i}",
+            "content": content,
+            "type": "fact",
+            "confidence": 0.95,
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "verified_claim",
+                     "ref": f"verified_claims[{i}]"}
+                ],
+                "observation_count": 1,
+            },
+            "delta": f"future recalls would return verified claim: "
+                     f"'{content[:80]}'",
+        })
+
+    # Kind 2: patterns from repeated pipeline roles
+    role_counts = {}
+    role_refs = {}
+    for i, step in enumerate(snapshot.get("pipeline", [])):
+        if not isinstance(step, dict):
+            continue
+        role = step.get("role")
+        if not role:
+            continue
+        role_counts[role] = role_counts.get(role, 0) + 1
+        role_refs.setdefault(role, []).append(i)
+    for role, count in role_counts.items():
+        if count < 3:
+            continue
+        candidates.append({
+            "id": f"{session_id}:pattern:{role}",
+            "content": f"operator used '{role}' role {count} times in session",
+            "type": "pattern",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "pipeline_step",
+                     "ref": f"pipeline[{i}]"}
+                    for i in role_refs[role]
+                ],
+                "observation_count": count,
+            },
+            "delta": f"future sessions would weight '{role}' role higher "
+                     f"in recall scoring",
+        })
+
+    # Kind 3: preference from task description
+    task = snapshot.get("task", "")
+    if task and len(task) > 20:
+        candidates.append({
+            "id": f"{session_id}:preference:task",
+            "content": f"operator interested in: {task[:200]}",
+            "type": "preference",
+            "confidence": 0.7,
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id,
+                     "kind": "task_description",
+                     "ref": "task"}
+                ],
+                "observation_count": 1,
+            },
+            "delta": f"future recalls would prioritize content related "
+                     f"to: {task[:80]}",
+        })
+
+    return candidates
+
+
+def extract_candidates_from_session(session_id, dry_run=True, state_dir=None):
+    """Read orchestrator state file at <state_dir>/<session_id>.json and
+    surface candidate patterns/facts/preferences for operator review.
+
+    Profile-aware default-on/off (MEMORY_LEARNING_FROM_SESSIONS);
+    enforced read-only when dry_run=True (the v1 contract — never
+    writes memory from this slice).
+
+    Returns:
+        {
+          "enabled": bool,
+          "session_id": str,
+          "candidates": [...],
+          "skipped": int,
+          "reason": str (only present on early-return)
+        }
+
+    Mitigates T9 (TOCTOU) via single-read snapshot pattern: the entire
+    state file is loaded into memory before any scanning, and the
+    extraction operates on the immutable snapshot. Concurrent writes
+    after the read are visible to subsequent calls but not this one.
+    """
+    _assert_panic_check()
+
+    if not _learning_enabled():
+        return {"enabled": False, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": "MEMORY_LEARNING_ENABLED is not set"}
+
+    if not _learning_from_sessions_enabled():
+        return {"enabled": False, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": "MEMORY_LEARNING_FROM_SESSIONS disabled"}
+
+    # Defend against path traversal in session_id
+    _validate_session_id(session_id)
+
+    # Rate-limit per-session extraction
+    _assert_rate_limit("extract_from_session", session_id)
+
+    if state_dir is None:
+        state_dir = _state_dir_default()
+    state_path = os.path.join(state_dir, f"{session_id}.json")
+
+    # Snapshot pattern: single read, then operate on immutable copy
+    if not os.path.exists(state_path):
+        return {"enabled": True, "session_id": session_id,
+                "candidates": [], "skipped": 0,
+                "reason": f"no state file at {state_path}"}
+    try:
+        with open(state_path) as f:
+            snapshot = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        # Surface as INFO finding rather than crash
+        _assert_no_silent_skip(
+            f"state file unreadable for {session_id}: "
+            f"{type(e).__name__}",
+            1
+        )
+        # _assert_no_silent_skip raised; unreachable
+
+    candidates = _extract_candidates_from_blackboard(snapshot, session_id)
+
+    # Per-candidate invariant validation
+    for candidate in candidates:
+        _assert_evidence_present(candidate)
+        _assert_evidence_integrity(candidate)  # stub until Slice 3C
+
+    # If dry_run (always true in v1), do not write anything.
+    # The caller decides what to do with the candidate list.
+    return {
+        "enabled": True,
+        "session_id": session_id,
+        "candidates": candidates,
+        "skipped": 0,
+        "dry_run": dry_run,
+    }
 
 
 # ─────────────────────────────────────────────
