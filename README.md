@@ -1,7 +1,7 @@
 # Ken — Personal Hub & Multi-LLM Orchestrator
 
-A personal monorepo that hosts three connected systems used across all 9 of Ken's
-project repositories:
+A personal monorepo that hosts three connected systems used across all 11
+repositories in Ken's household:
 
 1. **Timezone & Clock Sync** — A `tz` command, boot/wake/network hooks for
    Devuan/SysVinit, and a 1,200+ cruise-port database for trip scheduling.
@@ -10,7 +10,7 @@ project repositories:
 3. **Keeper** — A session-continuity checkpoint tool for surviving Claude Code
    timeouts and rate limits.
 
-> **Soli Deo Gloria.** This hub serves nine other projects whose work is
+> **Soli Deo Gloria.** This hub serves ten other projects whose work is
 > offered as worship. Excellence here is stewardship of every downstream task.
 
 See [`CLAUDE.md`](CLAUDE.md) for project conventions (handoff protocol,
@@ -311,7 +311,7 @@ sudo rm -f /var/run/last-clock-sync
 ## 2. Multi-LLM Orchestrator
 
 This repo hosts the orchestrator at `orchestrator/`. It is the hub for all
-multi-LLM operations across Ken's nine personal repos. External models
+multi-LLM operations across the eleven repositories in Ken's household. External models
 (GPT, Gemini, Grok, Perplexity, You.com) serve as **consultants only** —
 Claude remains the lead developer and decision-maker.
 
@@ -327,10 +327,13 @@ Claude remains the lead developer and decision-maker.
 
 ### Modes
 
-`sermon`, `sheep`, `cruising`, `recipe`, `family-history`, `triad`. This
-repo is the hub — **no default mode**. Specify the mode explicitly when
-running `/orchestrate` or `/investigate`. Each sister repo defaults to its
-own mode (see [Sister Repositories](#4-sister-repositories) below).
+`sermon`, `sheep`, `cruising`, `recipe`, `family-history`, `triad`,
+`adversarial-review`, `strategy`. This repo is the hub — **no default
+mode**. Specify the mode explicitly when running `/orchestrate` or
+`/investigate`. Each sister repo defaults to its own mode (see
+[Sister Repositories](#4-sister-repositories) below). `adversarial-review`
+and `strategy` are hub-only modes for cross-cutting work
+(red-team review, non-page document synthesis).
 
 ### Adapters
 
@@ -402,7 +405,7 @@ orchestrator/
 ├── smart_routing.py       ← Trigger detection, weighted voting
 ├── memory_ops.py          ← Cognitive memory (TF-IDF semantic search)
 ├── adapters/              ← gpt, gemini, grok, perplexity, youdotcom
-├── modes/                 ← sermon, sheep, cruising, recipe, family-history, triad
+├── modes/                 ← sermon, sheep, cruising, recipe, family-history, triad, adversarial-review, strategy
 ├── state/                 ← Runtime state (JSON output)
 ├── repo-modes.json        ← Repo-to-mode mapping
 └── .env                   ← API keys (gitignored, seeded via env_seed.py)
@@ -454,8 +457,9 @@ See `keeper/` source and the Handoff Protocol section in
 
 ## 4. Sister Repositories
 
-This hub orchestrates work across nine repositories. Each defaults to a
-specific orchestrator mode.
+This hub orchestrates work across eleven repositories. Each defaults to a
+specific orchestrator mode (the hub itself has none — modes are always
+explicit here).
 
 | Repo | Mode | Purpose |
 |---|---|---|
@@ -463,11 +467,16 @@ specific orchestrator mode.
 | [InTheWake](https://github.com/jsschrstrcks1/InTheWake) | `cruising` | cruisinginthewake.com — Christ-shaped cruise planning site |
 | [manateecreeksheep](https://github.com/jsschrstrcks1/manateecreeksheep) | `sheep` | Florida sheep flock management & breeding pipeline |
 | [Family-History](https://github.com/jsschrstrcks1/Family-History) | `family-history` | Baker / Raulerson / Stokes / Montes de Oca genealogy |
+| [Romans](https://github.com/jsschrstrcks1/Romans) | `sermon` | Romans exegesis, pastoral, and application work |
 | [MomsRecipes](https://github.com/jsschrstrcks1/MomsRecipes) | `recipe` | MomMom Baker's recipes |
 | [Grandmasrecipes](https://github.com/jsschrstrcks1/Grandmasrecipes) | `recipe` | Grandma Baker's recipes (Michigan→Florida) |
 | [Grannysrecipes](https://github.com/jsschrstrcks1/Grannysrecipes) | `recipe` | Granny Hudson's recipes (Florida→Boston→back) |
 | [Allrecipes](https://github.com/jsschrstrcks1/Allrecipes) | `recipe` | Reference cookbooks & magazine clippings |
 | [flickersofmajesty](https://github.com/jsschrstrcks1/flickersofmajesty) | *(none yet)* | Fine-art photography e-commerce (FOM-Lite protocol) |
+| [open-claw-stuff](https://github.com/jsschrstrcks1/open-claw-stuff) | *(open commons)* | Unlicense outflow channel — sanitized skills & reference impls |
+
+Per-repo character and history live under [`souls/`](souls/) (one document
+per repo, plus `soul-ken.md` for this hub).
 
 ---
 
@@ -486,8 +495,13 @@ specific orchestrator mode.
 
 | Document | Purpose |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | AI-assistant context: handoff protocol, orchestrator setup |
+| [`CLAUDE.md`](CLAUDE.md) | AI-assistant context: handoff protocol, orchestrator setup, OpenClaw ToS requirements |
+| [`SKILLS.md`](SKILLS.md) | Human-facing index of all 30 configured skills |
+| [`WORKING-CONTEXT.md`](WORKING-CONTEXT.md) | Operational truth doc — current sprint, queues, lift ledger, execution log |
+| [`souls/`](souls/) | Per-repo character documents (one per household repo) |
+| [`openclaw/`](openclaw/) | OpenClaw runtime architecture, master plan, multi-repo extension spec |
 | [`keeper-plan.md`](keeper-plan.md) | Keeper architecture and rollout plan |
+| [`MANATEE_CREEK_REDESIGN_PLAN.md`](MANATEE_CREEK_REDESIGN_PLAN.md) | Manatee Creek data redesign — ken-side plan |
 | [`new-skills-proposal.md`](new-skills-proposal.md) | Proposed additions to the skill set |
 | [`skills-audit.md`](skills-audit.md) | Audit of current skill coverage |
 | [`plan.md`](plan.md) | Current/active plan for the hub |

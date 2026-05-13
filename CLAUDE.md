@@ -16,7 +16,7 @@ The Multi-LLM Integration section below gives the orchestrator quick reference; 
 
 ## Multi-LLM Integration
 
-This repository **hosts** the orchestrator at `orchestrator/`. It is the hub for all multi-LLM operations across all 9 repositories.
+This repository **hosts** the orchestrator at `orchestrator/`. It is the hub for all multi-LLM operations across all 11 repositories in the household.
 
 ### Available Skills
 
@@ -29,7 +29,7 @@ This repository **hosts** the orchestrator at `orchestrator/`. It is the hub for
 | Cognitive Memory | Automatic on session start | Cross-session knowledge persistence |
 
 ### Mode: *(specify explicitly)*
-This is the hub — no default mode. Specify `sermon`, `sheep`, `cruising`, `recipe`, or `family-history` when running `/orchestrate` or `/investigate`.
+This is the hub — no default mode. Specify one of `sermon`, `sheep`, `cruising`, `recipe`, `family-history`, `triad`, `adversarial-review`, or `strategy` when running `/orchestrate` or `/investigate`. The last three are hub-only modes (red-team review, planner/builder/verifier triad, non-page document synthesis).
 
 - **Memory scope:** `/ken`
 - **Orchestrator:** `/home/user/ken/orchestrator/`
@@ -111,6 +111,22 @@ Every `HANDOFF.md` must contain:
 - Include IDs, paths, and exact values — not vague descriptions
 - Delete the handoff when the work is fully complete
 
+### Keeper — automated half of continuity
+
+`keeper/` is the machine-readable companion to `HANDOFF.md`. It writes session state under `.keeper/<family>/` so the next session can resume without re-discovery.
+
+```
+python -m keeper checkpoint <family> ...   # write a checkpoint
+python -m keeper status <family>           # show session state
+python -m keeper snapshot <family>         # capture full snapshot
+python -m keeper validate <family>         # quality rubric + lint checks
+python -m keeper recover <family>          # produce recovery brief
+python -m keeper complete <family>         # mark session done
+python -m keeper install-hooks             # SessionStart / PreCompact / SessionEnd
+```
+
+Run `keeper install-hooks` once per repo to wire keeper into the harness lifecycle. See `keeper/README.md` for the full review-and-checkpoint workflow.
+
 ---
 
 ### First-Time Setup (Per Session)
@@ -160,7 +176,7 @@ orchestrator/
 ├── smart_routing.py       ← Trigger detection, weighted voting
 ├── memory_ops.py          ← Cognitive memory (semantic search, TF-IDF)
 ├── adapters/              ← GPT, Gemini, Grok, Perplexity, You.com
-├── modes/                 ← sermon, sheep, cruising, recipe, family-history
+├── modes/                 ← sermon, sheep, cruising, recipe, family-history, triad, adversarial-review, strategy
 ├── state/                 ← Runtime state (JSON output)
 ├── repo-modes.json        ← Repository-to-mode mapping
 └── .env                   ← API keys (gitignored)
