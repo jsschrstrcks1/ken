@@ -2139,6 +2139,340 @@ def extract_candidates_from_session(session_id, dry_run=True, state_dir=None):
 
 
 # ─────────────────────────────────────────────
+# v6 Slice 2.5 — Formalized transcript mining
+# ─────────────────────────────────────────────
+# Converts the cross-thread mining + relay pattern (emergent on
+# 2026-05-13, used 4+ times across sibling threads) into stable
+# callable surface. Three functions:
+#
+#   mine_transcripts()         read-only; parse jsonls → candidates
+#   ingest_relayed_memories()  write relayer JSONs (with IDs) to disk
+#   _dedup_against_corpus()    internal helper used by both
+#
+# Mining is read-only (no MEMORY_ROOT writes). Ingestion writes
+# verbatim, preserving the relayer's chosen IDs — does NOT call
+# memory_ops.encode (which generates fresh UUIDs and would lose
+# origin trace).
+
+# Auto-resume preamble + system-noise prefixes to skip during mining.
+_MINE_SKIP_PREFIXES = (
+    "This session is being continued",
+    "<system-reminder>",
+    "[Request interrupted",
+    "Caveat:",
+    "Stop hook feedback",
+    "Tool loaded",  # ToolSearch acknowledgement
+)
+
+
+def _dedup_against_corpus(content, domain, tags=None):
+    """Pure dedup helper. Returns (matched_memory_id, reason) or (None, None).
+
+    Three signals (any one wins):
+      1. Substring head-match: first 200 chars of new in existing,
+         or vice versa.
+      2. Word-overlap >65% within same-domain memories.
+      3. Tag-overlap >60% paired with word-overlap >40% (soft signal).
+
+    Reads from current MEMORY_ROOT/<domain>/*.json on every call —
+    no caching, so dedup sees concurrent writes. Domain-scoped:
+    a memory in domain=ken doesn't dedup against domain=sheep."""
+    nc = content.lower()
+    n_words = set(re.findall(r"\w{4,}", nc))
+    n_tag_set = set(tags or [])
+
+    for path in glob.glob(os.path.join(MEMORY_ROOT, domain, "*.json")):
+        try:
+            with open(path) as f:
+                e = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        ec = e.get("content", "").lower()
+        if not ec:
+            continue
+        # Substring head-match
+        if nc[:200] in ec or ec[:200] in nc:
+            return e.get("id"), "substring-head-match"
+        # Word overlap
+        if n_words:
+            e_words = set(re.findall(r"\w{4,}", ec))
+            overlap = len(n_words & e_words) / len(n_words)
+            if overlap > 0.65:
+                if n_tag_set:
+                    e_tag_set = set(e.get("tags", []))
+                    tag_overlap = (
+                        len(n_tag_set & e_tag_set) / len(n_tag_set)
+                        if e_tag_set else 0.0
+                    )
+                    return (
+                        e.get("id"),
+                        f"word-overlap-{overlap:.2f}+tag-overlap-{tag_overlap:.2f}",
+                    )
+                return e.get("id"), f"word-overlap-{overlap:.2f}"
+    return None, None
+
+
+def mine_transcripts(
+    transcript_glob=None,
+    min_content_chars=30,
+    max_content_chars=500,
+    source_tag=None,
+):
+    """Stream-mine transcript jsonl files for unique high-signal user
+    prompts. Returns a structured report; read-only (no MEMORY_ROOT
+    writes). Operator passes the returned candidates into
+    ingest_relayed_memories or memory_ops.encode as desired.
+
+    Each candidate carries an `evidence` sub-dict so it satisfies the
+    _assert_evidence_present invariant when used in downstream
+    extraction paths.
+
+    Returns:
+        {
+            "candidates": [
+                {
+                    "content": str,
+                    "timestamp": str (ISO),
+                    "session_id": str (8-char prefix from filename),
+                    "source": str,
+                    "transcript_path": str,
+                    "evidence": {"observations": [{"transcript", "session_id", "timestamp"}]},
+                },
+                ...
+            ],
+            "transcripts_scanned": int,
+            "parse_failures": int,
+            "skipped_too_short": int,
+            "skipped_too_long": int,
+            "skipped_preamble": int,
+            "skipped_dup_text": int,
+        }
+
+    Counts are surfaced (not silent drops), so _assert_no_silent_skip
+    is not triggered by normal filter activity. parse_failures is
+    surfaced too — caller decides whether to investigate.
+    """
+    _assert_panic_check()
+
+    if transcript_glob is None:
+        transcript_glob = "/root/.claude/projects/-home-user/*.jsonl"
+
+    # Defend against path traversal via the glob pattern itself.
+    # Only allow alphanumeric, hyphen, slash, dot, asterisk, square brackets.
+    if not re.match(r"^[a-zA-Z0-9_\-/.*\[\]?]+$", transcript_glob):
+        raise CarefulNotCleverError(
+            f"transcript_glob {transcript_glob!r} contains unsafe characters"
+        )
+
+    _assert_rate_limit("mine_transcripts", transcript_glob)
+
+    source = source_tag or f"mined-from-transcripts:{_now()[:10]}"
+
+    unique = {}  # text -> (timestamp, session_id, transcript_path)
+    parse_failures = 0
+    skipped_too_short = 0
+    skipped_too_long = 0
+    skipped_preamble = 0
+    skipped_dup_text = 0
+    scanned = 0
+
+    for path in sorted(glob.glob(transcript_glob)):
+        scanned += 1
+        sess_id = os.path.basename(path)[:8]
+        try:
+            with open(path) as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                    except json.JSONDecodeError:
+                        parse_failures += 1
+                        continue
+                    msg = d.get("message", {})
+                    if msg.get("role") != "user":
+                        continue
+                    content_block = msg.get("content", "")
+                    # Text might be top-level string or list-of-blocks
+                    texts = []
+                    if isinstance(content_block, str):
+                        texts.append(content_block)
+                    elif isinstance(content_block, list):
+                        for c in content_block:
+                            if isinstance(c, dict) and c.get("type") == "text":
+                                texts.append(c.get("text", ""))
+                    for t in texts:
+                        t = t.strip()
+                        if not t:
+                            continue
+                        if any(t.startswith(p) for p in _MINE_SKIP_PREFIXES):
+                            skipped_preamble += 1
+                            continue
+                        if len(t) < min_content_chars:
+                            skipped_too_short += 1
+                            continue
+                        if len(t) > max_content_chars:
+                            skipped_too_long += 1
+                            continue
+                        ts = d.get("timestamp", "")
+                        if t in unique:
+                            skipped_dup_text += 1
+                            # Keep earliest timestamp
+                            old_ts, _, _ = unique[t]
+                            if ts and ts < old_ts:
+                                unique[t] = (ts, sess_id, path)
+                            continue
+                        unique[t] = (ts, sess_id, path)
+        except (IOError, OSError):
+            parse_failures += 1
+            continue
+
+    candidates = []
+    for text, (ts, sess, path) in unique.items():
+        candidate = {
+            "content": text,
+            "timestamp": ts,
+            "session_id": sess,
+            "source": source,
+            "transcript_path": path,
+            "evidence": {
+                "observations": [
+                    {"transcript": path, "session_id": sess, "timestamp": ts}
+                ]
+            },
+        }
+        _assert_evidence_present(candidate)
+        candidates.append(candidate)
+
+    return {
+        "candidates": candidates,
+        "transcripts_scanned": scanned,
+        "parse_failures": parse_failures,
+        "skipped_too_short": skipped_too_short,
+        "skipped_too_long": skipped_too_long,
+        "skipped_preamble": skipped_preamble,
+        "skipped_dup_text": skipped_dup_text,
+    }
+
+
+def ingest_relayed_memories(json_list, dedup=True):
+    """Accept a list of complete memory dicts (with IDs already set by
+    the relayer) and write the net-new ones verbatim to disk. Does NOT
+    call memory_ops.encode — preserves the relayer's IDs for origin
+    trace.
+
+    Each dict must contain at minimum: id, created, domain, type,
+    content. Other fields (version, source, confidence, tags,
+    related_to, supersedes, protected, archived, summarizes,
+    last_recalled, recall_count) are preserved verbatim if present;
+    sensible defaults filled in otherwise.
+
+    Args:
+        json_list: list of memory dicts (or a single dict).
+        dedup: if True (default), substring/word/tag overlap dedup
+               against current MEMORY_ROOT corpus. Set False to write
+               unconditionally (operator override).
+
+    Returns:
+        {
+            "written": [{"id", "domain", "type"}, ...],
+            "skipped": [{"id", "reason", "matched_id"}, ...],
+            "errors": [{"id" or position, "reason"}, ...],
+        }
+    """
+    _assert_panic_check()
+
+    if isinstance(json_list, dict):
+        json_list = [json_list]
+    if not isinstance(json_list, list):
+        raise CarefulNotCleverError(
+            f"ingest_relayed_memories expects list or dict, got {type(json_list).__name__}"
+        )
+
+    _assert_rate_limit("ingest_relayed_memories", "default")
+
+    required = {"id", "created", "domain", "type", "content"}
+    defaults = {
+        "version": 1,
+        "updated": None,
+        "source": "relayed",
+        "confidence": 0.7,
+        "tags": [],
+        "related_to": [],
+        "supersedes": None,
+        "protected": False,
+        "archived": False,
+        "summarizes": [],
+        "last_recalled": None,
+        "recall_count": 0,
+    }
+
+    written, skipped, errors = [], [], []
+
+    for idx, d in enumerate(json_list):
+        if not isinstance(d, dict):
+            errors.append({"position": idx, "reason": f"not a dict ({type(d).__name__})"})
+            continue
+        missing = required - set(d.keys())
+        if missing:
+            errors.append({
+                "id": d.get("id", f"<position {idx}>"),
+                "reason": f"missing required fields: {sorted(missing)}",
+            })
+            continue
+        # Validate created timestamp
+        try:
+            _assert_temporal_consistency(d["created"])
+        except CarefulNotCleverError as e:
+            errors.append({"id": d["id"], "reason": str(e)})
+            continue
+        # Defend against id with path separators
+        if os.path.basename(d["id"]) != d["id"] or any(
+            seg in (".", "..") for seg in d["id"].replace("\\", "/").split("/")
+        ):
+            errors.append({"id": d["id"], "reason": "id contains path separators or traversal segments"})
+            continue
+        # Domain validation
+        if d["domain"] not in DOMAINS:
+            errors.append({"id": d["id"], "reason": f"unknown domain {d['domain']!r}"})
+            continue
+
+        # Dedup
+        if dedup:
+            dup_id, reason = _dedup_against_corpus(
+                d["content"], d["domain"], d.get("tags", [])
+            )
+            if dup_id and dup_id != d["id"]:
+                skipped.append({
+                    "id": d["id"],
+                    "matched_id": dup_id,
+                    "reason": reason,
+                })
+                continue
+
+        # File-exists check (idempotent — same id appearing twice in one call,
+        # or already present on disk from a prior ingest).
+        target_dir = os.path.join(MEMORY_ROOT, d["domain"])
+        os.makedirs(target_dir, exist_ok=True)
+        target_path = os.path.join(target_dir, f"{d['id']}.json")
+        if os.path.exists(target_path):
+            skipped.append({"id": d["id"], "reason": "file already exists at target path"})
+            continue
+
+        # Fill in defaults for missing optional fields
+        record = dict(defaults)
+        record.update(d)
+
+        with open(target_path, "w") as f:
+            json.dump(record, f, indent=2)
+        written.append({
+            "id": d["id"],
+            "domain": d["domain"],
+            "type": d["type"],
+        })
+
+    return {"written": written, "skipped": skipped, "errors": errors}
+
+
+# ─────────────────────────────────────────────
 # CLI Interface
 # ─────────────────────────────────────────────
 

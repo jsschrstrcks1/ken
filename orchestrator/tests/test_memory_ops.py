@@ -2827,5 +2827,357 @@ class AutoPromoteEligibleAdversarialTests(_ConsensusAutoPromoteBase):
             memory_ops._assert_evidence_integrity = orig
 
 
+# ─────────────────────────────────────────────
+# Slice 2.5 — Formalized transcript mining
+# ─────────────────────────────────────────────
+
+
+class _MiningBase(MemoryOpsTestBase):
+    """Shared setup for Slice 2.5 — writes synthetic transcripts to a
+    tempdir + isolates rate-limit/panic env."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_flags = {}
+        for k in ("MEMORY_LEARNING_PANIC_DISABLE_ALL", "MEMORY_SESSION_ID"):
+            self._orig_flags[k] = os.environ.get(k)
+            os.environ.pop(k, None)
+        self.transcript_dir = tempfile.mkdtemp()
+        memory_ops._rate_buckets.clear()
+        memory_ops._rate_baselines.clear()
+
+    def tearDown(self):
+        for k, v in self._orig_flags.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        import shutil
+        shutil.rmtree(self.transcript_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _write_transcript(self, session_id, user_msgs):
+        """Build a synthetic jsonl with given user-message texts."""
+        path = os.path.join(self.transcript_dir, f"{session_id}.jsonl")
+        with open(path, "w") as f:
+            for i, text in enumerate(user_msgs):
+                d = {
+                    "timestamp": f"2026-05-13T1{i:02d}:00:00Z",
+                    "sessionId": session_id,
+                    "message": {
+                        "role": "user",
+                        "content": text if isinstance(text, str) else text,
+                    },
+                }
+                f.write(json.dumps(d) + "\n")
+        return path
+
+
+class MineTranscriptsTests(_MiningBase):
+
+    def test_empty_glob_returns_zero_candidates(self):
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["transcripts_scanned"], 0)
+
+    def test_extracts_user_messages(self):
+        self._write_transcript("aaa11111", [
+            "Operator directive: do the best, not the easiest.",
+            "another durable architectural decision worth recording here.",
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 2)
+        contents = {c["content"] for c in result["candidates"]}
+        self.assertIn("Operator directive: do the best, not the easiest.", contents)
+
+    def test_dedups_identical_text_across_files(self):
+        msg = "Identical content across two sessions for dedup test"
+        self._write_transcript("bbb22222", [msg])
+        self._write_transcript("ccc33333", [msg])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["skipped_dup_text"], 1)
+
+    def test_filters_too_short_content(self):
+        self._write_transcript("ddd44444", ["short", "x", "ok"])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            min_content_chars=30,
+        )
+        self.assertEqual(len(result["candidates"]), 0)
+        self.assertEqual(result["skipped_too_short"], 3)
+
+    def test_filters_too_long_content(self):
+        big = "x" * 600
+        self._write_transcript("eee55555", [big])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            max_content_chars=500,
+        )
+        self.assertEqual(len(result["candidates"]), 0)
+        self.assertEqual(result["skipped_too_long"], 1)
+
+    def test_skips_auto_resume_preamble(self):
+        self._write_transcript("fff66666", [
+            "This session is being continued from a previous conversation that ran out of context.",
+            "<system-reminder>this should also be skipped</system-reminder>",
+            "Real operator directive that should survive filters",
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["skipped_preamble"], 2)
+        self.assertIn("Real operator directive",
+                      result["candidates"][0]["content"])
+
+    def test_candidates_have_evidence(self):
+        """Each candidate must satisfy _assert_evidence_present so it
+        flows through downstream extraction/promotion paths."""
+        self._write_transcript("ggg77777", [
+            "Operator directive that should encode cleanly with provenance"
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        cand = result["candidates"][0]
+        self.assertIn("evidence", cand)
+        self.assertGreater(len(cand["evidence"]["observations"]), 0)
+        memory_ops._assert_evidence_present(cand)  # must not raise
+
+    def test_source_tag_applied(self):
+        self._write_transcript("hhh88888", [
+            "A durable directive with custom source-tag override applied"
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            source_tag="custom-tag-test",
+        )
+        self.assertEqual(result["candidates"][0]["source"], "custom-tag-test")
+
+    def test_extracts_from_list_content_blocks(self):
+        """User messages can be list-of-blocks (text-typed) not just string."""
+        path = os.path.join(self.transcript_dir, "iii99999.jsonl")
+        with open(path, "w") as f:
+            d = {
+                "timestamp": "2026-05-13T10:00:00Z",
+                "sessionId": "iii99999",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "From a list block, durable directive"},
+                        {"type": "image", "source": {}},  # should be ignored
+                    ],
+                },
+            }
+            f.write(json.dumps(d) + "\n")
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+
+
+class DedupAgainstCorpusTests(MemoryOpsTestBase):
+
+    def test_substring_head_match_detected(self):
+        memory_ops.encode(
+            "Original memory about kubernetes scheduling patterns",
+            domain="ken", memory_type="pattern")
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "Original memory about kubernetes scheduling patterns extended further",
+            domain="ken", tags=[])
+        self.assertIsNotNone(dup_id)
+        self.assertEqual(reason, "substring-head-match")
+
+    def test_word_overlap_detected(self):
+        """Dedup catches reshuffled content. Either signal (substring or
+        word-overlap) is valid; the point is the duplicate is caught."""
+        memory_ops.encode(
+            "The operator wants careful not clever defenses always applied here",
+            domain="ken", memory_type="preference", tags=["doctrine"])
+        # Reshuffled content with ≥65% word overlap but no substring match
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "Careful, not clever — defenses applied; here the operator wants always",
+            domain="ken", tags=["doctrine"])
+        self.assertIsNotNone(dup_id, f"expected dup match; got reason={reason}")
+        self.assertTrue(
+            "word-overlap" in reason or "substring" in reason,
+            f"unexpected reason: {reason}"
+        )
+
+    def test_different_domain_not_deduped(self):
+        memory_ops.encode(
+            "Cross-domain content sharing wording",
+            domain="ken", memory_type="fact")
+        # Same text, different domain → not a dup
+        dup_id, _ = memory_ops._dedup_against_corpus(
+            "Cross-domain content sharing wording",
+            domain="recipes", tags=[])
+        self.assertIsNone(dup_id)
+
+    def test_no_match_returns_none(self):
+        memory_ops.encode("completely unrelated content here",
+                          domain="ken", memory_type="fact")
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "totally different subject matter without overlapping words",
+            domain="ken", tags=[])
+        self.assertIsNone(dup_id)
+        self.assertIsNone(reason)
+
+
+class IngestRelayedMemoriesTests(_MiningBase):
+
+    def _good_record(self, mid="testid01", content="a relayed memory directive"):
+        return {
+            "id": mid,
+            "created": "2026-05-13T10:00:00Z",
+            "version": 1,
+            "domain": "ken",
+            "type": "pattern",
+            "content": content,
+            "source": "relayed-from-test",
+            "confidence": 0.85,
+            "tags": ["test"],
+            "related_to": [],
+            "supersedes": None,
+            "protected": False,
+            "archived": False,
+            "summarizes": [],
+            "last_recalled": None,
+            "recall_count": 0,
+        }
+
+    def test_writes_net_new_with_preserved_id(self):
+        rec = self._good_record(mid="aaaa1111", content="net new content for ingest")
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(result["written"][0]["id"], "aaaa1111")
+        # File exists at preserved id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "aaaa1111.json")
+        self.assertTrue(os.path.exists(path))
+
+    def test_dedup_skips_duplicate_content(self):
+        memory_ops.encode("seed-content for dedup test in ingest",
+                          domain="ken", memory_type="fact")
+        rec = self._good_record(content="seed-content for dedup test in ingest")
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["written"]), 0)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertIn("matched_id", result["skipped"][0])
+
+    def test_dedup_false_writes_anyway(self):
+        memory_ops.encode("seed-content for dedup false test",
+                          domain="ken", memory_type="fact")
+        rec = self._good_record(mid="bbbb2222",
+                                content="seed-content for dedup false test")
+        result = memory_ops.ingest_relayed_memories([rec], dedup=False)
+        # No dedup → writes (unless file already exists)
+        self.assertEqual(len(result["written"]), 1)
+
+    def test_missing_required_field_errors(self):
+        rec = self._good_record(mid="cccc3333", content="record missing type field")
+        del rec["type"]
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("missing required fields", result["errors"][0]["reason"])
+
+    def test_preserves_relayer_fields_verbatim(self):
+        rec = self._good_record(mid="dddd4444",
+                                content="verbatim fields preserved test content")
+        rec["tags"] = ["operator-directive", "specific-tag"]
+        rec["confidence"] = 0.92
+        rec["protected"] = True
+        memory_ops.ingest_relayed_memories([rec])
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "dddd4444.json")
+        with open(path) as f:
+            written = json.load(f)
+        self.assertEqual(written["tags"], ["operator-directive", "specific-tag"])
+        self.assertEqual(written["confidence"], 0.92)
+        self.assertTrue(written["protected"])
+        # And the id was preserved
+        self.assertEqual(written["id"], "dddd4444")
+
+
+class MiningAdversarialTests(_MiningBase):
+
+    def test_malformed_jsonl_lines_counted_not_silent(self):
+        path = os.path.join(self.transcript_dir, "broken.jsonl")
+        with open(path, "w") as f:
+            f.write("not valid json\n")
+            f.write('{"message": {"role": "user", "content": "valid entry that survives parse"}}\n')
+            f.write("another bad line\n")
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(result["parse_failures"], 2)
+        self.assertEqual(len(result["candidates"]), 1)
+
+    def test_path_traversal_in_glob_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.mine_transcripts(transcript_glob="/etc/passwd; rm -rf /")
+        self.assertIn("unsafe characters", str(ctx.exception))
+
+    def test_panic_halts_mining(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        self._write_transcript("aaa11111", ["a valid operator directive should not be processed"])
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.mine_transcripts(
+                transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+
+    def test_panic_halts_ingest(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        rec = {
+            "id": "eeee5555", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "should not be ingested under panic",
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.ingest_relayed_memories([rec])
+
+    def test_ingest_rejects_id_with_path_traversal(self):
+        rec = {
+            "id": "../../etc/passwd", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "attempted path-traversal via id field",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("path separators", result["errors"][0]["reason"])
+
+    def test_ingest_rejects_unknown_domain(self):
+        rec = {
+            "id": "ffff6666", "created": _now(), "version": 1,
+            "domain": "unknown_domain", "type": "fact",
+            "content": "attempt to encode into a non-existent domain",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("unknown domain", result["errors"][0]["reason"])
+
+    def test_ingest_rejects_backdated_created(self):
+        far_future = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time() + 86400))
+        rec = {
+            "id": "gggg7777", "created": far_future, "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "attempted future-dating to bypass temporal checks",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("future-dated", result["errors"][0]["reason"])
+
+    def test_ingest_idempotent_on_existing_file(self):
+        rec = {
+            "id": "hhhh8888", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "idempotent ingest: same record run twice",
+        }
+        first = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(first["written"]), 1)
+        second = memory_ops.ingest_relayed_memories([rec])
+        # On second run: either dedup catches it, or the file-exists check does
+        self.assertEqual(len(second["written"]), 0)
+        # Skipped via dedup or file-exists; not an error
+        self.assertEqual(len(second["errors"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
