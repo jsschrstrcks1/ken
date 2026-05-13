@@ -1,0 +1,215 @@
+# OpenClaw tool manifest for the ken repository.
+#
+# This is the single entry point OpenClaw reads. Per ARCHITECTURE_v1.md
+# Section 9, OpenClaw scans only this file and the files referenced by
+# its entries. Everything else in the ken repo is invisible to OpenClaw:
+# .claude/skills/ are Claude Code prompt assets, not callable tools;
+# the orchestrator's source tree is reached only through the manifest
+# entries below; generated outputs and CSVs are out of scope.
+#
+# Field semantics: ARCHITECTURE_v1.md Section 9.
+# Loader-enforced validation: same section, "Manifest validation".
+
+version: 1
+
+tools:
+
+  # --- Phase 2 smoke test --------------------------------------------------
+
+  - name: hello_world
+    description: |
+      Phase 2 end-to-end smoke test. Returns host and the manifest SHA
+      OpenClaw injected, so the caller can confirm hot-reload pinning
+      works (SHA flips on new calls, holds steady on in-flight calls).
+    execution_class: safe
+    requires_human_confirmation: false
+    audit_log: optional
+    timeout_seconds: 5
+    executor:
+      type: subprocess
+      command: ["python3", "tools/hello-world/hello.py"]
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+
+  # --- Orchestrator family (external, paid APIs) ---------------------------
+  #
+  # The orchestrator reads its own .env (decoded from env_seed.py) when a
+  # human invokes it directly. When OpenClaw spawns it, OpenClaw injects
+  # the keys listed in subprocess_env_keys from the macOS Keychain into
+  # the child environment. Both paths coexist; nothing inside
+  # orchestrator/ needs to change.
+
+  - name: consult
+    description: |
+      Quick second opinion from a single LLM (gpt | gemini | grok |
+      perplexity | youcom). Cheapest tool in the orchestrator family.
+      Wraps orchestrator/consult.py.
+    execution_class: external
+    requires_human_confirmation: false
+    audit_log: required
+    timeout_seconds: 120
+    daily_spend_limit_usd: 5
+    subprocess_env_keys:
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - XAI_API_KEY
+      - PERPLEXITY_API_KEY
+      - YOUCOM_API_KEY
+    external_endpoints:
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - api.x.ai
+      - api.perplexity.ai
+      - api.you.com
+    executor:
+      type: subprocess
+      command: ["python3", "orchestrator/consult.py"]
+    input_schema:
+      type: object
+      required: [model, role, prompt]
+      properties:
+        model:
+          type: string
+          enum: [gpt, gemini, grok, perplexity, youcom]
+        role:
+          type: string
+          description: Role label passed to the orchestrator (e.g., "reviewer").
+        prompt:
+          type: string
+      additionalProperties: false
+
+  - name: orchestrate
+    description: |
+      Linear multi-LLM pipeline. Mode is required and explicit (this is
+      the hub repo — no default). Wraps orchestrator/orchestrate.py.
+    execution_class: external
+    requires_human_confirmation: false
+    audit_log: required
+    timeout_seconds: 600
+    daily_spend_limit_usd: 5
+    subprocess_env_keys:
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - XAI_API_KEY
+      - PERPLEXITY_API_KEY
+      - YOUCOM_API_KEY
+    external_endpoints:
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - api.x.ai
+      - api.perplexity.ai
+      - api.you.com
+    executor:
+      type: subprocess
+      command: ["python3", "orchestrator/orchestrate.py"]
+    input_schema:
+      type: object
+      required: [mode, task]
+      properties:
+        mode:
+          type: string
+          enum: [sermon, sheep, cruising, recipe, family-history, triad]
+        task:
+          type: string
+      additionalProperties: false
+
+  - name: orchestra
+    description: |
+      Round-robin multi-LLM debate (GPT proposes → Gemini refines →
+      Grok challenges, full-context). Wraps orchestrator/orchestra.py.
+    execution_class: external
+    requires_human_confirmation: false
+    audit_log: required
+    timeout_seconds: 900
+    daily_spend_limit_usd: 5
+    subprocess_env_keys:
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - XAI_API_KEY
+    external_endpoints:
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - api.x.ai
+    executor:
+      type: subprocess
+      command: ["python3", "orchestrator/orchestra.py"]
+    input_schema:
+      type: object
+      required: [task]
+      properties:
+        task:
+          type: string
+      additionalProperties: false
+
+  - name: investigate
+    description: |
+      4-phase chained investigation: reconnaissance → triage → deep
+      research → synthesis. Most expensive of the orchestrator family;
+      requires confirmation per call as a guardrail beyond the daily
+      cap. Wraps orchestrator/investigate.py.
+    execution_class: external
+    requires_human_confirmation: true
+    audit_log: required
+    timeout_seconds: 1800
+    daily_spend_limit_usd: 5
+    subprocess_env_keys:
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - XAI_API_KEY
+      - PERPLEXITY_API_KEY
+      - YOUCOM_API_KEY
+    external_endpoints:
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - api.x.ai
+      - api.perplexity.ai
+      - api.you.com
+    executor:
+      type: subprocess
+      command: ["python3", "orchestrator/investigate.py"]
+    input_schema:
+      type: object
+      required: [mode, subject]
+      properties:
+        mode:
+          type: string
+          enum: [sermon, sheep, cruising, recipe, family-history]
+        subject:
+          type: string
+      additionalProperties: false
+
+  # --- Local utilities (destructive, modify host state) --------------------
+
+  - name: sync_clock
+    description: |
+      Sync system clock against NTP. Devuan/SysVinit-friendly wrapper.
+      Modifies system time, hence destructive.
+    execution_class: destructive
+    requires_human_confirmation: true
+    audit_log: required
+    timeout_seconds: 30
+    executor:
+      type: subprocess
+      command: ["bash", "sync-clock.sh"]
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+
+  - name: tz_wakeup
+    description: |
+      Trigger timezone wake-up event (companion to the tz utility).
+      Modifies local tz state, hence destructive.
+    execution_class: destructive
+    requires_human_confirmation: true
+    audit_log: required
+    timeout_seconds: 30
+    executor:
+      type: subprocess
+      command: ["bash", "tz-wakeup.sh"]
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
