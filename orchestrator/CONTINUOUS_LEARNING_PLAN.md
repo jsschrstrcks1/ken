@@ -1,14 +1,46 @@
-# Continuous-Learning-v2 Auto-Extraction Plan — v5
+# Continuous-Learning-v2 Auto-Extraction Plan — v6
 
-**Status:** Operating profile decision. Plan v4's defenses are intact; v5 introduces `MEMORY_LEARNING_PROFILE` so the friction tax matches the actual threat model. Default profile: `single-operator-local`. The operator stated they are the only human with access to this household; defenses targeting a separate-attacker scenario become non-applicable.
-
-This is not a new LLM review round — it is a configuration decision applied on top of the v4 security model. All cryptographic, integrity, agent-drift, and external-data-contamination defenses remain in force.
+**Status:** v6 reflects reality after Slices 0/0.5/1/2/4/5/7.5 shipped + real dogfood data accumulated faster than expected. Plan diverged from reality in productive ways during 2026-05-13; this update aligns the doc with what's deployed.
 **Owner:** P1#9 continuation. Slices 1, 1.1, 1.2 already shipped.
 **Goal:** Make the household memory system learn from operator behavior without sacrificing the safety properties Slices 1–1.2 established.
 
 ---
 
 ## 0. Change log
+
+### v5 → v6 (reality alignment after first day of live use)
+
+This update doesn't change the security model; it records the architecture-level surprises encountered during the first day of real cross-thread dogfood + closes the privacy-posture gap that v4/v5 had wrong.
+
+**Persistence hole found + fixed.** v5 assumed `~/.memory/` was persistent. In Claude Code on the web (the primary deployment for this household), `~/.memory/` resolves to `/root/.memory/` in an ephemeral container that's destroyed on session teardown. Every encode written across an unknown number of prior sessions was lost. Fix shipped ken `13cac8a`: `_resolve_memory_root()` now prefers `<parent>/open-claw-stuff/.memory/` (git-tracked sibling) over `~/.memory/`. Order of precedence: (1) `MEMORY_ROOT` env var, (2) sibling repo, (3) legacy `~/.memory/`. Tests unaffected; all 253 still pass. open-claw-stuff `f527cc4` ships the `.memory/` tree with one initial entry.
+
+**Privacy posture corrected.** v4/v5 (and the initial `.memory/README.md`) framed open-claw-stuff as "public-domain — everything committed is permanently public." Operator clarified 2026-05-13 that the *repo* is PRIVATE on GitHub (jsschrstrcks1/open-claw-stuff). The Unlicense applies to *content* if/when the operator chooses to publish, but the storage is private by default. Earlier wording over-restricted encoders (forced pseudonymization of names, decisions, specifics). Standing rule: encode honestly; operator is the publication gate; secrets still go in `.env` (gitignored), regardless of repo visibility. Recorded in `.memory/README.md` + memory `e25c4814`. Earlier commit messages referencing "public-domain implications" are historical record; not force-pushed/rewritten.
+
+**Cross-thread mining emerged as an operating pattern.** v5 had no slice for transcript mining. In practice it became the dominant mode of corpus growth on day one. Pattern:
+1. Sibling thread parses its own `/root/.claude/projects/-home-user/*.jsonl` transcripts (persistent across container teardown — Claude Code's harness manages this dir).
+2. Extracts unique high-signal operator-directive content (skip auto-resume preambles + system-reminders + one-word imperatives).
+3. Encodes via `memory_ops.encode` if the persistence path is reachable, OR outputs JSON in chat for hand-relay if not.
+4. Receiving thread dedups against existing corpus, writes files with relayer's IDs preserved (substring + word-overlap dedup), commits + pushes.
+
+Pattern was used 4+ times today across at least 6 sibling threads. Corpus grew from 1 entry → 216 entries in ~3 hours via this loop. **This pattern is being formalized as Slice 2.5 — see §3 below.**
+
+**Dogfood gate substantially satisfied earlier than expected.** v4 specified ~2 weeks of dogfood + 4 concrete metrics (invocations performed, candidates surfaced, promotions, demotions) before Slices 3A-6 ship. Day 1 of dogfood has produced:
+- 216 memories across 5 domains (ken=128, cruising=25, sheep=17, romans=16, shared=16)
+- Active recall traffic from at least this thread's verification queries
+- 6+ sibling threads using `memory_ops.encode` in their work
+- The persistence + privacy + cross-thread issues surfaced and fixed
+- A meaningful corpus for the TF-IDF degenerate-at-n=1 case (resolved at n>5)
+
+What's STILL not testable from this signal:
+- Auto-promotion eligibility (Slice 7.5 requires `recall_count≥10` + `age≥30d` + `≥5 distinct sessions`; nothing in the corpus is even 1 day old)
+- Consolidate cycle effects (confidence promotion, decay) — too early
+- Whether the harness will use any of this for real session-start context
+
+**Operator-found bugs encoded into the plan as work items:**
+- `MEMORY_SESSION_ID` env var does NOT inherit across Python subprocess invocations. Recall bumps in step-2 verification all logged `session_id: "unknown"` because the env was set inside one `python3 -c` and not exported to subsequent calls. Slice 3A or a prerequisite micro-slice should ship a fix: export `MEMORY_SESSION_ID` from the harness, OR have `_current_session_id()` read from a session-state file the harness writes, OR have the cognitive-memory skill insert it in the bash command template.
+- Cross-thread mining prompt's privacy paragraph references "PUBLIC domain repo" — outdated. Updated text lives in `e25c4814` for future relays to consult.
+
+**New slice added: Slice 2.5 — formalized mining.** See §3.
 
 ### v4 → v5 (operating profile decision)
 
@@ -394,6 +426,35 @@ The skill being lifted is ECC's `continuous-learning-v2` (MIT). Three foundation
 - New total: ~115 tests
 
 **Effort:** ~1.5 sessions (was 1; added TOCTOU snapshot + rate-limit + plan-injection probes).
+
+---
+
+### Slice 2.5 — Formalized transcript mining (NEW in v6)
+
+**Goal:** Convert the cross-thread mining pattern (emergent on 2026-05-13, used 4+ times across sibling threads) into stable callable surface. Today it's ad-hoc Python in each session; this slice gives it a stable function + relay protocol + dedup discipline.
+
+**Adds:**
+- `memory_ops.mine_transcripts(transcript_glob=None, dry_run=True, source_tag=None)` — pure Python function. Reads `*.jsonl` files from `/root/.claude/projects/-home-user/` (default) or operator-supplied path. Extracts unique user-message text (≥30 chars, ≤500 chars; skip auto-resume preambles + system-reminders). Returns candidate dicts with `{content, timestamp, session_id, source}`. Does NOT auto-encode — read-only by default.
+- `memory_ops.ingest_relayed_memories(json_list, dedup=True)` — accepts list of complete memory dicts (with IDs already set per the relay protocol). Dedups against `MEMORY_ROOT` corpus. Writes net-new entries with relayer's IDs preserved (no re-encoding). Returns `(written_ids, skipped_with_reasons)`.
+- `memory_ops._dedup_against_corpus(content, domain, tags)` — internal helper. Substring head-match (first 200 chars in either direction) + word-overlap > 65% within same-domain + tag-overlap > 60% as soft signal. Returns `(dup_id, reason)` or `(None, None)`.
+
+**Invariant calls (order matters per Slice 1 AST rule):**
+1. `_assert_panic_check`
+2. `_assert_rate_limit("mine_transcripts", "default")` — bounds mining frequency
+3. Per candidate: `_assert_evidence_present` (transcript-path + line-number constitute the evidence trail)
+4. `_assert_no_silent_skip` if any parse failures dropped content
+5. For `ingest_relayed_memories`: also `_assert_temporal_consistency` on the `created` field
+
+**Threat surface:** lower than Slice 2 because read-only by default (`dry_run=True`). Ingestion writes are gated by dedup; the path-traversal hardening from Slice 2 applies to the transcript path lookup.
+
+**Ship gate:**
+- ≥8 tests: mine returns candidates from synthetic transcript, dedup catches duplicates, ingest preserves relayer IDs, ingest skips on dup, panic halts both
+- ≥6 adversarial probes: malformed jsonl line in transcript, oversized content (>10MB single message), prompt-injection-shaped content, path traversal in transcript_glob, ID collision in relay, missing required field in relayed dict
+- Documented in plan; cross-thread mining prompt simplified to "run `memory_ops.mine_transcripts(); memory_ops.ingest_relayed_memories(candidates)`"
+
+**Effort:** ~1 session. Folds the current ad-hoc patterns into stable callable surface; doesn't change what the system does, just how reliably it can be invoked.
+
+**Why this slice now (was missing from v5):** the cross-thread mining pattern is what's been growing the corpus. Without formalization, every thread reinvents the dedup + parse logic, with different rigor each time. Formalizing eliminates that drift and makes the operation cheap enough that future threads call it as a standard session-start operation.
 
 ---
 
