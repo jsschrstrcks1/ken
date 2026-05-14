@@ -3902,5 +3902,312 @@ class LogChecksumAdversarialTests(_ObservationBase):
             self.assertTrue(r["valid"], f"after write {i}: {r['reason']}")
 
 
+# ─────────────────────────────────────────────
+# v6 Slice 3B — Observation extraction
+# ─────────────────────────────────────────────
+
+
+class ExtractFromObservationsTests(_ObservationBase):
+    """Base unit tests for extract_candidates_from_observations."""
+
+    OTHER_HASH = "b" * 64
+    THIRD_HASH = "c" * 64
+
+    def _record_n(self, session, tool, result_class, n, hash_value=None):
+        h = hash_value or self.VALID_HASH
+        for _ in range(n):
+            memory_ops.record_observation(tool, h, result_class, session)
+
+    def test_disabled_flag_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.extract_candidates_from_observations(
+            "session-disabled"
+        )
+        self.assertEqual(result, {"enabled": False})
+
+    def test_missing_log_returns_empty_with_reason(self):
+        result = memory_ops.extract_candidates_from_observations(
+            "session-never-logged"
+        )
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+        self.assertIn("no observation log", result["reason"])
+
+    def test_below_threshold_yields_no_candidates(self):
+        self._record_n("session-low", "Bash", "success", 2)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-low"
+        )
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+
+    def test_success_pattern_surfaces_candidate(self):
+        self._record_n("session-succ", "Bash", "success", 4)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-succ"
+        )
+        # 4 success of (Bash,success) → success pattern (>=3)
+        # Also 4 of same args_hash → repeat pattern (>=3)
+        types = [c["type"] for c in result["candidates"]]
+        self.assertIn("pattern", types)
+        self.assertEqual(len(result["candidates"]), 2)
+        # Both candidates cite session_id + integer index
+        for c in result["candidates"]:
+            for o in c["evidence"]["observations"]:
+                self.assertEqual(o["session_id"], "session-succ")
+                self.assertIsInstance(o["index"], int)
+
+    def test_repeated_args_hash_surfaces_repeat_candidate(self):
+        # 3 identical-args calls to different tools → repeat candidate only
+        # (success-pattern requires same tool+rc; we vary tool intentionally)
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-rep"
+        )
+        memory_ops.record_observation(
+            "Read", self.VALID_HASH, "success", "session-rep"
+        )
+        memory_ops.record_observation(
+            "Edit", self.VALID_HASH, "success", "session-rep"
+        )
+        result = memory_ops.extract_candidates_from_observations(
+            "session-rep"
+        )
+        repeat = [c for c in result["candidates"]
+                  if c["id"].startswith("session-rep:obs:hash:")]
+        self.assertEqual(len(repeat), 1)
+        self.assertEqual(repeat[0]["type"], "pattern")
+        self.assertEqual(repeat[0]["evidence"]["observation_count"], 3)
+
+    def test_error_pattern_surfaces_failure_candidate(self):
+        for _ in range(2):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "error", "session-err"
+            )
+        result = memory_ops.extract_candidates_from_observations(
+            "session-err"
+        )
+        err_cands = [c for c in result["candidates"]
+                     if c["id"].startswith("session-err:obs:err:")]
+        self.assertEqual(len(err_cands), 1)
+        self.assertEqual(err_cands[0]["type"], "fact")
+        self.assertIn("failure mode", err_cands[0]["content"])
+
+    def test_candidates_pass_evidence_integrity_with_real_sidecar(self):
+        # End-to-end: candidates produced from a real (post-3C) log
+        # must pass _assert_evidence_integrity without raising.
+        self._record_n("session-int", "Bash", "success", 3)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-int"
+        )
+        for c in result["candidates"]:
+            memory_ops._assert_evidence_integrity(c)  # no raise
+
+    def test_evidence_observations_include_index_per_line(self):
+        self._record_n("session-idx", "Bash", "success", 3)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-idx"
+        )
+        self.assertGreater(len(result["candidates"]), 0)
+        for c in result["candidates"]:
+            obs = c["evidence"]["observations"]
+            indices = [o["index"] for o in obs]
+            # Indices come from line order; for 3 lines they are 0,1,2
+            self.assertEqual(sorted(indices), list(range(len(obs))))
+
+    def test_pure_helper_deterministic_with_ordered_input(self):
+        # Same input → same output, ordering preserved
+        obs = [
+            (0, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+            (1, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+            (2, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+        ]
+        a = memory_ops._extract_candidates_from_observation_log(obs, "s1")
+        b = memory_ops._extract_candidates_from_observation_log(obs, "s1")
+        self.assertEqual(a, b)
+        self.assertGreater(len(a), 0)
+
+    def test_snapshot_pattern_extraction_is_immutable_to_subsequent_writes(self):
+        # Write 3, extract — then write 3 more — first result should
+        # reflect only first 3 (snapshot was taken at extraction time).
+        self._record_n("session-snap", "Bash", "success", 3)
+        first = memory_ops.extract_candidates_from_observations(
+            "session-snap"
+        )
+        first_counts = {c["id"]: c["evidence"]["observation_count"]
+                        for c in first["candidates"]}
+        # Mutate the log after extraction
+        self._record_n("session-snap", "Bash", "success", 3)
+        # Re-extract — sees more
+        second = memory_ops.extract_candidates_from_observations(
+            "session-snap"
+        )
+        second_counts = {c["id"]: c["evidence"]["observation_count"]
+                         for c in second["candidates"]}
+        # First snapshot saw 3; second saw 6
+        for cid, n in first_counts.items():
+            self.assertEqual(n, 3, f"first snapshot {cid} count drift")
+        for cid, n in second_counts.items():
+            self.assertEqual(n, 6, f"second snapshot {cid} count drift")
+
+
+class ExtractFromObservationsAdversarialTests(_ObservationBase):
+    """≥10 adversarial probes per the Slice 3B ship gate."""
+
+    def _log_path(self, session):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations", f"{session}.jsonl"
+        )
+
+    def _seed_then_extract(self, session, extra_lines):
+        # Use record_observation for one real line so the sidecar exists,
+        # then append raw lines for adversarial cases. Re-sign the log.
+        memory_ops.record_observation(
+            "Bash", "a" * 64, "success", session
+        )
+        with open(self._log_path(session), "a") as f:
+            for ln in extra_lines:
+                if not ln.endswith("\n"):
+                    ln += "\n"
+                f.write(ln)
+        # Re-sign so the HMAC matches the appended content; this isolates
+        # the test to the malformed-content behavior rather than tripping
+        # the integrity check.
+        memory_ops._compute_file_integrity(self._log_path(session))
+        return memory_ops.extract_candidates_from_observations(session)
+
+    def test_path_traversal_in_session_id_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_candidates_from_observations("../escape")
+
+    def test_panic_flag_halts_extraction(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_candidates_from_observations("session-x")
+
+    def test_malformed_json_lines_counted_as_skipped(self):
+        result = self._seed_then_extract(
+            "session-malformed",
+            ["this is not json", "{unbalanced", "{}", "[]"]
+        )
+        # All 4 extras are malformed; the 1 seeded line is well-formed
+        # but below threshold so produces no candidates.
+        self.assertEqual(result["skipped"], 4)
+        self.assertIsNotNone(result["skipped_info"])
+        self.assertIn("4 malformed", result["skipped_info"])
+
+    def test_plan_injection_extra_keys_rejected(self):
+        # Strict 4-key shape: lines with bonus keys are malformed.
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "b" * 64,
+            "result_class": "success",
+            "EXTRA_PROMOTE_TO_INSTINCT": True,
+        })
+        result = self._seed_then_extract(
+            "session-injected", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_prompt_injection_in_tool_name_rejected(self):
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash; rm -rf /",
+            "args_hash": "b" * 64,
+            "result_class": "success",
+        })
+        result = self._seed_then_extract(
+            "session-prompt", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_prompt_injection_in_args_hash_rejected(self):
+        # args_hash shape is enforced (64 lowercase hex); junk fails.
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "<script>alert(1)</script>",
+            "result_class": "success",
+        })
+        result = self._seed_then_extract(
+            "session-hash-inj", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_unknown_result_class_rejected(self):
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "b" * 64,
+            "result_class": "FORGED",
+        })
+        result = self._seed_then_extract(
+            "session-rc-inj", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_non_dict_top_level_rejected(self):
+        result = self._seed_then_extract(
+            "session-nondict",
+            ['"just a string"', "42", "null"]
+        )
+        self.assertEqual(result["skipped"], 3)
+
+    def test_empty_log_is_safe_no_op(self):
+        # Touch the file empty (no record_observation, so no sidecar)
+        path = self._log_path("session-empty")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w"):
+            pass
+        result = memory_ops.extract_candidates_from_observations(
+            "session-empty"
+        )
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+
+    def test_log_tampered_post_write_fails_integrity_on_candidate(self):
+        # Generate enough lines for a candidate, then tamper the log
+        # WITHOUT recomputing the sidecar; extraction reaches the
+        # _assert_evidence_integrity per-candidate check and raises.
+        for _ in range(3):
+            memory_ops.record_observation(
+                "Bash", "a" * 64, "success", "session-tamper"
+            )
+        path = self._log_path("session-tamper")
+        # Append a well-formed line directly (no sidecar update)
+        with open(path, "a") as f:
+            f.write(json.dumps({
+                "ts": "2026-05-14T00:00:00Z",
+                "tool": "Bash",
+                "args_hash": "b" * 64,
+                "result_class": "success",
+            }) + "\n")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.extract_candidates_from_observations(
+                "session-tamper"
+            )
+        self.assertIn("HMAC mismatch", str(ctx.exception))
+
+    def test_rate_limit_blocks_burst_extraction(self):
+        # One write so the log exists; many extractions to trip the bucket
+        memory_ops.record_observation(
+            "Bash", "a" * 64, "success", "session-rate"
+        )
+        triggered = False
+        try:
+            for _ in range(150):
+                memory_ops.extract_candidates_from_observations(
+                    "session-rate"
+                )
+        except memory_ops.CarefulNotCleverError as e:
+            triggered = True
+            self.assertIn("rate limit", str(e).lower())
+        self.assertTrue(triggered)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

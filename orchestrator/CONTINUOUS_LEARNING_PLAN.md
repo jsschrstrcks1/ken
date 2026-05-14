@@ -8,6 +8,28 @@
 
 ## 0. Change log
 
+### v6.2 → v6.3 (Slice 3B shipped — extraction loop is now end-to-end)
+
+Slice 3B — observation-log → candidate extraction — landed at ken `(pending commit)`. Closes the 3A→3B→3C loop. The extraction surface is identical in shape to Slice 2's `extract_candidates_from_session` but reads the structured observation log instead of orchestrator blackboard state, and every candidate's evidence is cryptographically attested by Slice 3C's HMAC sidecars.
+
+Adds:
+- Public `extract_candidates_from_observations(session_id, dry_run=True)` — snapshot-pattern read under shared flock; deterministic clustering; per-candidate invariant validation including the now-real `_assert_evidence_integrity`.
+- Pure `_extract_candidates_from_observation_log(observations, session_id)` — testable in isolation; no I/O.
+- `_is_well_formed_observation(obs)` — strict 4-key shape check (T8 plan-injection mitigation). Lines with extra keys, missing keys, wrong types, invalid tool name, malformed args_hash, or unknown result_class are treated as malformed and counted (never fed to the extractor).
+
+Three candidate kinds (mirror of Slice 2 with observation-log idioms):
+- `pattern` (success): same `(tool, result_class="success")` repeated ≥3 times → automation candidate (`_OBS_SUCCESS_PATTERN_MIN = 3`).
+- `pattern` (repeat): same `args_hash` repeated ≥3 times → operator did the same thing repeatedly (`_OBS_REPEAT_PATTERN_MIN = 3`).
+- `fact` (failure): same `(tool, args_hash)` with `result_class="error"` repeated ≥2 times → known failure mode (`_OBS_ERROR_PATTERN_MIN = 2`).
+
+Every candidate's `evidence.observations[]` entries carry `{session_id, index, ...}` so `_assert_evidence_integrity` (Slice 3C) validates the cited log file before any candidate surfaces. End-to-end integrity is now structural: bytecode in the helper + AST in the CI gate + HMAC on the log + per-candidate validation at extraction.
+
+Snapshot pattern: log is read once in full under `fcntl.LOCK_SH`, then the extractor runs on the immutable copy. Mitigates T9 TOCTOU — concurrent `record_observation` writes after the read are invisible to this call but visible to the next.
+
+Tests added: 21 (9 ExtractFromObservationsTests + 12 ExtractFromObservationsAdversarialTests). Full suite: 390 passing.
+
+Auto-extraction loop is now structurally complete in the single-operator-local profile. The only piece needed for fully-automated capture is Slice 6 (PreToolUse/PostToolUse hooks that call `record_observation`); the read + integrity + extraction pipeline is in place.
+
 ### v6.1 → v6.2 (Slice 3C shipped)
 
 Slice 3C — HMAC sidecar activation — landed at ken `(pending commit)`. Activates the integrity layer that Slices 0.5 + 3A scaffolded.

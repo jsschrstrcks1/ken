@@ -1,8 +1,8 @@
 # HANDOFF — P1#9 continuous-learning-v2 auto-extraction loop
 
-**Status:** 10 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3C, 4, 5, 7.5). Slice 3C — HMAC sidecar activation — makes the observation log cryptographically attested. The Slice 0 stub `_assert_evidence_integrity` is now real. Next is Slice 3B (observation-log → candidate extraction) — the last piece before Slice 6 hooks can ship.
+**Status:** 11 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 7.5). The 3A→3B→3C loop is closed: observations are written under flock + HMAC, extraction reads them under a shared-flock snapshot, each candidate is integrity-validated before surface. Only Slice 6 (hooks) + Slice 7 (session-end auto-extract) remain to make capture fully automatic.
 
-**Last commit:** ken `(pending)` — Slice 3C: HMAC sidecar activation (compute_/validate_log_checksum + `_assert_evidence_integrity` real).
+**Last commit:** ken `(pending)` — Slice 3B: extract_candidates_from_observations + 3 candidate kinds + strict 4-key shape check.
 
 ---
 
@@ -19,9 +19,10 @@
 | 7 | 7.5 — consensus auto-promotion | `3808147` | `auto_promote_eligible()` + 10th invariant `_assert_promotion_eligibility` (5 cryptographic criteria) |
 | 8 | 2.5 — formalized transcript mining | `d07b6c0` | `mine_transcripts()`, `ingest_relayed_memories()`, `_dedup_against_corpus()` (relay-pattern stable surface) |
 | 9 | 3A — observation log | `b5c9101` | `record_observation()`, `clear_observations()`, `_compute_args_hash()`, flock + FIFO rotation; gitignore for `_observations/` |
-| 10 | 3C — HMAC sidecar activation | `(pending)` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
+| 10 | 3C — HMAC sidecar activation | `8741a6e` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
+| 11 | 3B — observation extraction | `(pending)` | `extract_candidates_from_observations()`, `_extract_candidates_from_observation_log()`, `_is_well_formed_observation()`; 3 candidate kinds; snapshot under shared flock; per-candidate integrity validation |
 
-**Test count:** 369 (312 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
+**Test count:** 390 (333 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
 
 ---
 
@@ -41,9 +42,9 @@ Use the system on real sessions for ~2 weeks. Track:
 
 | Slice | Effort | Risk | Reason |
 |---|---|---|---|
-| 3B — extraction from log | ~1 session | Medium | Reads Slice 3A's log + carries `index` so 3C integrity attests the evidence trail end-to-end |
-| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs 3A/B stable + `MEMORY_SESSION_ID` subprocess-inheritance fix |
-| 7 — session-end auto-extract | ~1 session | Low | Minor wiring; can ship anytime |
+| `MEMORY_SESSION_ID` subprocess fix | ~0.5 session | Low | Prerequisite for Slice 6; today the env var doesn't inherit across `python3 -c` invocations |
+| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs the session_id fix above; calls `record_observation` per tool call |
+| 7 — session-end auto-extract | ~1 session | Low | Wiring: SessionEnd hook → `extract_candidates_from_observations` → surface to operator |
 
 ### **Maybe never (documented limits per `CONTINUOUS_LEARNING_PLAN.md` §0)**
 
@@ -83,15 +84,17 @@ Use the system on real sessions for ~2 weeks. Track:
 
 ## How to Resume
 
-Slices 3A + 3C are in. The observation log is bounded, flock-protected, and HMAC-attested. Next:
+The 3A→3B→3C loop is closed. Auto-extraction is structurally complete in the single-operator-local profile. Two remaining pieces make capture fully automatic:
 
-**Slice 3B (extraction from observation log).** Reads `<MEMORY_ROOT>/_observations/<session_id>.jsonl`, clusters by tool name + result_class, returns candidate dicts in the Slice-2 shape. CRITICAL: each candidate's `evidence.observations[]` entries MUST include integer `index` alongside `session_id` so `_assert_evidence_integrity` (now active) actually validates the cited log.
+**Immediate prerequisite — `MEMORY_SESSION_ID` subprocess inheritance.** Today the env var set in one `python3 -c` does not propagate to later invocations, so `_current_session_id()` logs `"unknown"` in `usage_history`. Fix candidates: harness-level export, session-state file the harness writes, or template insertion in the cognitive-memory skill's bash commands.
 
-**Open prerequisite for Slice 6 hooks:** `MEMORY_SESSION_ID` subprocess-inheritance bug — env var set in one `python3 -c` does not propagate. Fix candidates: harness-level export, session-state file, or template insertion.
+**Slice 6 (highest-leverage AND highest-attack-surface).** Wire `record_observation` into PreToolUse / PostToolUse hooks. Args are hashed via `_compute_args_hash` before reaching disk. Slice 3B's snapshot extraction surfaces candidates at session end (or on-demand via `extract_candidates_from_observations`). Use the existing rate-limit + temporal-consistency invariants — no new defenses needed.
+
+**Slice 7 (low-risk wiring).** SessionEnd hook calls `extract_candidates_from_observations(session_id)` and surfaces the candidate list to the operator. No auto-promotion; operator decides.
 
 **Web-container note:** `~/.memory/_integrity.key` is ephemeral on web; key regenerates per session, invalidating cross-session HMACs. Within-session integrity always holds. Cross-session persistence requires CLI/desktop where `~/.memory/` survives.
 
-Run before any new work: `python3 -m pytest orchestrator/tests/ -q` should print `369 passed`.
+Run before any new work: `python3 -m pytest orchestrator/tests/ -q` should print `390 passed`.
 
 ---
 

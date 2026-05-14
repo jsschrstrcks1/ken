@@ -2862,6 +2862,261 @@ def clear_observations(session_id):
 
 
 # ─────────────────────────────────────────────
+# v6 Slice 3B — Observation extraction
+# ─────────────────────────────────────────────
+# Reads <MEMORY_ROOT>/_observations/<session_id>.jsonl produced by
+# Slice 3A and surfaces candidate patterns. Every candidate's evidence
+# carries (session_id, index) for each cited log line so Slice 3C's
+# _assert_evidence_integrity cryptographically attests the chain.
+#
+# Three candidate kinds (mirror of Slice 2 with observation-log idioms):
+#   pattern (success): tool+result_class="success" repeated >=3 times
+#   pattern (repeat) : same args_hash repeated >=3 times (automation candidate)
+#   fact   (failure) : tool+args_hash with result_class="error" repeated >=2 times
+#
+# Snapshot pattern: log read once in full under a shared flock, then
+# extraction operates on the immutable copy. TOCTOU-safe against
+# concurrent record_observation writers.
+
+_OBS_SUCCESS_PATTERN_MIN = 3
+_OBS_REPEAT_PATTERN_MIN = 3
+_OBS_ERROR_PATTERN_MIN = 2
+
+
+def _extract_candidates_from_observation_log(observations, session_id):
+    """Pure function: input is a list of (index, obs_dict) tuples;
+    output is a list of candidate dicts. No I/O. Testable in isolation."""
+    candidates = []
+
+    pair_counts = {}
+    pair_indices = {}
+    hash_counts = {}
+    hash_indices = {}
+    hash_tools = {}
+    err_counts = {}
+    err_indices = {}
+
+    for idx, obs in observations:
+        tool = obs["tool"]
+        rc = obs["result_class"]
+        h = obs["args_hash"]
+
+        key = (tool, rc)
+        pair_counts[key] = pair_counts.get(key, 0) + 1
+        pair_indices.setdefault(key, []).append(idx)
+
+        hash_counts[h] = hash_counts.get(h, 0) + 1
+        hash_indices.setdefault(h, []).append(idx)
+        hash_tools[h] = tool
+
+        if rc == "error":
+            ekey = (tool, h)
+            err_counts[ekey] = err_counts.get(ekey, 0) + 1
+            err_indices.setdefault(ekey, []).append(idx)
+
+    for (tool, rc), count in sorted(pair_counts.items()):
+        if rc != "success" or count < _OBS_SUCCESS_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:{tool}:{rc}",
+            "content": (
+                f"tool '{tool}' returned '{rc}' {count} times in session"
+            ),
+            "type": "pattern",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": tool, "result_class": rc}
+                    for i in pair_indices[(tool, rc)]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"frequent successful use of '{tool}' could become an "
+                f"instinct after promotion"
+            ),
+        })
+
+    for h, count in sorted(hash_counts.items()):
+        if count < _OBS_REPEAT_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:hash:{h[:8]}",
+            "content": (
+                f"operator repeated identical-args call to "
+                f"'{hash_tools[h]}' {count} times (args_hash {h[:12]}...)"
+            ),
+            "type": "pattern",
+            "confidence": min(0.4 + 0.08 * count, 0.75),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": hash_tools[h], "args_hash": h}
+                    for i in hash_indices[h]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"repeated identical call to '{hash_tools[h]}' is an "
+                f"automation candidate"
+            ),
+        })
+
+    for (tool, h), count in sorted(err_counts.items()):
+        if count < _OBS_ERROR_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:err:{tool}:{h[:8]}",
+            "content": (
+                f"tool '{tool}' returned error for args_hash "
+                f"{h[:12]}... {count} times — likely failure mode"
+            ),
+            "type": "fact",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": tool, "args_hash": h,
+                     "result_class": "error"}
+                    for i in err_indices[(tool, h)]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"future recalls warn operator about this failing pattern"
+            ),
+        })
+
+    return candidates
+
+
+def _is_well_formed_observation(obs):
+    """Strict 4-key shape check. Mitigates T8 plan-injection: lines
+    with extra keys or missing required keys are treated as malformed
+    and counted, never fed to the extractor."""
+    if not isinstance(obs, dict):
+        return False
+    required = {"ts", "tool", "args_hash", "result_class"}
+    if set(obs.keys()) != required:
+        return False
+    if not (isinstance(obs["ts"], str)
+            and isinstance(obs["tool"], str)
+            and isinstance(obs["args_hash"], str)
+            and isinstance(obs["result_class"], str)):
+        return False
+    if not _OBSERVATION_TOOL_PATTERN.match(obs["tool"]):
+        return False
+    if not _OBSERVATION_HASH_PATTERN.match(obs["args_hash"]):
+        return False
+    if obs["result_class"] not in _OBSERVATION_RESULT_CLASSES:
+        return False
+    return True
+
+
+def extract_candidates_from_observations(session_id, dry_run=True):
+    """Read <MEMORY_ROOT>/_observations/<session_id>.jsonl and surface
+    candidate patterns from observed tool usage. Read-only;
+    ``dry_run`` parameter is reserved for future write paths.
+
+    Returns ``{"enabled": False}`` when observations are off, else::
+
+        {
+          "enabled": True,
+          "session_id": str,
+          "candidates": [...],
+          "skipped": int,                  # malformed / injected lines
+          "skipped_info": str or None,     # _assert_no_silent_skip msg
+          "dry_run": bool,
+          "reason": str (only on empty/missing-log return)
+        }
+
+    Snapshot pattern (T9 mitigation): the full log is read under a
+    shared flock into an in-memory list of (index, obs) tuples. The
+    extractor operates only on that snapshot — concurrent writes after
+    the read are invisible to this call but visible to the next one.
+
+    Each candidate's ``evidence.observations[]`` includes integer
+    ``index`` alongside ``session_id`` so Slice 3C's
+    ``_assert_evidence_integrity`` cryptographically attests the
+    cited log file on every candidate.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("extract_from_observations", session_id)
+
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {
+            "enabled": True, "session_id": session_id,
+            "candidates": [], "skipped": 0, "skipped_info": None,
+            "dry_run": dry_run,
+            "reason": f"no observation log at {path}",
+        }
+
+    # Snapshot under shared flock — blocks against concurrent
+    # record_observation writes but does not block parallel readers.
+    with open(path) as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+        try:
+            raw_lines = f.readlines()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    observations = []
+    malformed = 0
+    for idx, raw in enumerate(raw_lines):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obs = json.loads(line)
+        except json.JSONDecodeError:
+            malformed += 1
+            continue
+        if not _is_well_formed_observation(obs):
+            malformed += 1
+            continue
+        observations.append((idx, obs))
+
+    candidates = _extract_candidates_from_observation_log(
+        observations, session_id
+    )
+
+    # Per-candidate invariant validation — evidence shape + (Slice 3C)
+    # cryptographic integrity of the cited log file.
+    for c in candidates:
+        _assert_evidence_present(c)
+        _assert_evidence_integrity(c)
+
+    skipped_info = None
+    if malformed > 0:
+        try:
+            _assert_no_silent_skip(
+                f"extraction skipped {malformed} malformed/injected "
+                f"observation lines in session {session_id}",
+                malformed,
+            )
+        except CarefulNotCleverError as e:
+            # Surface as INFO in return rather than fail the extraction.
+            skipped_info = str(e)
+
+    return {
+        "enabled": True,
+        "session_id": session_id,
+        "candidates": candidates,
+        "skipped": malformed,
+        "skipped_info": skipped_info,
+        "dry_run": dry_run,
+    }
+
+
+# ─────────────────────────────────────────────
 # CLI Interface
 # ─────────────────────────────────────────────
 
