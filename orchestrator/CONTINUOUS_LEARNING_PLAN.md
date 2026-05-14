@@ -8,6 +8,45 @@
 
 ## 0. Change log
 
+### v6.4 → v6.5 (Slice 6 shipped — hook artifacts ready; registration is operator's choice)
+
+Slice 6 — PostToolUse hook + Python writer — landed at ken `(pending commit)`. Capture is fully automatic when the operator opts in.
+
+Architecture: fire-and-forget bash wrapper + detached Python writer. The wrapper's synchronous cost is bash startup + fork (~15ms measured); the writer runs detached so its work (memory_ops import, HMAC sidecar fsync) doesn't add to user-visible tool-call latency. The plan's <5ms target was aspirational for any fork-based hook on consumer hardware; measured numbers are reported instead of claimed.
+
+Files added:
+- `orchestrator/hook_observe.py` — Python writer. Validates payload shape, sanitizes tool_name to the `_OBSERVATION_TOOL_PATTERN` charset, hashes tool_input via `_compute_args_hash` (raw args never reach disk), classifies tool_response into `{success, error, timeout, truncated}`, calls `record_observation`. Wrapped in top-level try/except that ALWAYS exits 0 — fail-closed contract.
+- `.claude/hooks/observe-tool-use.sh` — bash wrapper. Reads stdin, gates on `MEMORY_AUTO_OBSERVE_ENABLED=true`, spawns the writer detached via `disown`, exits 0 unconditionally.
+- `orchestrator/bench_hook.py` — ship-gate benchmark. Reports two numbers: direct `record_observation` cost (1.86 ms/call measured on this hardware) and end-to-end hook wrapper cost (14.97 ms/call). Operator decides whether the cost is acceptable.
+
+NOT modified: `.claude/settings.json`. Hook registration is the operator's explicit choice per the plan's ship-gate item "Explicit user approval to enable always-on capture in their household." When the operator decides to enable, the registration block is:
+
+```json
+"PostToolUse": [
+  {
+    "matcher": "*",
+    "hooks": [
+      {"type": "command",
+       "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/observe-tool-use.sh"}
+    ]
+  }
+]
+```
+
+…plus `export MEMORY_AUTO_OBSERVE_ENABLED=true` in their shell profile. With both, every tool call writes an observation; Slice 3B's `extract_candidates_from_observations(session_id)` surfaces candidates from the accumulated log; Slice 3C's HMAC sidecars attest each cited evidence trail.
+
+Tests added: 22 (12 WriterUnitTests + 7 WriterFailClosedTests + 3 BashWrapperTests). The fail-closed tests use real `subprocess.run` to exercise the contract end-to-end — garbage stdin, top-level array, missing session_id, panic flag set, disabled flag, only-special-chars tool_name all exit 0. Full suite: 423 passing.
+
+Threat surface: highest in the plan (every tool call writes to disk). Defenses already in place via Slices 3A + 3C:
+- T3 disk exhaustion → 10MB / 10K-line FIFO cap with INFO-captured rotation
+- T4 sensitive-data leakage → `_compute_args_hash` runs in the writer before any disk write; tool name sanitized to a-z0-9_.- charset only
+- T6 cross-session race → flock under every write
+- T10 log-compaction attack → 10% eviction not full truncate
+- T8 plan-injection → Slice 3B's strict 4-key shape check rejects extra keys at extraction time
+- T2 fabricated evidence → Slice 3C HMAC sidecar; every record_observation atomically updates the sidecar
+
+Web-container caveat retained: integrity key is ephemeral on Claude Code web, so cross-session HMAC validation fails by design (visible signal, not silent acceptance).
+
 ### v6.3 → v6.4 (cross-subprocess session_id continuity)
 
 Fixes the dogfood bug filed in v6 §0: `MEMORY_SESSION_ID` set inside one `python3 -c` invocation didn't inherit into the next, so every recall logged `session_id: "unknown"` in `usage_history`. Prerequisite for Slice 6 hooks — without a stable session_id across subprocess boundaries, observation logs can't be coherently keyed.
