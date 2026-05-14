@@ -110,7 +110,7 @@ MEMORY_ROOT = _resolve_memory_root()
 ARCHIVE_DIR = os.path.join(MEMORY_ROOT, "_archive")
 DOMAINS = [
     "romans", "sheep", "cruising", "recipes",
-    "ken", "photography", "shared",
+    "ken", "photography", "shared", "personal",
 ]
 
 # v3.1 continuous-learning-v2 feature flag (Slice 1).
