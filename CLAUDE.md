@@ -165,3 +165,35 @@ orchestrator/
 ├── repo-modes.json        ← Repository-to-mode mapping
 └── .env                   ← API keys (gitignored)
 ```
+
+---
+
+## Cognitive Memory — Slice 6 Observation Capture (ACTIVE in this repo)
+
+This repo hosts the canonical hook + writer pair that other household repos reference. The wiring is already enabled in `.claude/settings.json` (commit `ca78cad`):
+
+```json
+"env": {
+  "MEMORY_OBSERVATIONS_ENABLED": "true",
+  "MEMORY_AUTO_OBSERVE_ENABLED": "true"
+},
+"hooks": {
+  "PostToolUse": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {"type": "command",
+         "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/observe-tool-use.sh"}
+      ]
+    }
+  ]
+}
+```
+
+Per-call flow: bash wrapper reads stdin → gates on env flag → spawns detached Python writer (`orchestrator/hook_observe.py`) → wrapper exits 0. Writer hashes args via `_compute_args_hash`, classifies response, calls `record_observation`. Fail-closed: any error → exit 0, never blocks the tool call. Args SHA256-hashed before disk; raw values never persisted. Errors → `/tmp/observe-hook.err`.
+
+Sibling repos enable by registering with the absolute path `/home/user/ken/.claude/hooks/observe-tool-use.sh` instead of `$CLAUDE_PROJECT_DIR/...` (the hook lives only here; siblings reference it).
+
+Surface candidates after a session: `python3 orchestrator/memory_ops.py` then `import memory_ops; memory_ops.extract_candidates_from_observations(session_id)`. Measured cost: 1.86 ms/call direct, 14.97 ms/call wrapper (detached writer keeps work off the critical path) — `python3 orchestrator/bench_hook.py` to re-measure.
+
+Setup memory: id `5a9c8ae1`.
