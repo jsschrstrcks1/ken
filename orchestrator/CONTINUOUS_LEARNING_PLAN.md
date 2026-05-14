@@ -1,14 +1,175 @@
-# Continuous-Learning-v2 Auto-Extraction Plan — v5
+# Continuous-Learning-v2 Auto-Extraction Plan — v6
 
-**Status:** Operating profile decision. Plan v4's defenses are intact; v5 introduces `MEMORY_LEARNING_PROFILE` so the friction tax matches the actual threat model. Default profile: `single-operator-local`. The operator stated they are the only human with access to this household; defenses targeting a separate-attacker scenario become non-applicable.
-
-This is not a new LLM review round — it is a configuration decision applied on top of the v4 security model. All cryptographic, integrity, agent-drift, and external-data-contamination defenses remain in force.
+**Status:** v6 reflects reality after Slices 0/0.5/1/2/4/5/7.5 shipped + real dogfood data accumulated faster than expected. Plan diverged from reality in productive ways during 2026-05-13; this update aligns the doc with what's deployed.
 **Owner:** P1#9 continuation. Slices 1, 1.1, 1.2 already shipped.
 **Goal:** Make the household memory system learn from operator behavior without sacrificing the safety properties Slices 1–1.2 established.
 
 ---
 
 ## 0. Change log
+
+### v6.4 → v6.5 (Slice 6 shipped — hook artifacts ready; registration is operator's choice)
+
+Slice 6 — PostToolUse hook + Python writer — landed at ken `(pending commit)`. Capture is fully automatic when the operator opts in.
+
+Architecture: fire-and-forget bash wrapper + detached Python writer. The wrapper's synchronous cost is bash startup + fork (~15ms measured); the writer runs detached so its work (memory_ops import, HMAC sidecar fsync) doesn't add to user-visible tool-call latency. The plan's <5ms target was aspirational for any fork-based hook on consumer hardware; measured numbers are reported instead of claimed.
+
+Files added:
+- `orchestrator/hook_observe.py` — Python writer. Validates payload shape, sanitizes tool_name to the `_OBSERVATION_TOOL_PATTERN` charset, hashes tool_input via `_compute_args_hash` (raw args never reach disk), classifies tool_response into `{success, error, timeout, truncated}`, calls `record_observation`. Wrapped in top-level try/except that ALWAYS exits 0 — fail-closed contract.
+- `.claude/hooks/observe-tool-use.sh` — bash wrapper. Reads stdin, gates on `MEMORY_AUTO_OBSERVE_ENABLED=true`, spawns the writer detached via `disown`, exits 0 unconditionally.
+- `orchestrator/bench_hook.py` — ship-gate benchmark. Reports two numbers: direct `record_observation` cost (1.86 ms/call measured on this hardware) and end-to-end hook wrapper cost (14.97 ms/call). Operator decides whether the cost is acceptable.
+
+NOT modified: `.claude/settings.json`. Hook registration is the operator's explicit choice per the plan's ship-gate item "Explicit user approval to enable always-on capture in their household." When the operator decides to enable, the registration block is:
+
+```json
+"PostToolUse": [
+  {
+    "matcher": "*",
+    "hooks": [
+      {"type": "command",
+       "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/observe-tool-use.sh"}
+    ]
+  }
+]
+```
+
+…plus `export MEMORY_AUTO_OBSERVE_ENABLED=true` in their shell profile. With both, every tool call writes an observation; Slice 3B's `extract_candidates_from_observations(session_id)` surfaces candidates from the accumulated log; Slice 3C's HMAC sidecars attest each cited evidence trail.
+
+Tests added: 22 (12 WriterUnitTests + 7 WriterFailClosedTests + 3 BashWrapperTests). The fail-closed tests use real `subprocess.run` to exercise the contract end-to-end — garbage stdin, top-level array, missing session_id, panic flag set, disabled flag, only-special-chars tool_name all exit 0. Full suite: 423 passing.
+
+Threat surface: highest in the plan (every tool call writes to disk). Defenses already in place via Slices 3A + 3C:
+- T3 disk exhaustion → 10MB / 10K-line FIFO cap with INFO-captured rotation
+- T4 sensitive-data leakage → `_compute_args_hash` runs in the writer before any disk write; tool name sanitized to a-z0-9_.- charset only
+- T6 cross-session race → flock under every write
+- T10 log-compaction attack → 10% eviction not full truncate
+- T8 plan-injection → Slice 3B's strict 4-key shape check rejects extra keys at extraction time
+- T2 fabricated evidence → Slice 3C HMAC sidecar; every record_observation atomically updates the sidecar
+
+Web-container caveat retained: integrity key is ephemeral on Claude Code web, so cross-session HMAC validation fails by design (visible signal, not silent acceptance).
+
+### v6.3 → v6.4 (cross-subprocess session_id continuity)
+
+Fixes the dogfood bug filed in v6 §0: `MEMORY_SESSION_ID` set inside one `python3 -c` invocation didn't inherit into the next, so every recall logged `session_id: "unknown"` in `usage_history`. Prerequisite for Slice 6 hooks — without a stable session_id across subprocess boundaries, observation logs can't be coherently keyed.
+
+`_current_session_id()` rewritten to resolve in priority order:
+1. `MEMORY_SESSION_ID` env var — explicit operator override (validated via `_validate_session_id`; malformed values fall through)
+2. `CLAUDE_SESSION_ID` env var — future-proofs against a harness that ever exports the transcript UUID
+3. `<MEMORY_ROOT>/_session/current` — auto-managed plain-text file with the generated session_id; mtime touched on every read so an active session stays alive; idle beyond `_SESSION_STALE_SECONDS` (4h) triggers regeneration
+
+Generated ids: `sess-YYYYMMDDTHHMMSSZ-<hex6>` — sortable, no path separators, passes `_validate_session_id`.
+
+Robustness:
+- Read-only MEMORY_ROOT → returns generated id without persisting (better than crashing the caller)
+- Malformed file content (e.g. path-traversal-shaped) → regenerates
+- Empty file → regenerates
+- Concurrent first-time writers race-converge after one round-trip (single small file, not worth flock)
+
+`open-claw-stuff/.gitignore`: `.memory/_session/` added (auto-managed runtime state).
+
+11 new tests covering env precedence, persistence across subprocess (real `subprocess.check_output`), staleness, active-keep-alive, malformed regeneration, and path-traversal rejection. Full suite: 401 passing.
+
+This unblocks Slice 6 (PreToolUse / PostToolUse hooks) by guaranteeing every `record_observation` call within a session keys to the same log file regardless of how many `python3 -c` invocations the harness spawns.
+
+### v6.2 → v6.3 (Slice 3B shipped — extraction loop is now end-to-end)
+
+Slice 3B — observation-log → candidate extraction — landed at ken `(pending commit)`. Closes the 3A→3B→3C loop. The extraction surface is identical in shape to Slice 2's `extract_candidates_from_session` but reads the structured observation log instead of orchestrator blackboard state, and every candidate's evidence is cryptographically attested by Slice 3C's HMAC sidecars.
+
+Adds:
+- Public `extract_candidates_from_observations(session_id, dry_run=True)` — snapshot-pattern read under shared flock; deterministic clustering; per-candidate invariant validation including the now-real `_assert_evidence_integrity`.
+- Pure `_extract_candidates_from_observation_log(observations, session_id)` — testable in isolation; no I/O.
+- `_is_well_formed_observation(obs)` — strict 4-key shape check (T8 plan-injection mitigation). Lines with extra keys, missing keys, wrong types, invalid tool name, malformed args_hash, or unknown result_class are treated as malformed and counted (never fed to the extractor).
+
+Three candidate kinds (mirror of Slice 2 with observation-log idioms):
+- `pattern` (success): same `(tool, result_class="success")` repeated ≥3 times → automation candidate (`_OBS_SUCCESS_PATTERN_MIN = 3`).
+- `pattern` (repeat): same `args_hash` repeated ≥3 times → operator did the same thing repeatedly (`_OBS_REPEAT_PATTERN_MIN = 3`).
+- `fact` (failure): same `(tool, args_hash)` with `result_class="error"` repeated ≥2 times → known failure mode (`_OBS_ERROR_PATTERN_MIN = 2`).
+
+Every candidate's `evidence.observations[]` entries carry `{session_id, index, ...}` so `_assert_evidence_integrity` (Slice 3C) validates the cited log file before any candidate surfaces. End-to-end integrity is now structural: bytecode in the helper + AST in the CI gate + HMAC on the log + per-candidate validation at extraction.
+
+Snapshot pattern: log is read once in full under `fcntl.LOCK_SH`, then the extractor runs on the immutable copy. Mitigates T9 TOCTOU — concurrent `record_observation` writes after the read are invisible to this call but visible to the next.
+
+Tests added: 21 (9 ExtractFromObservationsTests + 12 ExtractFromObservationsAdversarialTests). Full suite: 390 passing.
+
+Auto-extraction loop is now structurally complete in the single-operator-local profile. The only piece needed for fully-automated capture is Slice 6 (PreToolUse/PostToolUse hooks that call `record_observation`); the read + integrity + extraction pipeline is in place.
+
+### v6.1 → v6.2 (Slice 3C shipped)
+
+Slice 3C — HMAC sidecar activation — landed at ken `(pending commit)`. Activates the integrity layer that Slices 0.5 + 3A scaffolded.
+
+Adds:
+- `_ensure_integrity_key()` — generates 32-byte random key at `~/.memory/_integrity.key` (mode 0o400) on first use AND registers the fingerprint atomically with creation. Atomic pairing fixes the bootstrap window where an attacker could swap the key before fingerprint registration.
+- `_compute_file_integrity(path)` — writes `<path>.hmac` sidecar with HMAC-SHA256(key, content). Mirror of the existing `_validate_file_integrity`.
+- Public `compute_log_checksum(session_id)` — explicit (re)compute path for migration / repair.
+- Public `validate_log_checksum(session_id)` — structured-result validation (returns `{valid, reason}` instead of raising) so callers can choose hard-fail vs log-and-skip.
+- `_assert_evidence_integrity(candidate)` — STUB → REAL. Walks `evidence.observations[]` and validates the log for any entry with both `session_id` (str) + `index` (int). Legacy / non-3A shapes (`{}`, bare `session_id`, `line_hmac`) no-op so Slice 2 + 2.5 candidates continue to pass.
+
+Wiring:
+- `record_observation` now calls `_validate_key_fingerprint()` + `_compute_file_integrity()` under the same flock as the append, so log + sidecar are always written atomically.
+- `clear_observations` removes the sidecar alongside the log.
+- Test base `_ObservationBase` isolates `_INTEGRITY_KEY_PATH` + `_INTEGRITY_FINGERPRINT_PATH` to the tempdir (no real `~/.memory/` pollution from test runs).
+
+Key design choice — log-reference disambiguation: `_assert_evidence_integrity` only validates when an observation entry has BOTH `session_id` AND integer `index`. Slice 2's `extract_candidates_from_session` produces evidence with bare `session_id` (referencing the blackboard, not the log) and is correctly skipped. Slice 3B (when it ships) MUST include `index` for log-backed evidence to be cryptographically attested.
+
+Web-container caveat: `~/.memory/` is ephemeral on Claude Code web; the key regenerates per session, invalidating cross-session HMACs. Within-session integrity holds. Persistent integrity across sessions requires a local CLI/desktop deployment where `~/.memory/_integrity.key` survives.
+
+Tests added: 23 (12 LogChecksumTests + 11 LogChecksumAdversarialTests). Full suite: 369 passing. CI gate + panic-ordering + helper-seal-lifecycle all still green.
+
+NOT in this slice: Slice 3B extraction from observation log.
+
+### v6 → v6.1 (Slice 3A shipped)
+
+Slice 3A — observation log infrastructure — landed at ken `(pending commit)`. Adds three new public surfaces plus four helpers:
+- `record_observation(tool, args_hash, result_class, session_id)` — append one JSONL line to `<MEMORY_ROOT>/_observations/<session_id>.jsonl`, with panic + rate-limit + temporal-consistency + input-validation invariants. flock held across append + rotation pass.
+- `clear_observations(session_id)` — explicit cleanup.
+- Internal: `_compute_args_hash`, `_validate_observation_inputs`, `_rotate_observation_log`, `_observation_log_path`, `_observations_dir`, `_observations_enabled`.
+
+Feature flag: `MEMORY_OBSERVATIONS_ENABLED=true` opts in (default off).
+
+Caps:
+- `_OBSERVATION_MAX_BYTES = 10 MB`
+- `_OBSERVATION_MAX_LINES = 10_000`
+- `_OBSERVATION_EVICTION_RATIO = 0.10` (FIFO-evict oldest 10% at cap; not full truncate)
+- Eviction surfaces in return dict as `rotation.info`; the `_assert_no_silent_skip` raise is caught and captured (silent skip remains forbidden — captured INFO is the operator-visible breadcrumb).
+
+Tests added: 34 (13 unit + 3 clear + 18 adversarial). Full suite: 346 passing. CI gate (`test_every_mutation_path_invokes_invariants`) + panic-ordering test both still green.
+
+Gitignore updated in `open-claw-stuff`: `.memory/_observations/`, `.memory/_checksums/`, `.memory/_integrity.*` (the observation log is high-volume ephemera; Slice 3C key + sidecars never live in any tracked repo).
+
+NOT in this slice: extraction (Slice 3B), HMAC sidecars (Slice 3C), hook integration (Slice 6).
+
+### v5 → v6 (reality alignment after first day of live use)
+
+This update doesn't change the security model; it records the architecture-level surprises encountered during the first day of real cross-thread dogfood + closes the privacy-posture gap that v4/v5 had wrong.
+
+**Persistence hole found + fixed.** v5 assumed `~/.memory/` was persistent. In Claude Code on the web (the primary deployment for this household), `~/.memory/` resolves to `/root/.memory/` in an ephemeral container that's destroyed on session teardown. Every encode written across an unknown number of prior sessions was lost. Fix shipped ken `13cac8a`: `_resolve_memory_root()` now prefers `<parent>/open-claw-stuff/.memory/` (git-tracked sibling) over `~/.memory/`. Order of precedence: (1) `MEMORY_ROOT` env var, (2) sibling repo, (3) legacy `~/.memory/`. Tests unaffected; all 253 still pass. open-claw-stuff `f527cc4` ships the `.memory/` tree with one initial entry.
+
+**Privacy posture corrected.** v4/v5 (and the initial `.memory/README.md`) framed open-claw-stuff as "public-domain — everything committed is permanently public." Operator clarified 2026-05-13 that the *repo* is PRIVATE on GitHub (jsschrstrcks1/open-claw-stuff). The Unlicense applies to *content* if/when the operator chooses to publish, but the storage is private by default. Earlier wording over-restricted encoders (forced pseudonymization of names, decisions, specifics). Standing rule: encode honestly; operator is the publication gate; secrets still go in `.env` (gitignored), regardless of repo visibility. Recorded in `.memory/README.md` + memory `e25c4814`. Earlier commit messages referencing "public-domain implications" are historical record; not force-pushed/rewritten.
+
+**Cross-thread mining emerged as an operating pattern.** v5 had no slice for transcript mining. In practice it became the dominant mode of corpus growth on day one. Pattern:
+1. Sibling thread parses its own `/root/.claude/projects/-home-user/*.jsonl` transcripts (persistent across container teardown — Claude Code's harness manages this dir).
+2. Extracts unique high-signal operator-directive content (skip auto-resume preambles + system-reminders + one-word imperatives).
+3. Encodes via `memory_ops.encode` if the persistence path is reachable, OR outputs JSON in chat for hand-relay if not.
+4. Receiving thread dedups against existing corpus, writes files with relayer's IDs preserved (substring + word-overlap dedup), commits + pushes.
+
+Pattern was used 4+ times today across at least 6 sibling threads. Corpus grew from 1 entry → 216 entries in ~3 hours via this loop. **This pattern is being formalized as Slice 2.5 — see §3 below.**
+
+**Dogfood gate substantially satisfied earlier than expected.** v4 specified ~2 weeks of dogfood + 4 concrete metrics (invocations performed, candidates surfaced, promotions, demotions) before Slices 3A-6 ship. Day 1 of dogfood has produced:
+- 216 memories across 5 domains (ken=128, cruising=25, sheep=17, romans=16, shared=16)
+- Active recall traffic from at least this thread's verification queries
+- 6+ sibling threads using `memory_ops.encode` in their work
+- The persistence + privacy + cross-thread issues surfaced and fixed
+- A meaningful corpus for the TF-IDF degenerate-at-n=1 case (resolved at n>5)
+
+What's STILL not testable from this signal:
+- Auto-promotion eligibility (Slice 7.5 requires `recall_count≥10` + `age≥30d` + `≥5 distinct sessions`; nothing in the corpus is even 1 day old)
+- Consolidate cycle effects (confidence promotion, decay) — too early
+- Whether the harness will use any of this for real session-start context
+
+**Operator-found bugs encoded into the plan as work items:**
+- `MEMORY_SESSION_ID` env var does NOT inherit across Python subprocess invocations. Recall bumps in step-2 verification all logged `session_id: "unknown"` because the env was set inside one `python3 -c` and not exported to subsequent calls. Slice 3A or a prerequisite micro-slice should ship a fix: export `MEMORY_SESSION_ID` from the harness, OR have `_current_session_id()` read from a session-state file the harness writes, OR have the cognitive-memory skill insert it in the bash command template.
+- Cross-thread mining prompt's privacy paragraph references "PUBLIC domain repo" — outdated. Updated text lives in `e25c4814` for future relays to consult.
+
+**New slice added: Slice 2.5 — formalized mining.** See §3.
 
 ### v4 → v5 (operating profile decision)
 
@@ -394,6 +555,35 @@ The skill being lifted is ECC's `continuous-learning-v2` (MIT). Three foundation
 - New total: ~115 tests
 
 **Effort:** ~1.5 sessions (was 1; added TOCTOU snapshot + rate-limit + plan-injection probes).
+
+---
+
+### Slice 2.5 — Formalized transcript mining (NEW in v6)
+
+**Goal:** Convert the cross-thread mining pattern (emergent on 2026-05-13, used 4+ times across sibling threads) into stable callable surface. Today it's ad-hoc Python in each session; this slice gives it a stable function + relay protocol + dedup discipline.
+
+**Adds:**
+- `memory_ops.mine_transcripts(transcript_glob=None, dry_run=True, source_tag=None)` — pure Python function. Reads `*.jsonl` files from `/root/.claude/projects/-home-user/` (default) or operator-supplied path. Extracts unique user-message text (≥30 chars, ≤500 chars; skip auto-resume preambles + system-reminders). Returns candidate dicts with `{content, timestamp, session_id, source}`. Does NOT auto-encode — read-only by default.
+- `memory_ops.ingest_relayed_memories(json_list, dedup=True)` — accepts list of complete memory dicts (with IDs already set per the relay protocol). Dedups against `MEMORY_ROOT` corpus. Writes net-new entries with relayer's IDs preserved (no re-encoding). Returns `(written_ids, skipped_with_reasons)`.
+- `memory_ops._dedup_against_corpus(content, domain, tags)` — internal helper. Substring head-match (first 200 chars in either direction) + word-overlap > 65% within same-domain + tag-overlap > 60% as soft signal. Returns `(dup_id, reason)` or `(None, None)`.
+
+**Invariant calls (order matters per Slice 1 AST rule):**
+1. `_assert_panic_check`
+2. `_assert_rate_limit("mine_transcripts", "default")` — bounds mining frequency
+3. Per candidate: `_assert_evidence_present` (transcript-path + line-number constitute the evidence trail)
+4. `_assert_no_silent_skip` if any parse failures dropped content
+5. For `ingest_relayed_memories`: also `_assert_temporal_consistency` on the `created` field
+
+**Threat surface:** lower than Slice 2 because read-only by default (`dry_run=True`). Ingestion writes are gated by dedup; the path-traversal hardening from Slice 2 applies to the transcript path lookup.
+
+**Ship gate:**
+- ≥8 tests: mine returns candidates from synthetic transcript, dedup catches duplicates, ingest preserves relayer IDs, ingest skips on dup, panic halts both
+- ≥6 adversarial probes: malformed jsonl line in transcript, oversized content (>10MB single message), prompt-injection-shaped content, path traversal in transcript_glob, ID collision in relay, missing required field in relayed dict
+- Documented in plan; cross-thread mining prompt simplified to "run `memory_ops.mine_transcripts(); memory_ops.ingest_relayed_memories(candidates)`"
+
+**Effort:** ~1 session. Folds the current ad-hoc patterns into stable callable surface; doesn't change what the system does, just how reliably it can be invoked.
+
+**Why this slice now (was missing from v5):** the cross-thread mining pattern is what's been growing the corpus. Without formalization, every thread reinvents the dedup + parse logic, with different rigor each time. Formalizing eliminates that drift and makes the operation cheap enough that future threads call it as a standard session-start operation.
 
 ---
 

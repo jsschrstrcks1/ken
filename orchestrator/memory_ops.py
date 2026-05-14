@@ -235,11 +235,55 @@ def _assert_safety_guard_compliant(operation, target, force=False):
 
 # Invariant 6: Evidence integrity (STUB until Slice 3C).
 def _assert_evidence_integrity(candidate):
-    """STUB until Slice 3C ships HMAC-SHA256 validation against
-    ~/.memory/_checksums/. Currently a no-op; the call-site contract
-    is preserved so subsequent slices can wire the invariant call
-    without breaking when 3C is implemented."""
-    return  # Intentional no-op. Tests assert this is a stub.
+    """Verify HMAC integrity of every observation log cited in the
+    candidate's evidence trail. Activated by Slice 3C.
+
+    Walks ``candidate['evidence']['observations']`` and, for any
+    entry that is clearly Slice-3A-log-backed (carries BOTH a
+    ``session_id`` str AND an integer ``index``), validates the
+    corresponding ``<MEMORY_ROOT>/_observations/<session_id>.jsonl``
+    file against its HMAC sidecar via ``_validate_file_integrity``.
+
+    Observations without that pair are skipped — they describe a
+    different evidence shape (Slice 2's blackboard session_id,
+    Slice 2.5's transcript path, legacy bare ``line_hmac`` markers).
+    The empty-evidence case (``{}``, ``{'id': ...}``,
+    ``{'evidence': {}}``) is also a no-op so candidates that predate
+    the observation log continue to pass.
+
+    Raises ``CarefulNotCleverError`` on any sidecar mismatch, missing
+    key when sidecar is present, missing-log when log is cited, or
+    malformed session_id.
+    """
+    if not isinstance(candidate, dict):
+        return
+    evidence = candidate.get("evidence") or {}
+    observations = evidence.get("observations") or []
+    if not observations:
+        return
+    seen_sessions = set()
+    for obs in observations:
+        if not isinstance(obs, dict):
+            continue
+        sid = obs.get("session_id")
+        idx = obs.get("index")
+        if not (isinstance(sid, str) and sid and isinstance(idx, int)):
+            # Not a Slice-3A log reference — skip integrity check.
+            continue
+        if sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        _validate_session_id(sid)
+        log_path = os.path.join(
+            MEMORY_ROOT, _OBSERVATIONS_SUBDIR, f"{sid}.jsonl"
+        )
+        if not os.path.exists(log_path):
+            raise CarefulNotCleverError(
+                f"evidence integrity: candidate "
+                f"{candidate.get('id', '?')} cites observation log "
+                f"session {sid!r} but no log exists at {log_path}"
+            )
+        _validate_file_integrity(log_path)
 
 
 # Invariant 7: Rate limiting (dynamic per Grok R3).
@@ -574,6 +618,65 @@ def _validate_file_integrity(path):
             f"(file content changed without sidecar update — "
             f"direct write detected)"
         )
+
+
+def _ensure_integrity_key():
+    """Generate the HMAC key on first use. 32 random bytes, mode 0o400.
+
+    Lives at ``~/.memory/_integrity.key`` — outside any tracked repo
+    even when MEMORY_ROOT points at a sibling git directory. Putting
+    the signing key inside a private gitignored subdir is still
+    one .gitignore edit away from accidental commit; keeping it
+    outside the repo tree is the defense-in-depth posture per the
+    doctrine note in ``open-claw-stuff/.memory/README.md``.
+
+    Idempotent: returns silently when the key already exists. No-op
+    when Slice 3C is not active in the caller's environment (the
+    helper only ever gets invoked from log-integrity write paths).
+
+    Also registers the key fingerprint immediately on creation so a
+    subsequent key swap is detected even though the first
+    ``_validate_key_fingerprint`` call (before key generation)
+    no-opped. Without this atomic pairing, the very first post-
+    generation call would register whatever key happens to be on
+    disk — including an attacker-substituted one."""
+    if os.path.exists(_INTEGRITY_KEY_PATH):
+        return
+    os.makedirs(os.path.dirname(_INTEGRITY_KEY_PATH), exist_ok=True)
+    key_bytes = os.urandom(32)
+    with open(_INTEGRITY_KEY_PATH, "wb") as f:
+        f.write(key_bytes)
+    os.chmod(_INTEGRITY_KEY_PATH, 0o400)
+    # Atomic-with-creation fingerprint registration.
+    digest = hashlib.sha256(key_bytes).hexdigest()
+    with open(_INTEGRITY_FINGERPRINT_PATH, "w") as f:
+        f.write(digest)
+    os.chmod(_INTEGRITY_FINGERPRINT_PATH, 0o400)
+
+
+def _compute_file_integrity(path):
+    """Write the HMAC-SHA256 sidecar for ``path``.
+
+    Mirror of ``_validate_file_integrity``: reads the file content,
+    computes HMAC-SHA256 with ``~/.memory/_integrity.key``, writes to
+    ``<path>.hmac``. Auto-generates the key on first use via
+    ``_ensure_integrity_key``.
+
+    Caller is responsible for serializing concurrent writes. In
+    practice this is invoked from inside the flock held by
+    ``record_observation`` so the sidecar is always consistent with
+    the log's post-write state."""
+    import hmac
+    _ensure_integrity_key()
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        key = f.read()
+    with open(path, "rb") as f:
+        content = f.read()
+    digest = hmac.new(key, content, hashlib.sha256).hexdigest()
+    sidecar = path + ".hmac"
+    with open(sidecar, "w") as f:
+        f.write(digest)
+    os.chmod(sidecar, 0o600)
 
 
 def _validate_key_fingerprint():
@@ -1887,10 +1990,105 @@ def _usage_history_enabled():
 _USAGE_HISTORY_CAP = 20
 
 
+_SESSION_STATE_SUBDIR = "_session"
+_SESSION_STATE_FILENAME = "current"
+_SESSION_STALE_SECONDS = 4 * 3600  # 4h idle = considered a new session
+
+
+def _session_state_path():
+    """Resolves to ``<MEMORY_ROOT>/_session/current``. Lazily created
+    by ``_current_session_id`` so plain reads of the corpus never
+    touch it."""
+    return os.path.join(MEMORY_ROOT, _SESSION_STATE_SUBDIR,
+                        _SESSION_STATE_FILENAME)
+
+
+def _generate_session_id():
+    """Short, sortable, no path separators: ``sess-YYYYMMDDTHHMMSSZ-<hex6>``."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    suffix = uuid.uuid4().hex[:6]
+    return f"sess-{ts}-{suffix}"
+
+
+def _is_safe_session_id(sid):
+    """Bool wrapper around ``_validate_session_id``."""
+    if not isinstance(sid, str) or not sid:
+        return False
+    try:
+        _validate_session_id(sid)
+    except CarefulNotCleverError:
+        return False
+    return True
+
+
+def _resolve_or_create_session_state():
+    """Read the session-state file, regenerating if stale or absent.
+
+    Touches mtime on every read so an active session keeps the file
+    fresh. After ``_SESSION_STALE_SECONDS`` of no calls, the next
+    invocation generates a fresh id — matching the operator's
+    intuition that "leaving the terminal idle overnight" starts a
+    new session."""
+    path = _session_state_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except OSError:
+        # Read-only FS or permission issue — return a generated id
+        # without trying to persist. Better than crashing the caller.
+        return _generate_session_id()
+
+    if os.path.exists(path):
+        age = time.time() - os.path.getmtime(path)
+        if age < _SESSION_STALE_SECONDS:
+            try:
+                with open(path) as f:
+                    sid = f.read().strip()
+                if _is_safe_session_id(sid):
+                    # Bump mtime so active use keeps the session alive
+                    try:
+                        os.utime(path, None)
+                    except OSError:
+                        pass
+                    return sid
+            except IOError:
+                pass  # fall through to regenerate
+
+    sid = _generate_session_id()
+    try:
+        with open(path, "w") as f:
+            f.write(sid)
+    except IOError:
+        pass  # couldn't persist; return id anyway
+    return sid
+
+
 def _current_session_id():
-    """Read MEMORY_SESSION_ID from env; default to 'unknown' if unset.
-    Slice 5 stores only timestamp + session_id; never query content."""
-    return os.environ.get("MEMORY_SESSION_ID", "unknown")
+    """Resolve the current session_id from the most reliable source
+    available, in order:
+
+      1. ``MEMORY_SESSION_ID`` env var — explicit operator override.
+      2. ``CLAUDE_SESSION_ID`` env var — picked up automatically if
+         the Claude Code harness exports it; future-proofs the
+         resolution if the harness ever propagates the transcript
+         UUID via env.
+      3. Session state file ``<MEMORY_ROOT>/_session/current`` —
+         auto-managed; persists across subprocess invocations so two
+         ``python3 -c`` calls in the same session get the same id.
+
+    Fixes the v6 dogfood bug where ``MEMORY_SESSION_ID`` set inside
+    one subprocess didn't inherit into the next, causing every recall
+    bump to log ``session_id: "unknown"`` in usage_history.
+
+    Slice 5 stores only timestamp + session_id in usage_history;
+    never query content. The privacy invariant is preserved end-to-end
+    regardless of which source resolved the id."""
+    explicit = os.environ.get("MEMORY_SESSION_ID")
+    if explicit and _is_safe_session_id(explicit):
+        return explicit
+    claude = os.environ.get("CLAUDE_SESSION_ID")
+    if claude and _is_safe_session_id(claude):
+        return claude
+    return _resolve_or_create_session_state()
 
 
 # Slice 4 thresholds. Documented inline (auditable in PR history).
@@ -2134,6 +2332,881 @@ def extract_candidates_from_session(session_id, dry_run=True, state_dir=None):
         "session_id": session_id,
         "candidates": candidates,
         "skipped": 0,
+        "dry_run": dry_run,
+    }
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 2.5 — Formalized transcript mining
+# ─────────────────────────────────────────────
+# Converts the cross-thread mining + relay pattern (emergent on
+# 2026-05-13, used 4+ times across sibling threads) into stable
+# callable surface. Three functions:
+#
+#   mine_transcripts()         read-only; parse jsonls → candidates
+#   ingest_relayed_memories()  write relayer JSONs (with IDs) to disk
+#   _dedup_against_corpus()    internal helper used by both
+#
+# Mining is read-only (no MEMORY_ROOT writes). Ingestion writes
+# verbatim, preserving the relayer's chosen IDs — does NOT call
+# memory_ops.encode (which generates fresh UUIDs and would lose
+# origin trace).
+
+# Auto-resume preamble + system-noise prefixes to skip during mining.
+_MINE_SKIP_PREFIXES = (
+    "This session is being continued",
+    "<system-reminder>",
+    "[Request interrupted",
+    "Caveat:",
+    "Stop hook feedback",
+    "Tool loaded",  # ToolSearch acknowledgement
+)
+
+
+def _dedup_against_corpus(content, domain, tags=None):
+    """Pure dedup helper. Returns (matched_memory_id, reason) or (None, None).
+
+    Three signals (any one wins):
+      1. Substring head-match: first 200 chars of new in existing,
+         or vice versa.
+      2. Word-overlap >65% within same-domain memories.
+      3. Tag-overlap >60% paired with word-overlap >40% (soft signal).
+
+    Reads from current MEMORY_ROOT/<domain>/*.json on every call —
+    no caching, so dedup sees concurrent writes. Domain-scoped:
+    a memory in domain=ken doesn't dedup against domain=sheep."""
+    nc = content.lower()
+    n_words = set(re.findall(r"\w{4,}", nc))
+    n_tag_set = set(tags or [])
+
+    for path in glob.glob(os.path.join(MEMORY_ROOT, domain, "*.json")):
+        try:
+            with open(path) as f:
+                e = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        ec = e.get("content", "").lower()
+        if not ec:
+            continue
+        # Substring head-match
+        if nc[:200] in ec or ec[:200] in nc:
+            return e.get("id"), "substring-head-match"
+        # Word overlap
+        if n_words:
+            e_words = set(re.findall(r"\w{4,}", ec))
+            overlap = len(n_words & e_words) / len(n_words)
+            if overlap > 0.65:
+                if n_tag_set:
+                    e_tag_set = set(e.get("tags", []))
+                    tag_overlap = (
+                        len(n_tag_set & e_tag_set) / len(n_tag_set)
+                        if e_tag_set else 0.0
+                    )
+                    return (
+                        e.get("id"),
+                        f"word-overlap-{overlap:.2f}+tag-overlap-{tag_overlap:.2f}",
+                    )
+                return e.get("id"), f"word-overlap-{overlap:.2f}"
+    return None, None
+
+
+def mine_transcripts(
+    transcript_glob=None,
+    min_content_chars=30,
+    max_content_chars=500,
+    source_tag=None,
+):
+    """Stream-mine transcript jsonl files for unique high-signal user
+    prompts. Returns a structured report; read-only (no MEMORY_ROOT
+    writes). Operator passes the returned candidates into
+    ingest_relayed_memories or memory_ops.encode as desired.
+
+    Each candidate carries an `evidence` sub-dict so it satisfies the
+    _assert_evidence_present invariant when used in downstream
+    extraction paths.
+
+    Returns:
+        {
+            "candidates": [
+                {
+                    "content": str,
+                    "timestamp": str (ISO),
+                    "session_id": str (8-char prefix from filename),
+                    "source": str,
+                    "transcript_path": str,
+                    "evidence": {"observations": [{"transcript", "session_id", "timestamp"}]},
+                },
+                ...
+            ],
+            "transcripts_scanned": int,
+            "parse_failures": int,
+            "skipped_too_short": int,
+            "skipped_too_long": int,
+            "skipped_preamble": int,
+            "skipped_dup_text": int,
+        }
+
+    Counts are surfaced (not silent drops), so _assert_no_silent_skip
+    is not triggered by normal filter activity. parse_failures is
+    surfaced too — caller decides whether to investigate.
+    """
+    _assert_panic_check()
+
+    if transcript_glob is None:
+        transcript_glob = "/root/.claude/projects/-home-user/*.jsonl"
+
+    # Defend against path traversal via the glob pattern itself.
+    # Only allow alphanumeric, hyphen, slash, dot, asterisk, square brackets.
+    if not re.match(r"^[a-zA-Z0-9_\-/.*\[\]?]+$", transcript_glob):
+        raise CarefulNotCleverError(
+            f"transcript_glob {transcript_glob!r} contains unsafe characters"
+        )
+
+    _assert_rate_limit("mine_transcripts", transcript_glob)
+
+    source = source_tag or f"mined-from-transcripts:{_now()[:10]}"
+
+    unique = {}  # text -> (timestamp, session_id, transcript_path)
+    parse_failures = 0
+    skipped_too_short = 0
+    skipped_too_long = 0
+    skipped_preamble = 0
+    skipped_dup_text = 0
+    scanned = 0
+
+    for path in sorted(glob.glob(transcript_glob)):
+        scanned += 1
+        sess_id = os.path.basename(path)[:8]
+        try:
+            with open(path) as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                    except json.JSONDecodeError:
+                        parse_failures += 1
+                        continue
+                    msg = d.get("message", {})
+                    if msg.get("role") != "user":
+                        continue
+                    content_block = msg.get("content", "")
+                    # Text might be top-level string or list-of-blocks
+                    texts = []
+                    if isinstance(content_block, str):
+                        texts.append(content_block)
+                    elif isinstance(content_block, list):
+                        for c in content_block:
+                            if isinstance(c, dict) and c.get("type") == "text":
+                                texts.append(c.get("text", ""))
+                    for t in texts:
+                        t = t.strip()
+                        if not t:
+                            continue
+                        if any(t.startswith(p) for p in _MINE_SKIP_PREFIXES):
+                            skipped_preamble += 1
+                            continue
+                        if len(t) < min_content_chars:
+                            skipped_too_short += 1
+                            continue
+                        if len(t) > max_content_chars:
+                            skipped_too_long += 1
+                            continue
+                        ts = d.get("timestamp", "")
+                        if t in unique:
+                            skipped_dup_text += 1
+                            # Keep earliest timestamp
+                            old_ts, _, _ = unique[t]
+                            if ts and ts < old_ts:
+                                unique[t] = (ts, sess_id, path)
+                            continue
+                        unique[t] = (ts, sess_id, path)
+        except (IOError, OSError):
+            parse_failures += 1
+            continue
+
+    candidates = []
+    for text, (ts, sess, path) in unique.items():
+        candidate = {
+            "content": text,
+            "timestamp": ts,
+            "session_id": sess,
+            "source": source,
+            "transcript_path": path,
+            "evidence": {
+                "observations": [
+                    {"transcript": path, "session_id": sess, "timestamp": ts}
+                ]
+            },
+        }
+        _assert_evidence_present(candidate)
+        candidates.append(candidate)
+
+    return {
+        "candidates": candidates,
+        "transcripts_scanned": scanned,
+        "parse_failures": parse_failures,
+        "skipped_too_short": skipped_too_short,
+        "skipped_too_long": skipped_too_long,
+        "skipped_preamble": skipped_preamble,
+        "skipped_dup_text": skipped_dup_text,
+    }
+
+
+def ingest_relayed_memories(json_list, dedup=True):
+    """Accept a list of complete memory dicts (with IDs already set by
+    the relayer) and write the net-new ones verbatim to disk. Does NOT
+    call memory_ops.encode — preserves the relayer's IDs for origin
+    trace.
+
+    Each dict must contain at minimum: id, created, domain, type,
+    content. Other fields (version, source, confidence, tags,
+    related_to, supersedes, protected, archived, summarizes,
+    last_recalled, recall_count) are preserved verbatim if present;
+    sensible defaults filled in otherwise.
+
+    Args:
+        json_list: list of memory dicts (or a single dict).
+        dedup: if True (default), substring/word/tag overlap dedup
+               against current MEMORY_ROOT corpus. Set False to write
+               unconditionally (operator override).
+
+    Returns:
+        {
+            "written": [{"id", "domain", "type"}, ...],
+            "skipped": [{"id", "reason", "matched_id"}, ...],
+            "errors": [{"id" or position, "reason"}, ...],
+        }
+    """
+    _assert_panic_check()
+
+    if isinstance(json_list, dict):
+        json_list = [json_list]
+    if not isinstance(json_list, list):
+        raise CarefulNotCleverError(
+            f"ingest_relayed_memories expects list or dict, got {type(json_list).__name__}"
+        )
+
+    _assert_rate_limit("ingest_relayed_memories", "default")
+
+    required = {"id", "created", "domain", "type", "content"}
+    defaults = {
+        "version": 1,
+        "updated": None,
+        "source": "relayed",
+        "confidence": 0.7,
+        "tags": [],
+        "related_to": [],
+        "supersedes": None,
+        "protected": False,
+        "archived": False,
+        "summarizes": [],
+        "last_recalled": None,
+        "recall_count": 0,
+    }
+
+    written, skipped, errors = [], [], []
+
+    for idx, d in enumerate(json_list):
+        if not isinstance(d, dict):
+            errors.append({"position": idx, "reason": f"not a dict ({type(d).__name__})"})
+            continue
+        missing = required - set(d.keys())
+        if missing:
+            errors.append({
+                "id": d.get("id", f"<position {idx}>"),
+                "reason": f"missing required fields: {sorted(missing)}",
+            })
+            continue
+        # Validate created timestamp
+        try:
+            _assert_temporal_consistency(d["created"])
+        except CarefulNotCleverError as e:
+            errors.append({"id": d["id"], "reason": str(e)})
+            continue
+        # Defend against id with path separators
+        if os.path.basename(d["id"]) != d["id"] or any(
+            seg in (".", "..") for seg in d["id"].replace("\\", "/").split("/")
+        ):
+            errors.append({"id": d["id"], "reason": "id contains path separators or traversal segments"})
+            continue
+        # Domain validation
+        if d["domain"] not in DOMAINS:
+            errors.append({"id": d["id"], "reason": f"unknown domain {d['domain']!r}"})
+            continue
+
+        # Dedup
+        if dedup:
+            dup_id, reason = _dedup_against_corpus(
+                d["content"], d["domain"], d.get("tags", [])
+            )
+            if dup_id and dup_id != d["id"]:
+                skipped.append({
+                    "id": d["id"],
+                    "matched_id": dup_id,
+                    "reason": reason,
+                })
+                continue
+
+        # File-exists check (idempotent — same id appearing twice in one call,
+        # or already present on disk from a prior ingest).
+        target_dir = os.path.join(MEMORY_ROOT, d["domain"])
+        os.makedirs(target_dir, exist_ok=True)
+        target_path = os.path.join(target_dir, f"{d['id']}.json")
+        if os.path.exists(target_path):
+            skipped.append({"id": d["id"], "reason": "file already exists at target path"})
+            continue
+
+        # Fill in defaults for missing optional fields
+        record = dict(defaults)
+        record.update(d)
+
+        with open(target_path, "w") as f:
+            json.dump(record, f, indent=2)
+        written.append({
+            "id": d["id"],
+            "domain": d["domain"],
+            "type": d["type"],
+        })
+
+    return {"written": written, "skipped": skipped, "errors": errors}
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3A — Observation log infrastructure
+# ─────────────────────────────────────────────
+# OPTIONAL append-only log of tool invocations, keyed per session_id.
+# Operator opts in via MEMORY_OBSERVATIONS_ENABLED=true. The log lives
+# at <MEMORY_ROOT>/_observations/<session_id>.jsonl and stores only
+# hashed args + a coarse result_class — no raw values (T4 sensitive
+# data mitigation).
+#
+# Bounded: 10MB or 10,000 lines per session, whichever fires first.
+# At cap, FIFO-evicts the oldest 10% (not a full truncate) and
+# surfaces the eviction as an INFO finding via _assert_no_silent_skip
+# (T3 disk exhaustion, T10 log-compaction attack).
+#
+# flock() held during every write, mitigating T6 (cross-session race)
+# and T9 (TOCTOU during extraction). Hook integration is Slice 6;
+# integrity sidecars are Slice 3C.
+
+import fcntl  # POSIX advisory locking
+
+_OBSERVATIONS_SUBDIR = "_observations"
+_OBSERVATION_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_OBSERVATION_MAX_LINES = 10_000
+_OBSERVATION_EVICTION_RATIO = 0.10
+_OBSERVATION_RESULT_CLASSES = frozenset({
+    "success", "error", "timeout", "truncated"
+})
+_OBSERVATION_TOOL_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_OBSERVATION_HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _observations_enabled():
+    """MEMORY_OBSERVATIONS_ENABLED=true to opt in. Default off."""
+    return os.environ.get(
+        "MEMORY_OBSERVATIONS_ENABLED", "false"
+    ).lower() == "true"
+
+
+def _observations_dir():
+    """Return <MEMORY_ROOT>/_observations/, creating if needed."""
+    path = os.path.join(MEMORY_ROOT, _OBSERVATIONS_SUBDIR)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _observation_log_path(session_id):
+    """Return jsonl path for session_id. Caller must have already
+    validated session_id via _validate_session_id."""
+    return os.path.join(_observations_dir(), f"{session_id}.jsonl")
+
+
+def _compute_args_hash(args):
+    """Deterministic SHA256 over normalized args. Used by hook callers
+    (Slice 6) to convert raw tool args into the hash that
+    record_observation persists. Raw values never reach disk."""
+    if isinstance(args, (dict, list)):
+        serialized = json.dumps(args, sort_keys=True, separators=(",", ":"))
+    else:
+        serialized = str(args)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _validate_observation_inputs(tool, hash_value, result_class):
+    if not isinstance(tool, str) or not _OBSERVATION_TOOL_PATTERN.match(tool):
+        raise CarefulNotCleverError(
+            f"record_observation: invalid tool name {tool!r} "
+            f"(expected /{_OBSERVATION_TOOL_PATTERN.pattern}/)"
+        )
+    if (not isinstance(hash_value, str)
+            or not _OBSERVATION_HASH_PATTERN.match(hash_value)):
+        raise CarefulNotCleverError(
+            f"record_observation: args_hash must be 64-char lowercase hex "
+            f"sha256, got {hash_value!r}"
+        )
+    if result_class not in _OBSERVATION_RESULT_CLASSES:
+        raise CarefulNotCleverError(
+            f"record_observation: result_class must be one of "
+            f"{sorted(_OBSERVATION_RESULT_CLASSES)}, got {result_class!r}"
+        )
+
+
+def _rotate_observation_log(path):
+    """FIFO-evict oldest 10% of the log if over size or line cap.
+    Returns (evicted_count, reason) — (0, None) when no rotation needed.
+
+    Caller must hold the flock on a separate handle. This function
+    reads the file fresh and writes via os.replace, so concurrent
+    readers see either the pre- or post-rotation contents — never
+    a torn write."""
+    if not os.path.exists(path):
+        return 0, None
+    size = os.path.getsize(path)
+    over_bytes = size > _OBSERVATION_MAX_BYTES
+    with open(path) as f:
+        lines = f.readlines()
+    over_lines = len(lines) > _OBSERVATION_MAX_LINES
+    if not (over_bytes or over_lines):
+        return 0, None
+    reason_parts = []
+    if over_bytes:
+        reason_parts.append(f"byte cap {_OBSERVATION_MAX_BYTES}")
+    if over_lines:
+        reason_parts.append(f"line cap {_OBSERVATION_MAX_LINES}")
+    reason = " + ".join(reason_parts)
+    evict = max(1, int(len(lines) * _OBSERVATION_EVICTION_RATIO))
+    kept = lines[evict:]
+    tmp = path + ".rotating"
+    with open(tmp, "w") as f:
+        f.writelines(kept)
+    os.replace(tmp, path)
+    return evict, reason
+
+
+def record_observation(tool, args_hash, result_class, session_id):
+    """Append a single observation to <MEMORY_ROOT>/_observations/<session_id>.jsonl.
+
+    Args:
+        tool: short identifier of the tool invoked (e.g. "Bash", "Read");
+            must match /[A-Za-z0-9_.-]{1,64}/
+        args_hash: 64-char lowercase hex sha256 of normalized args;
+            raw args MUST NOT be passed — the hash is the evidence
+        result_class: one of {"success", "error", "timeout", "truncated"}
+        session_id: opaque session identifier; path-traversal-checked
+
+    Returns:
+        {"enabled": False} when feature flag off, otherwise
+        {
+            "enabled": True,
+            "path": str,
+            "wrote": True,
+            "rotation": None or {"evicted": int, "reason": str, "info": str}
+        }
+
+    Raises CarefulNotCleverError on panic flag, invalid input,
+    rate-limit, or future-dated/temporal-inconsistent timestamp.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _validate_observation_inputs(tool, args_hash, result_class)
+    _assert_rate_limit("record_observation", session_id)
+
+    ts = _now()
+    _assert_temporal_consistency(ts)
+
+    path = _observation_log_path(session_id)
+    record = {
+        "ts": ts,
+        "tool": tool,
+        "args_hash": args_hash,
+        "result_class": result_class,
+    }
+    line = json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
+
+    # Exclusive flock around append + rotation + sidecar write. Held
+    # on the same fd so concurrent writers see a consistent
+    # log+sidecar pair (Slice 3C T6/T9 mitigation).
+    with open(path, "a") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+            evicted, reason = _rotate_observation_log(path)
+            # Slice 3C: recompute HMAC sidecar to reflect post-write
+            # state. Key fingerprint is validated on the way in.
+            _validate_key_fingerprint()
+            _compute_file_integrity(path)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    rotation = None
+    if evicted > 0:
+        rotation = {"evicted": evicted, "reason": reason}
+        # _assert_no_silent_skip raises by design — capture as INFO
+        # so the rotation surfaces in the return dict instead of being
+        # a silent drop.
+        try:
+            _assert_no_silent_skip(
+                reason=f"observation log rotation: {reason}",
+                count=evicted,
+            )
+        except CarefulNotCleverError as e:
+            rotation["info"] = str(e)
+
+    return {
+        "enabled": True,
+        "path": path,
+        "wrote": True,
+        "rotation": rotation,
+    }
+
+
+def compute_log_checksum(session_id):
+    """Explicitly (re)compute the HMAC sidecar for a session's log.
+    Useful for migration / repair paths; normal writes through
+    ``record_observation`` keep the sidecar fresh automatically.
+
+    Returns ``{"enabled": False}`` when observations are off, else
+    ``{"path": str, "hmac_path": str, "wrote": bool}``. Raises
+    ``CarefulNotCleverError`` on missing log, panic, or invalid
+    session_id."""
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("compute_log_checksum", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        raise CarefulNotCleverError(
+            f"compute_log_checksum: no observation log for session "
+            f"{session_id!r}"
+        )
+    _validate_key_fingerprint()
+    _compute_file_integrity(path)
+    return {
+        "enabled": True,
+        "path": path,
+        "hmac_path": path + ".hmac",
+        "wrote": True,
+    }
+
+
+def validate_log_checksum(session_id):
+    """Validate a session's observation log against its HMAC sidecar.
+
+    Returns ``{"enabled": False}`` when observations are off; else
+    ``{"valid": bool, "reason": str or None, "path": str}``. Does NOT
+    raise on integrity failure — wraps the underlying
+    ``_validate_file_integrity`` exception into a structured result
+    so callers can decide whether to treat the failure as fatal.
+    Slice 3B's extraction path raises via ``_assert_evidence_integrity``;
+    other callers may want to log + skip."""
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("validate_log_checksum", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {
+            "enabled": True, "valid": False,
+            "reason": "no observation log for this session",
+            "path": path,
+        }
+    sidecar = path + ".hmac"
+    if not os.path.exists(sidecar):
+        return {
+            "enabled": True, "valid": False,
+            "reason": "sidecar missing — log was not written via "
+                      "record_observation, or sidecar was deleted",
+            "path": path,
+        }
+    try:
+        _validate_file_integrity(path)
+    except CarefulNotCleverError as e:
+        return {
+            "enabled": True, "valid": False,
+            "reason": str(e), "path": path,
+        }
+    return {"enabled": True, "valid": True, "reason": None, "path": path}
+
+
+def clear_observations(session_id):
+    """Delete the observation log for session_id. Explicit cleanup;
+    callers use this between sessions or to drop a corrupted log.
+
+    Returns {"enabled": False} when feature off, else
+    {"removed": bool, "path": str}.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("clear_observations", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {"removed": False, "path": path}
+    os.remove(path)
+    sidecar = path + ".hmac"
+    if os.path.exists(sidecar):
+        os.remove(sidecar)
+    return {"removed": True, "path": path}
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3B — Observation extraction
+# ─────────────────────────────────────────────
+# Reads <MEMORY_ROOT>/_observations/<session_id>.jsonl produced by
+# Slice 3A and surfaces candidate patterns. Every candidate's evidence
+# carries (session_id, index) for each cited log line so Slice 3C's
+# _assert_evidence_integrity cryptographically attests the chain.
+#
+# Three candidate kinds (mirror of Slice 2 with observation-log idioms):
+#   pattern (success): tool+result_class="success" repeated >=3 times
+#   pattern (repeat) : same args_hash repeated >=3 times (automation candidate)
+#   fact   (failure) : tool+args_hash with result_class="error" repeated >=2 times
+#
+# Snapshot pattern: log read once in full under a shared flock, then
+# extraction operates on the immutable copy. TOCTOU-safe against
+# concurrent record_observation writers.
+
+_OBS_SUCCESS_PATTERN_MIN = 3
+_OBS_REPEAT_PATTERN_MIN = 3
+_OBS_ERROR_PATTERN_MIN = 2
+
+
+def _extract_candidates_from_observation_log(observations, session_id):
+    """Pure function: input is a list of (index, obs_dict) tuples;
+    output is a list of candidate dicts. No I/O. Testable in isolation."""
+    candidates = []
+
+    pair_counts = {}
+    pair_indices = {}
+    hash_counts = {}
+    hash_indices = {}
+    hash_tools = {}
+    err_counts = {}
+    err_indices = {}
+
+    for idx, obs in observations:
+        tool = obs["tool"]
+        rc = obs["result_class"]
+        h = obs["args_hash"]
+
+        key = (tool, rc)
+        pair_counts[key] = pair_counts.get(key, 0) + 1
+        pair_indices.setdefault(key, []).append(idx)
+
+        hash_counts[h] = hash_counts.get(h, 0) + 1
+        hash_indices.setdefault(h, []).append(idx)
+        hash_tools[h] = tool
+
+        if rc == "error":
+            ekey = (tool, h)
+            err_counts[ekey] = err_counts.get(ekey, 0) + 1
+            err_indices.setdefault(ekey, []).append(idx)
+
+    for (tool, rc), count in sorted(pair_counts.items()):
+        if rc != "success" or count < _OBS_SUCCESS_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:{tool}:{rc}",
+            "content": (
+                f"tool '{tool}' returned '{rc}' {count} times in session"
+            ),
+            "type": "pattern",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": tool, "result_class": rc}
+                    for i in pair_indices[(tool, rc)]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"frequent successful use of '{tool}' could become an "
+                f"instinct after promotion"
+            ),
+        })
+
+    for h, count in sorted(hash_counts.items()):
+        if count < _OBS_REPEAT_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:hash:{h[:8]}",
+            "content": (
+                f"operator repeated identical-args call to "
+                f"'{hash_tools[h]}' {count} times (args_hash {h[:12]}...)"
+            ),
+            "type": "pattern",
+            "confidence": min(0.4 + 0.08 * count, 0.75),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": hash_tools[h], "args_hash": h}
+                    for i in hash_indices[h]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"repeated identical call to '{hash_tools[h]}' is an "
+                f"automation candidate"
+            ),
+        })
+
+    for (tool, h), count in sorted(err_counts.items()):
+        if count < _OBS_ERROR_PATTERN_MIN:
+            continue
+        candidates.append({
+            "id": f"{session_id}:obs:err:{tool}:{h[:8]}",
+            "content": (
+                f"tool '{tool}' returned error for args_hash "
+                f"{h[:12]}... {count} times — likely failure mode"
+            ),
+            "type": "fact",
+            "confidence": min(0.5 + 0.1 * count, 0.85),
+            "evidence": {
+                "session_id": session_id,
+                "observations": [
+                    {"session_id": session_id, "index": i,
+                     "tool": tool, "args_hash": h,
+                     "result_class": "error"}
+                    for i in err_indices[(tool, h)]
+                ],
+                "observation_count": count,
+            },
+            "delta": (
+                f"future recalls warn operator about this failing pattern"
+            ),
+        })
+
+    return candidates
+
+
+def _is_well_formed_observation(obs):
+    """Strict 4-key shape check. Mitigates T8 plan-injection: lines
+    with extra keys or missing required keys are treated as malformed
+    and counted, never fed to the extractor."""
+    if not isinstance(obs, dict):
+        return False
+    required = {"ts", "tool", "args_hash", "result_class"}
+    if set(obs.keys()) != required:
+        return False
+    if not (isinstance(obs["ts"], str)
+            and isinstance(obs["tool"], str)
+            and isinstance(obs["args_hash"], str)
+            and isinstance(obs["result_class"], str)):
+        return False
+    if not _OBSERVATION_TOOL_PATTERN.match(obs["tool"]):
+        return False
+    if not _OBSERVATION_HASH_PATTERN.match(obs["args_hash"]):
+        return False
+    if obs["result_class"] not in _OBSERVATION_RESULT_CLASSES:
+        return False
+    return True
+
+
+def extract_candidates_from_observations(session_id, dry_run=True):
+    """Read <MEMORY_ROOT>/_observations/<session_id>.jsonl and surface
+    candidate patterns from observed tool usage. Read-only;
+    ``dry_run`` parameter is reserved for future write paths.
+
+    Returns ``{"enabled": False}`` when observations are off, else::
+
+        {
+          "enabled": True,
+          "session_id": str,
+          "candidates": [...],
+          "skipped": int,                  # malformed / injected lines
+          "skipped_info": str or None,     # _assert_no_silent_skip msg
+          "dry_run": bool,
+          "reason": str (only on empty/missing-log return)
+        }
+
+    Snapshot pattern (T9 mitigation): the full log is read under a
+    shared flock into an in-memory list of (index, obs) tuples. The
+    extractor operates only on that snapshot — concurrent writes after
+    the read are invisible to this call but visible to the next one.
+
+    Each candidate's ``evidence.observations[]`` includes integer
+    ``index`` alongside ``session_id`` so Slice 3C's
+    ``_assert_evidence_integrity`` cryptographically attests the
+    cited log file on every candidate.
+    """
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("extract_from_observations", session_id)
+
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {
+            "enabled": True, "session_id": session_id,
+            "candidates": [], "skipped": 0, "skipped_info": None,
+            "dry_run": dry_run,
+            "reason": f"no observation log at {path}",
+        }
+
+    # Snapshot under shared flock — blocks against concurrent
+    # record_observation writes but does not block parallel readers.
+    with open(path) as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+        try:
+            raw_lines = f.readlines()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    observations = []
+    malformed = 0
+    for idx, raw in enumerate(raw_lines):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obs = json.loads(line)
+        except json.JSONDecodeError:
+            malformed += 1
+            continue
+        if not _is_well_formed_observation(obs):
+            malformed += 1
+            continue
+        observations.append((idx, obs))
+
+    candidates = _extract_candidates_from_observation_log(
+        observations, session_id
+    )
+
+    # Per-candidate invariant validation — evidence shape + (Slice 3C)
+    # cryptographic integrity of the cited log file.
+    for c in candidates:
+        _assert_evidence_present(c)
+        _assert_evidence_integrity(c)
+
+    skipped_info = None
+    if malformed > 0:
+        try:
+            _assert_no_silent_skip(
+                f"extraction skipped {malformed} malformed/injected "
+                f"observation lines in session {session_id}",
+                malformed,
+            )
+        except CarefulNotCleverError as e:
+            # Surface as INFO in return rather than fail the extraction.
+            skipped_info = str(e)
+
+    return {
+        "enabled": True,
+        "session_id": session_id,
+        "candidates": candidates,
+        "skipped": malformed,
+        "skipped_info": skipped_info,
         "dry_run": dry_run,
     }
 

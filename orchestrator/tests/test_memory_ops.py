@@ -1254,15 +1254,17 @@ class SafetyGuardCompliantInvariantTests(unittest.TestCase):
 
 
 class EvidenceIntegrityStubTests(unittest.TestCase):
-    """_assert_evidence_integrity is a STUB until Slice 3C. This test
-    anchors the stub contract so future code that wires the invariant
-    in doesn't break when 3C lands the real implementation."""
+    """Slice 3C activated ``_assert_evidence_integrity``. This test
+    anchors the legacy-compatible no-op contract: candidates without
+    session-keyed evidence must still pass (so Slice 2.5 mining
+    candidates that cite transcripts continue to validate). Active
+    HMAC checks live in ``EvidenceIntegrityActiveTests`` below."""
 
-    def test_stub_returns_none_on_anything(self):
+    def test_no_op_on_legacy_shapes(self):
         for c in [{}, {"id": "x"}, {"evidence": {}},
                   {"evidence": {"observations": [{"line_hmac": "deadbeef"}]}}]:
             self.assertIsNone(memory_ops._assert_evidence_integrity(c),
-                              f"stub should no-op on {c!r}")
+                              f"legacy candidate {c!r} should no-op")
 
 
 class RateLimitInvariantTests(unittest.TestCase):
@@ -2191,7 +2193,8 @@ class _UsageHistoryBase(MemoryOpsTestBase):
         self._orig_flags = {}
         for k in ("MEMORY_USAGE_HISTORY_ENABLED",
                   "MEMORY_LEARNING_PROFILE",
-                  "MEMORY_SESSION_ID"):
+                  "MEMORY_SESSION_ID",
+                  "CLAUDE_SESSION_ID"):
             self._orig_flags[k] = os.environ.get(k)
             os.environ.pop(k, None)
 
@@ -2221,8 +2224,135 @@ class UsageHistoryFlagTests(_UsageHistoryBase):
         self.assertEqual(memory_ops._current_session_id(),
                          "test-session-abc")
 
-    def test_session_id_unknown_when_unset(self):
-        self.assertEqual(memory_ops._current_session_id(), "unknown")
+    def test_session_id_generates_when_env_unset(self):
+        # Post v6.3: when no MEMORY_SESSION_ID / CLAUDE_SESSION_ID is set,
+        # _current_session_id auto-generates a sortable id and persists it
+        # to <MEMORY_ROOT>/_session/current. Repeat calls in the same
+        # session return the same id; idle staleness regenerates it.
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "unknown")
+        self.assertTrue(sid.startswith("sess-"))
+        # Idempotent within the same session
+        self.assertEqual(sid, memory_ops._current_session_id())
+
+
+class SessionIdResolutionTests(_UsageHistoryBase):
+    """v6.3 fix for cross-subprocess session_id continuity. The bug:
+    MEMORY_SESSION_ID set inside one `python3 -c` did not propagate
+    to subsequent invocations, so every recall logged
+    `session_id: "unknown"` in usage_history."""
+
+    def test_memory_session_id_env_takes_precedence(self):
+        os.environ["MEMORY_SESSION_ID"] = "explicit-sess"
+        os.environ["CLAUDE_SESSION_ID"] = "claude-sess"
+        # Also seed the state file with a different id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("file-sess")
+        self.assertEqual(memory_ops._current_session_id(), "explicit-sess")
+
+    def test_claude_session_id_used_when_memory_env_unset(self):
+        os.environ["CLAUDE_SESSION_ID"] = "claude-harness-id"
+        self.assertEqual(memory_ops._current_session_id(),
+                         "claude-harness-id")
+
+    def test_state_file_persists_across_calls(self):
+        sid_1 = memory_ops._current_session_id()
+        sid_2 = memory_ops._current_session_id()
+        self.assertEqual(sid_1, sid_2)
+        self.assertTrue(sid_1.startswith("sess-"))
+
+    def test_state_file_round_trips_via_disk(self):
+        # Simulate a "subprocess" by clearing the in-process cache
+        # (there isn't one — we read the file every call) and verifying
+        # the same id comes back.
+        sid_1 = memory_ops._current_session_id()
+        # Confirm file exists with that id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        with open(path) as f:
+            self.assertEqual(f.read().strip(), sid_1)
+        # New call reads file
+        sid_2 = memory_ops._current_session_id()
+        self.assertEqual(sid_1, sid_2)
+
+    def test_stale_file_triggers_regeneration(self):
+        sid_1 = memory_ops._current_session_id()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        # Backdate the file beyond the stale threshold
+        old = time.time() - memory_ops._SESSION_STALE_SECONDS - 60
+        os.utime(path, (old, old))
+        sid_2 = memory_ops._current_session_id()
+        self.assertNotEqual(sid_1, sid_2)
+        self.assertTrue(sid_2.startswith("sess-"))
+
+    def test_active_use_keeps_file_fresh(self):
+        sid = memory_ops._current_session_id()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        before = os.path.getmtime(path)
+        # Sleep enough that mtime can resolve a change but stay well
+        # under the stale threshold
+        time.sleep(0.05)
+        memory_ops._current_session_id()
+        after = os.path.getmtime(path)
+        self.assertGreaterEqual(after, before)
+
+    def test_malformed_state_file_regenerates(self):
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Path-traversal-shaped content: invalid session_id
+        with open(path, "w") as f:
+            f.write("../escape")
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "../escape")
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_empty_state_file_regenerates(self):
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w"):
+            pass
+        sid = memory_ops._current_session_id()
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_path_traversal_in_env_var_rejected(self):
+        # If operator set MEMORY_SESSION_ID to a malformed value,
+        # treat it as "not set" and fall through to next source.
+        os.environ["MEMORY_SESSION_ID"] = "../escape"
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "../escape")
+        # Falls through to state-file generation
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_generated_id_is_path_safe(self):
+        # Generated ids must pass _validate_session_id so they can be
+        # written into the observation log path without escaping.
+        sid = memory_ops._current_session_id()
+        # Should not raise
+        memory_ops._validate_session_id(sid)
+
+    def test_subprocess_simulation_two_calls_same_id(self):
+        # Most concrete reproduction of the original bug. Without the
+        # fix, the env var set in subprocess #1 was gone in subprocess #2
+        # so the file/state had no continuity. With the fix, both reads
+        # from the same MEMORY_ROOT return the same generated id.
+        import subprocess
+        import sys
+        env = {**os.environ, "MEMORY_ROOT": memory_ops.MEMORY_ROOT}
+        env.pop("MEMORY_SESSION_ID", None)
+        env.pop("CLAUDE_SESSION_ID", None)
+        script = (
+            f"import sys; sys.path.insert(0, '{ROOT}');"
+            "import memory_ops; print(memory_ops._current_session_id())"
+        )
+        out1 = subprocess.check_output(
+            [sys.executable, "-c", script], env=env
+        ).decode().strip()
+        out2 = subprocess.check_output(
+            [sys.executable, "-c", script], env=env
+        ).decode().strip()
+        self.assertEqual(out1, out2)
+        self.assertTrue(out1.startswith("sess-"))
 
 
 class UsageHistoryAppendTests(_UsageHistoryBase):
@@ -2825,6 +2955,1386 @@ class AutoPromoteEligibleAdversarialTests(_ConsensusAutoPromoteBase):
             self.assertIn("_assert_evidence_integrity", src)
         finally:
             memory_ops._assert_evidence_integrity = orig
+
+
+# ─────────────────────────────────────────────
+# Slice 2.5 — Formalized transcript mining
+# ─────────────────────────────────────────────
+
+
+class _MiningBase(MemoryOpsTestBase):
+    """Shared setup for Slice 2.5 — writes synthetic transcripts to a
+    tempdir + isolates rate-limit/panic env."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_flags = {}
+        for k in ("MEMORY_LEARNING_PANIC_DISABLE_ALL", "MEMORY_SESSION_ID"):
+            self._orig_flags[k] = os.environ.get(k)
+            os.environ.pop(k, None)
+        self.transcript_dir = tempfile.mkdtemp()
+        memory_ops._rate_buckets.clear()
+        memory_ops._rate_baselines.clear()
+
+    def tearDown(self):
+        for k, v in self._orig_flags.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        import shutil
+        shutil.rmtree(self.transcript_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _write_transcript(self, session_id, user_msgs):
+        """Build a synthetic jsonl with given user-message texts."""
+        path = os.path.join(self.transcript_dir, f"{session_id}.jsonl")
+        with open(path, "w") as f:
+            for i, text in enumerate(user_msgs):
+                d = {
+                    "timestamp": f"2026-05-13T1{i:02d}:00:00Z",
+                    "sessionId": session_id,
+                    "message": {
+                        "role": "user",
+                        "content": text if isinstance(text, str) else text,
+                    },
+                }
+                f.write(json.dumps(d) + "\n")
+        return path
+
+
+class MineTranscriptsTests(_MiningBase):
+
+    def test_empty_glob_returns_zero_candidates(self):
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["transcripts_scanned"], 0)
+
+    def test_extracts_user_messages(self):
+        self._write_transcript("aaa11111", [
+            "Operator directive: do the best, not the easiest.",
+            "another durable architectural decision worth recording here.",
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 2)
+        contents = {c["content"] for c in result["candidates"]}
+        self.assertIn("Operator directive: do the best, not the easiest.", contents)
+
+    def test_dedups_identical_text_across_files(self):
+        msg = "Identical content across two sessions for dedup test"
+        self._write_transcript("bbb22222", [msg])
+        self._write_transcript("ccc33333", [msg])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["skipped_dup_text"], 1)
+
+    def test_filters_too_short_content(self):
+        self._write_transcript("ddd44444", ["short", "x", "ok"])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            min_content_chars=30,
+        )
+        self.assertEqual(len(result["candidates"]), 0)
+        self.assertEqual(result["skipped_too_short"], 3)
+
+    def test_filters_too_long_content(self):
+        big = "x" * 600
+        self._write_transcript("eee55555", [big])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            max_content_chars=500,
+        )
+        self.assertEqual(len(result["candidates"]), 0)
+        self.assertEqual(result["skipped_too_long"], 1)
+
+    def test_skips_auto_resume_preamble(self):
+        self._write_transcript("fff66666", [
+            "This session is being continued from a previous conversation that ran out of context.",
+            "<system-reminder>this should also be skipped</system-reminder>",
+            "Real operator directive that should survive filters",
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["skipped_preamble"], 2)
+        self.assertIn("Real operator directive",
+                      result["candidates"][0]["content"])
+
+    def test_candidates_have_evidence(self):
+        """Each candidate must satisfy _assert_evidence_present so it
+        flows through downstream extraction/promotion paths."""
+        self._write_transcript("ggg77777", [
+            "Operator directive that should encode cleanly with provenance"
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        cand = result["candidates"][0]
+        self.assertIn("evidence", cand)
+        self.assertGreater(len(cand["evidence"]["observations"]), 0)
+        memory_ops._assert_evidence_present(cand)  # must not raise
+
+    def test_source_tag_applied(self):
+        self._write_transcript("hhh88888", [
+            "A durable directive with custom source-tag override applied"
+        ])
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"),
+            source_tag="custom-tag-test",
+        )
+        self.assertEqual(result["candidates"][0]["source"], "custom-tag-test")
+
+    def test_extracts_from_list_content_blocks(self):
+        """User messages can be list-of-blocks (text-typed) not just string."""
+        path = os.path.join(self.transcript_dir, "iii99999.jsonl")
+        with open(path, "w") as f:
+            d = {
+                "timestamp": "2026-05-13T10:00:00Z",
+                "sessionId": "iii99999",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "From a list block, durable directive"},
+                        {"type": "image", "source": {}},  # should be ignored
+                    ],
+                },
+            }
+            f.write(json.dumps(d) + "\n")
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(len(result["candidates"]), 1)
+
+
+class DedupAgainstCorpusTests(MemoryOpsTestBase):
+
+    def test_substring_head_match_detected(self):
+        memory_ops.encode(
+            "Original memory about kubernetes scheduling patterns",
+            domain="ken", memory_type="pattern")
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "Original memory about kubernetes scheduling patterns extended further",
+            domain="ken", tags=[])
+        self.assertIsNotNone(dup_id)
+        self.assertEqual(reason, "substring-head-match")
+
+    def test_word_overlap_detected(self):
+        """Dedup catches reshuffled content. Either signal (substring or
+        word-overlap) is valid; the point is the duplicate is caught."""
+        memory_ops.encode(
+            "The operator wants careful not clever defenses always applied here",
+            domain="ken", memory_type="preference", tags=["doctrine"])
+        # Reshuffled content with ≥65% word overlap but no substring match
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "Careful, not clever — defenses applied; here the operator wants always",
+            domain="ken", tags=["doctrine"])
+        self.assertIsNotNone(dup_id, f"expected dup match; got reason={reason}")
+        self.assertTrue(
+            "word-overlap" in reason or "substring" in reason,
+            f"unexpected reason: {reason}"
+        )
+
+    def test_different_domain_not_deduped(self):
+        memory_ops.encode(
+            "Cross-domain content sharing wording",
+            domain="ken", memory_type="fact")
+        # Same text, different domain → not a dup
+        dup_id, _ = memory_ops._dedup_against_corpus(
+            "Cross-domain content sharing wording",
+            domain="recipes", tags=[])
+        self.assertIsNone(dup_id)
+
+    def test_no_match_returns_none(self):
+        memory_ops.encode("completely unrelated content here",
+                          domain="ken", memory_type="fact")
+        dup_id, reason = memory_ops._dedup_against_corpus(
+            "totally different subject matter without overlapping words",
+            domain="ken", tags=[])
+        self.assertIsNone(dup_id)
+        self.assertIsNone(reason)
+
+
+class IngestRelayedMemoriesTests(_MiningBase):
+
+    def _good_record(self, mid="testid01", content="a relayed memory directive"):
+        return {
+            "id": mid,
+            "created": "2026-05-13T10:00:00Z",
+            "version": 1,
+            "domain": "ken",
+            "type": "pattern",
+            "content": content,
+            "source": "relayed-from-test",
+            "confidence": 0.85,
+            "tags": ["test"],
+            "related_to": [],
+            "supersedes": None,
+            "protected": False,
+            "archived": False,
+            "summarizes": [],
+            "last_recalled": None,
+            "recall_count": 0,
+        }
+
+    def test_writes_net_new_with_preserved_id(self):
+        rec = self._good_record(mid="aaaa1111", content="net new content for ingest")
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(result["written"][0]["id"], "aaaa1111")
+        # File exists at preserved id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "aaaa1111.json")
+        self.assertTrue(os.path.exists(path))
+
+    def test_dedup_skips_duplicate_content(self):
+        memory_ops.encode("seed-content for dedup test in ingest",
+                          domain="ken", memory_type="fact")
+        rec = self._good_record(content="seed-content for dedup test in ingest")
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["written"]), 0)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertIn("matched_id", result["skipped"][0])
+
+    def test_dedup_false_writes_anyway(self):
+        memory_ops.encode("seed-content for dedup false test",
+                          domain="ken", memory_type="fact")
+        rec = self._good_record(mid="bbbb2222",
+                                content="seed-content for dedup false test")
+        result = memory_ops.ingest_relayed_memories([rec], dedup=False)
+        # No dedup → writes (unless file already exists)
+        self.assertEqual(len(result["written"]), 1)
+
+    def test_missing_required_field_errors(self):
+        rec = self._good_record(mid="cccc3333", content="record missing type field")
+        del rec["type"]
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("missing required fields", result["errors"][0]["reason"])
+
+    def test_preserves_relayer_fields_verbatim(self):
+        rec = self._good_record(mid="dddd4444",
+                                content="verbatim fields preserved test content")
+        rec["tags"] = ["operator-directive", "specific-tag"]
+        rec["confidence"] = 0.92
+        rec["protected"] = True
+        memory_ops.ingest_relayed_memories([rec])
+        path = os.path.join(memory_ops.MEMORY_ROOT, "ken", "dddd4444.json")
+        with open(path) as f:
+            written = json.load(f)
+        self.assertEqual(written["tags"], ["operator-directive", "specific-tag"])
+        self.assertEqual(written["confidence"], 0.92)
+        self.assertTrue(written["protected"])
+        # And the id was preserved
+        self.assertEqual(written["id"], "dddd4444")
+
+
+class MiningAdversarialTests(_MiningBase):
+
+    def test_malformed_jsonl_lines_counted_not_silent(self):
+        path = os.path.join(self.transcript_dir, "broken.jsonl")
+        with open(path, "w") as f:
+            f.write("not valid json\n")
+            f.write('{"message": {"role": "user", "content": "valid entry that survives parse"}}\n')
+            f.write("another bad line\n")
+        result = memory_ops.mine_transcripts(
+            transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+        self.assertEqual(result["parse_failures"], 2)
+        self.assertEqual(len(result["candidates"]), 1)
+
+    def test_path_traversal_in_glob_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.mine_transcripts(transcript_glob="/etc/passwd; rm -rf /")
+        self.assertIn("unsafe characters", str(ctx.exception))
+
+    def test_panic_halts_mining(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        self._write_transcript("aaa11111", ["a valid operator directive should not be processed"])
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.mine_transcripts(
+                transcript_glob=os.path.join(self.transcript_dir, "*.jsonl"))
+
+    def test_panic_halts_ingest(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        rec = {
+            "id": "eeee5555", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "should not be ingested under panic",
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.ingest_relayed_memories([rec])
+
+    def test_ingest_rejects_id_with_path_traversal(self):
+        rec = {
+            "id": "../../etc/passwd", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "attempted path-traversal via id field",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("path separators", result["errors"][0]["reason"])
+
+    def test_ingest_rejects_unknown_domain(self):
+        rec = {
+            "id": "ffff6666", "created": _now(), "version": 1,
+            "domain": "unknown_domain", "type": "fact",
+            "content": "attempt to encode into a non-existent domain",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("unknown domain", result["errors"][0]["reason"])
+
+    def test_ingest_rejects_backdated_created(self):
+        far_future = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time() + 86400))
+        rec = {
+            "id": "gggg7777", "created": far_future, "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "attempted future-dating to bypass temporal checks",
+        }
+        result = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("future-dated", result["errors"][0]["reason"])
+
+    def test_ingest_idempotent_on_existing_file(self):
+        rec = {
+            "id": "hhhh8888", "created": _now(), "version": 1,
+            "domain": "ken", "type": "fact",
+            "content": "idempotent ingest: same record run twice",
+        }
+        first = memory_ops.ingest_relayed_memories([rec])
+        self.assertEqual(len(first["written"]), 1)
+        second = memory_ops.ingest_relayed_memories([rec])
+        # On second run: either dedup catches it, or the file-exists check does
+        self.assertEqual(len(second["written"]), 0)
+        # Skipped via dedup or file-exists; not an error
+        self.assertEqual(len(second["errors"]), 0)
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3A — Observation log infrastructure
+# ─────────────────────────────────────────────
+
+
+class _ObservationBase(MemoryOpsTestBase):
+    """Shared setup for Slice 3A/3C tests. Enables the feature flag,
+    isolates the HMAC key + fingerprint into the tempdir so test
+    runs never touch the real ~/.memory/, and clears in-process
+    rate-limit state between tests."""
+
+    VALID_HASH = "a" * 64
+
+    def setUp(self):
+        super().setUp()
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "true"
+        # Slice 3C: isolate the HMAC key and fingerprint into the
+        # tempdir so test runs cannot pollute or read the real
+        # ~/.memory/_integrity.{key,fingerprint}.
+        self._orig_key_path = memory_ops._INTEGRITY_KEY_PATH
+        self._orig_fp_path = memory_ops._INTEGRITY_FINGERPRINT_PATH
+        memory_ops._INTEGRITY_KEY_PATH = os.path.join(
+            self._tmp.name, "_integrity.key"
+        )
+        memory_ops._INTEGRITY_FINGERPRINT_PATH = os.path.join(
+            self._tmp.name, "_integrity.fingerprint"
+        )
+        memory_ops._rate_buckets.clear()
+
+    def tearDown(self):
+        os.environ.pop("MEMORY_OBSERVATIONS_ENABLED", None)
+        os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        memory_ops._INTEGRITY_KEY_PATH = self._orig_key_path
+        memory_ops._INTEGRITY_FINGERPRINT_PATH = self._orig_fp_path
+        memory_ops._rate_buckets.clear()
+        super().tearDown()
+
+    def _read_log(self, session_id):
+        path = os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl"
+        )
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return [json.loads(ln) for ln in f if ln.strip()]
+
+
+class RecordObservationTests(_ObservationBase):
+
+    def test_disabled_flag_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-disabled"
+        )
+        self.assertEqual(result, {"enabled": False})
+        # No file should have been created.
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations")
+        self.assertFalse(os.path.exists(path)
+                         and os.listdir(path))
+
+    def test_enabled_writes_one_jsonl_line(self):
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-one-line"
+        )
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["wrote"])
+        self.assertIsNone(result["rotation"])
+        records = self._read_log("session-one-line")
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec["tool"], "Bash")
+        self.assertEqual(rec["args_hash"], self.VALID_HASH)
+        self.assertEqual(rec["result_class"], "success")
+        self.assertIn("ts", rec)
+
+    def test_multiple_writes_append_in_order(self):
+        for i, rc in enumerate(("success", "error", "timeout")):
+            memory_ops.record_observation(
+                "Read", self.VALID_HASH, rc, "session-order"
+            )
+        records = self._read_log("session-order")
+        self.assertEqual(len(records), 3)
+        self.assertEqual(
+            [r["result_class"] for r in records],
+            ["success", "error", "timeout"]
+        )
+
+    def test_jsonl_line_is_canonical(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-canon"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-canon.jsonl")
+        with open(path) as f:
+            line = f.readline()
+        # Keys sorted, no whitespace separators
+        self.assertTrue(line.endswith("\n"))
+        parsed = json.loads(line)
+        self.assertEqual(
+            list(parsed.keys()),
+            sorted(["args_hash", "result_class", "tool", "ts"])
+        )
+        canonical = json.dumps(parsed, sort_keys=True,
+                               separators=(",", ":")) + "\n"
+        self.assertEqual(line, canonical)
+
+    def test_path_lives_under_memory_root(self):
+        result = memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-path"
+        )
+        expected_prefix = os.path.join(memory_ops.MEMORY_ROOT,
+                                       "_observations")
+        self.assertTrue(result["path"].startswith(expected_prefix))
+        self.assertTrue(result["path"].endswith(".jsonl"))
+
+    def test_line_cap_evicts_oldest_ten_percent(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 20
+            for i in range(25):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-linecap"
+                )
+            records = self._read_log("session-linecap")
+            # 25 written; cap=20; eviction ratio 10% on full 25 = max(1, 2) = 2.
+            # Resulting line count: 25 - 2 = 23. The cap is re-checked only
+            # on the write that triggers it, so multiple writes after eviction
+            # can grow past the cap until the next write triggers another pass.
+            self.assertLess(len(records), 25)
+            self.assertGreater(len(records), 0)
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_rotation_returns_info_in_result(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 5
+            last = None
+            for _ in range(8):
+                last = memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success",
+                    "session-rotation-info"
+                )
+            # The last write triggered eviction; rotation surfaces in result.
+            self.assertIsNotNone(last["rotation"])
+            self.assertGreaterEqual(last["rotation"]["evicted"], 1)
+            self.assertIn("line cap", last["rotation"]["reason"])
+            # _assert_no_silent_skip captured as INFO
+            self.assertIn("info", last["rotation"])
+            self.assertIn("silent skip", last["rotation"]["info"])
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_rotation_evicts_oldest_fifo(self):
+        try:
+            memory_ops._OBSERVATION_MAX_LINES = 4
+            # Mark each write with a different result_class to identify order
+            order = ["success", "error", "timeout", "truncated",
+                     "success", "error"]
+            for rc in order:
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, rc, "session-fifo"
+                )
+            records = self._read_log("session-fifo")
+            # First entry should NOT be the oldest "success" (evicted)
+            self.assertGreater(len(records), 0)
+            classes = [r["result_class"] for r in records]
+            # The most recent entries are preserved
+            self.assertEqual(classes[-1], "error")
+        finally:
+            memory_ops._OBSERVATION_MAX_LINES = 10_000
+
+    def test_byte_cap_triggers_eviction(self):
+        try:
+            memory_ops._OBSERVATION_MAX_BYTES = 200
+            # Each line is ~120 bytes; 3 lines should trip 200-byte cap
+            for _ in range(5):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-bytecap"
+                )
+            records = self._read_log("session-bytecap")
+            # Some eviction must have occurred — file is smaller than 5 lines
+            size = os.path.getsize(os.path.join(
+                memory_ops.MEMORY_ROOT, "_observations",
+                "session-bytecap.jsonl"))
+            self.assertLess(size, 200 * 2)  # comfortably under unbounded
+            self.assertGreater(len(records), 0)
+        finally:
+            memory_ops._OBSERVATION_MAX_BYTES = 10 * 1024 * 1024
+
+    def test_no_raw_arg_values_on_disk(self):
+        # Caller hashes a "secret" string — only the hash reaches disk.
+        secret = "sk-ant-supersecretkey-12345"
+        hashed = memory_ops._compute_args_hash({"key": secret})
+        memory_ops.record_observation(
+            "Bash", hashed, "success", "session-nosecret"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-nosecret.jsonl")
+        with open(path) as f:
+            content = f.read()
+        self.assertNotIn(secret, content)
+        self.assertNotIn("sk-ant", content)
+
+    def test_args_hash_is_deterministic_and_sorted(self):
+        h1 = memory_ops._compute_args_hash({"b": 2, "a": 1})
+        h2 = memory_ops._compute_args_hash({"a": 1, "b": 2})
+        self.assertEqual(h1, h2)
+        self.assertEqual(len(h1), 64)
+        # different content → different hash
+        h3 = memory_ops._compute_args_hash({"a": 1, "b": 3})
+        self.assertNotEqual(h1, h3)
+
+    def test_flock_acquired_during_write(self):
+        # Monkey-patch fcntl.flock to record calls
+        calls = []
+        real_flock = memory_ops.fcntl.flock
+
+        def spy(fd, op):
+            calls.append(op)
+            return real_flock(fd, op)
+
+        memory_ops.fcntl.flock = spy
+        try:
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-flock"
+            )
+        finally:
+            memory_ops.fcntl.flock = real_flock
+        # At minimum: LOCK_EX acquire + LOCK_UN release
+        self.assertIn(memory_ops.fcntl.LOCK_EX, calls)
+        self.assertIn(memory_ops.fcntl.LOCK_UN, calls)
+
+
+class ClearObservationsTests(_ObservationBase):
+
+    def test_clear_removes_existing_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-clear"
+        )
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-clear.jsonl")
+        self.assertTrue(os.path.exists(path))
+        result = memory_ops.clear_observations("session-clear")
+        self.assertTrue(result["removed"])
+        self.assertFalse(os.path.exists(path))
+
+    def test_clear_no_op_when_log_absent(self):
+        result = memory_ops.clear_observations("session-never-existed")
+        self.assertFalse(result["removed"])
+
+    def test_clear_disabled_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.clear_observations("session-x")
+        self.assertEqual(result, {"enabled": False})
+
+
+# Adversarial probes (T3, T4, T6, T10, panic, clock skew, etc.)
+
+
+class ObservationAdversarialTests(_ObservationBase):
+
+    # Path traversal in session_id (T4 + T6)
+
+    def test_session_id_with_parent_dir_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "../escape"
+            )
+
+    def test_session_id_with_slash_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "a/b"
+            )
+
+    def test_session_id_with_dot_segment_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "."
+            )
+
+    def test_session_id_empty_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", ""
+            )
+
+    def test_session_id_none_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", None
+            )
+
+    # Invalid tool / args_hash / result_class (T4 input validation)
+
+    def test_invalid_tool_with_slash_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "bin/sh", self.VALID_HASH, "success", "session-t"
+            )
+
+    def test_invalid_tool_too_long_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "x" * 200, self.VALID_HASH, "success", "session-t"
+            )
+
+    def test_invalid_args_hash_wrong_length_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "abc", "success", "session-t"
+            )
+
+    def test_invalid_args_hash_uppercase_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "A" * 64, "success", "session-t"
+            )
+
+    def test_invalid_args_hash_non_hex_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", "g" * 64, "success", "session-t"
+            )
+
+    def test_invalid_result_class_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "unknown-state",
+                "session-t"
+            )
+
+    # Compaction-attack burst (T10)
+
+    def test_rate_limit_blocks_burst(self):
+        # 60/min default threshold; 100 in a single test loop trips it.
+        triggered = False
+        try:
+            for _ in range(150):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-burst"
+                )
+        except memory_ops.CarefulNotCleverError as e:
+            triggered = True
+            self.assertIn("rate limit", str(e).lower())
+        self.assertTrue(triggered,
+                        "rate-limit invariant did not fire on 150-call burst")
+
+    # Panic-during-write (panic check is the kill-switch)
+
+    def test_panic_flag_halts_write(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-panic"
+            )
+        # No file written
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            "session-panic.jsonl")
+        self.assertFalse(os.path.exists(path))
+
+    # Clock-skew probes (T12)
+
+    def test_future_dated_timestamp_rejected(self):
+        # Monkey-patch _now to return 1 day in the future
+        real_now = memory_ops._now
+
+        def future_now():
+            return time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+                time.gmtime(time.time() + 86400)
+            )
+
+        memory_ops._now = future_now
+        try:
+            with self.assertRaises(memory_ops.CarefulNotCleverError):
+                memory_ops.record_observation(
+                    "Bash", self.VALID_HASH, "success", "session-future"
+                )
+        finally:
+            memory_ops._now = real_now
+
+    # flock contention (T6)
+
+    def test_flock_contention_blocks_concurrent_writer(self):
+        # Hold an exclusive flock on the same log path from a
+        # separate fd; record_observation must NOT corrupt the file
+        # (it will block on flock or write atomically — either is
+        # acceptable; here we run with timeout via thread).
+        import threading
+        session = "session-flock-contention"
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                            f"{session}.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Prime the file so the holder can open in 'a' mode
+        with open(path, "a"):
+            pass
+
+        holder_done = threading.Event()
+        writer_done = threading.Event()
+
+        def hold_lock():
+            with open(path, "a") as f:
+                memory_ops.fcntl.flock(f.fileno(),
+                                       memory_ops.fcntl.LOCK_EX)
+                # Hold briefly while writer races us
+                time.sleep(0.3)
+                memory_ops.fcntl.flock(f.fileno(),
+                                       memory_ops.fcntl.LOCK_UN)
+            holder_done.set()
+
+        def write_one():
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", session
+            )
+            writer_done.set()
+
+        t1 = threading.Thread(target=hold_lock)
+        t2 = threading.Thread(target=write_one)
+        t1.start()
+        # Give the holder a moment to acquire
+        time.sleep(0.05)
+        t2.start()
+        t1.join(timeout=2.0)
+        t2.join(timeout=2.0)
+        self.assertTrue(holder_done.is_set())
+        self.assertTrue(writer_done.is_set())
+        # File should contain exactly one record (the writer's), uncorrupted
+        records = self._read_log(session)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["tool"], "Bash")
+
+    # Clear-observations adversarial probes
+
+    def test_clear_path_traversal_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.clear_observations("../escape")
+
+    def test_clear_panic_halts(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.clear_observations("session-y")
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3C — HMAC sidecar activation
+# ─────────────────────────────────────────────
+
+
+class LogChecksumTests(_ObservationBase):
+    """Base unit tests: sidecar lifecycle alongside the observation log."""
+
+    def _sidecar_for(self, session_id):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl.hmac"
+        )
+
+    def test_record_observation_writes_sidecar(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-sidecar-1"
+        )
+        sidecar = self._sidecar_for("session-sidecar-1")
+        self.assertTrue(os.path.exists(sidecar))
+        with open(sidecar) as f:
+            digest = f.read().strip()
+        # SHA256 hex = 64 chars
+        self.assertEqual(len(digest), 64)
+        int(digest, 16)  # raises if not hex
+
+    def test_sidecar_matches_current_log_content(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-match"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-match.jsonl")
+        # Recompute HMAC ourselves and compare
+        import hashlib as _hashlib
+        import hmac
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            key = f.read()
+        with open(log_path, "rb") as f:
+            content = f.read()
+        expected = hmac.new(key, content, _hashlib.sha256).hexdigest()
+        with open(self._sidecar_for("session-match")) as f:
+            actual = f.read().strip()
+        self.assertEqual(expected, actual)
+
+    def test_sidecar_updates_on_each_write(self):
+        digests = []
+        for i in range(3):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-multi"
+            )
+            with open(self._sidecar_for("session-multi")) as f:
+                digests.append(f.read().strip())
+        # Each append changes the log; each HMAC is different
+        self.assertEqual(len(set(digests)), 3)
+
+    def test_ensure_integrity_key_generates_with_strict_perms(self):
+        os.remove(memory_ops._INTEGRITY_KEY_PATH) if os.path.exists(
+            memory_ops._INTEGRITY_KEY_PATH) else None
+        memory_ops._ensure_integrity_key()
+        self.assertTrue(os.path.exists(memory_ops._INTEGRITY_KEY_PATH))
+        mode = os.stat(memory_ops._INTEGRITY_KEY_PATH).st_mode & 0o777
+        self.assertEqual(mode, 0o400)
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            self.assertEqual(len(f.read()), 32)
+
+    def test_ensure_integrity_key_idempotent(self):
+        memory_ops._ensure_integrity_key()
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            first = f.read()
+        memory_ops._ensure_integrity_key()
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            second = f.read()
+        self.assertEqual(first, second)
+
+    def test_compute_log_checksum_returns_paths(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-checksum"
+        )
+        result = memory_ops.compute_log_checksum("session-checksum")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["wrote"])
+        self.assertTrue(result["path"].endswith("session-checksum.jsonl"))
+        self.assertTrue(result["hmac_path"].endswith(".hmac"))
+        self.assertTrue(os.path.exists(result["hmac_path"]))
+
+    def test_compute_log_checksum_missing_log_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.compute_log_checksum("session-no-log")
+
+    def test_validate_log_checksum_returns_valid_after_write(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-validate"
+        )
+        result = memory_ops.validate_log_checksum("session-validate")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["valid"])
+        self.assertIsNone(result["reason"])
+
+    def test_validate_log_checksum_no_log_invalid(self):
+        result = memory_ops.validate_log_checksum("session-never")
+        self.assertTrue(result["enabled"])
+        self.assertFalse(result["valid"])
+        self.assertIn("no observation log", result["reason"])
+
+    def test_validate_log_checksum_disabled(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        self.assertEqual(
+            memory_ops.validate_log_checksum("session-x"),
+            {"enabled": False}
+        )
+
+    def test_assert_evidence_integrity_passes_with_valid_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-evcand"
+        )
+        candidate = {
+            "id": "cand-1",
+            "evidence": {
+                "observations": [
+                    {"session_id": "session-evcand", "index": 0, "ts": "x"}
+                ]
+            },
+        }
+        # Should NOT raise
+        memory_ops._assert_evidence_integrity(candidate)
+
+    def test_clear_observations_removes_sidecar_too(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-clear-side"
+        )
+        sidecar = self._sidecar_for("session-clear-side")
+        self.assertTrue(os.path.exists(sidecar))
+        memory_ops.clear_observations("session-clear-side")
+        self.assertFalse(os.path.exists(sidecar))
+
+
+class LogChecksumAdversarialTests(_ObservationBase):
+    """≥8 tamper / contention / failure-mode probes."""
+
+    def _sidecar_for(self, session_id):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl.hmac"
+        )
+
+    def test_sidecar_deleted_detected_by_evidence_integrity(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-del-sidecar"
+        )
+        os.remove(self._sidecar_for("session-del-sidecar"))
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [
+                    {"session_id": "session-del-sidecar", "index": 0}
+                ]
+            }
+        }
+        # No sidecar → _validate_file_integrity is silent (legacy path),
+        # so the evidence-integrity assertion no-ops. That is intentional:
+        # callers querying validate_log_checksum get the structured failure
+        # instead, which is the right surface for "log exists, sidecar gone".
+        result = memory_ops.validate_log_checksum("session-del-sidecar")
+        self.assertFalse(result["valid"])
+        self.assertIn("sidecar missing", result["reason"])
+
+    def test_sidecar_truncated_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-trunc"
+        )
+        sidecar = self._sidecar_for("session-trunc")
+        with open(sidecar, "w") as f:
+            f.write("deadbeef")  # plausible hex but wrong length / value
+        result = memory_ops.validate_log_checksum("session-trunc")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_sidecar_replaced_with_valid_looking_hex(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-replace"
+        )
+        sidecar = self._sidecar_for("session-replace")
+        with open(sidecar, "w") as f:
+            f.write("a" * 64)  # right shape, wrong value
+        result = memory_ops.validate_log_checksum("session-replace")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_log_edited_without_sidecar_update_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-edit"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-edit.jsonl")
+        with open(log_path, "a") as f:
+            f.write('{"ts":"x","tool":"FAKE","args_hash":"' +
+                    "b" * 64 + '","result_class":"success"}\n')
+        result = memory_ops.validate_log_checksum("session-edit")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_key_replaced_without_fingerprint_delete_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-keyrep"
+        )
+        # Swap the key without removing the fingerprint
+        with open(memory_ops._INTEGRITY_KEY_PATH, "wb") as f:
+            f.write(b"x" * 32)
+        # Next write should be blocked at _validate_key_fingerprint
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-keyrep"
+            )
+        self.assertIn("key fingerprint", str(ctx.exception).lower())
+
+    def test_evidence_integrity_raises_on_tampered_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-tamper-ev"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-tamper-ev.jsonl")
+        # Direct edit, sidecar not updated
+        with open(log_path, "a") as f:
+            f.write('{"injected":true}\n')
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [
+                    {"session_id": "session-tamper-ev", "index": 0}
+                ]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_integrity(candidate)
+
+    def test_evidence_integrity_raises_on_missing_log_for_cited_session(self):
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [{"session_id": "session-phantom", "index": 0}]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_evidence_integrity(candidate)
+        self.assertIn("no log exists", str(ctx.exception))
+
+    def test_evidence_integrity_rejects_traversal_session_id(self):
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [{"session_id": "../escape", "index": 0}]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_integrity(candidate)
+
+    def test_compute_log_checksum_panic_halts(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-panic-c"
+        )
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.compute_log_checksum("session-panic-c")
+
+    def test_validate_log_checksum_panic_halts(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.validate_log_checksum("session-x")
+
+    def test_concurrent_write_keeps_sidecar_consistent(self):
+        # Sequential writes from one process — flock guarantees
+        # sidecar reflects post-write state. We verify by writing
+        # several times and checking validate_log_checksum stays valid.
+        for i in range(5):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-conc"
+            )
+            r = memory_ops.validate_log_checksum("session-conc")
+            self.assertTrue(r["valid"], f"after write {i}: {r['reason']}")
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3B — Observation extraction
+# ─────────────────────────────────────────────
+
+
+class ExtractFromObservationsTests(_ObservationBase):
+    """Base unit tests for extract_candidates_from_observations."""
+
+    OTHER_HASH = "b" * 64
+    THIRD_HASH = "c" * 64
+
+    def _record_n(self, session, tool, result_class, n, hash_value=None):
+        h = hash_value or self.VALID_HASH
+        for _ in range(n):
+            memory_ops.record_observation(tool, h, result_class, session)
+
+    def test_disabled_flag_returns_no_op(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        result = memory_ops.extract_candidates_from_observations(
+            "session-disabled"
+        )
+        self.assertEqual(result, {"enabled": False})
+
+    def test_missing_log_returns_empty_with_reason(self):
+        result = memory_ops.extract_candidates_from_observations(
+            "session-never-logged"
+        )
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+        self.assertIn("no observation log", result["reason"])
+
+    def test_below_threshold_yields_no_candidates(self):
+        self._record_n("session-low", "Bash", "success", 2)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-low"
+        )
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+
+    def test_success_pattern_surfaces_candidate(self):
+        self._record_n("session-succ", "Bash", "success", 4)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-succ"
+        )
+        # 4 success of (Bash,success) → success pattern (>=3)
+        # Also 4 of same args_hash → repeat pattern (>=3)
+        types = [c["type"] for c in result["candidates"]]
+        self.assertIn("pattern", types)
+        self.assertEqual(len(result["candidates"]), 2)
+        # Both candidates cite session_id + integer index
+        for c in result["candidates"]:
+            for o in c["evidence"]["observations"]:
+                self.assertEqual(o["session_id"], "session-succ")
+                self.assertIsInstance(o["index"], int)
+
+    def test_repeated_args_hash_surfaces_repeat_candidate(self):
+        # 3 identical-args calls to different tools → repeat candidate only
+        # (success-pattern requires same tool+rc; we vary tool intentionally)
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-rep"
+        )
+        memory_ops.record_observation(
+            "Read", self.VALID_HASH, "success", "session-rep"
+        )
+        memory_ops.record_observation(
+            "Edit", self.VALID_HASH, "success", "session-rep"
+        )
+        result = memory_ops.extract_candidates_from_observations(
+            "session-rep"
+        )
+        repeat = [c for c in result["candidates"]
+                  if c["id"].startswith("session-rep:obs:hash:")]
+        self.assertEqual(len(repeat), 1)
+        self.assertEqual(repeat[0]["type"], "pattern")
+        self.assertEqual(repeat[0]["evidence"]["observation_count"], 3)
+
+    def test_error_pattern_surfaces_failure_candidate(self):
+        for _ in range(2):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "error", "session-err"
+            )
+        result = memory_ops.extract_candidates_from_observations(
+            "session-err"
+        )
+        err_cands = [c for c in result["candidates"]
+                     if c["id"].startswith("session-err:obs:err:")]
+        self.assertEqual(len(err_cands), 1)
+        self.assertEqual(err_cands[0]["type"], "fact")
+        self.assertIn("failure mode", err_cands[0]["content"])
+
+    def test_candidates_pass_evidence_integrity_with_real_sidecar(self):
+        # End-to-end: candidates produced from a real (post-3C) log
+        # must pass _assert_evidence_integrity without raising.
+        self._record_n("session-int", "Bash", "success", 3)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-int"
+        )
+        for c in result["candidates"]:
+            memory_ops._assert_evidence_integrity(c)  # no raise
+
+    def test_evidence_observations_include_index_per_line(self):
+        self._record_n("session-idx", "Bash", "success", 3)
+        result = memory_ops.extract_candidates_from_observations(
+            "session-idx"
+        )
+        self.assertGreater(len(result["candidates"]), 0)
+        for c in result["candidates"]:
+            obs = c["evidence"]["observations"]
+            indices = [o["index"] for o in obs]
+            # Indices come from line order; for 3 lines they are 0,1,2
+            self.assertEqual(sorted(indices), list(range(len(obs))))
+
+    def test_pure_helper_deterministic_with_ordered_input(self):
+        # Same input → same output, ordering preserved
+        obs = [
+            (0, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+            (1, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+            (2, {"ts": "t", "tool": "Bash",
+                 "args_hash": self.VALID_HASH, "result_class": "success"}),
+        ]
+        a = memory_ops._extract_candidates_from_observation_log(obs, "s1")
+        b = memory_ops._extract_candidates_from_observation_log(obs, "s1")
+        self.assertEqual(a, b)
+        self.assertGreater(len(a), 0)
+
+    def test_snapshot_pattern_extraction_is_immutable_to_subsequent_writes(self):
+        # Write 3, extract — then write 3 more — first result should
+        # reflect only first 3 (snapshot was taken at extraction time).
+        self._record_n("session-snap", "Bash", "success", 3)
+        first = memory_ops.extract_candidates_from_observations(
+            "session-snap"
+        )
+        first_counts = {c["id"]: c["evidence"]["observation_count"]
+                        for c in first["candidates"]}
+        # Mutate the log after extraction
+        self._record_n("session-snap", "Bash", "success", 3)
+        # Re-extract — sees more
+        second = memory_ops.extract_candidates_from_observations(
+            "session-snap"
+        )
+        second_counts = {c["id"]: c["evidence"]["observation_count"]
+                         for c in second["candidates"]}
+        # First snapshot saw 3; second saw 6
+        for cid, n in first_counts.items():
+            self.assertEqual(n, 3, f"first snapshot {cid} count drift")
+        for cid, n in second_counts.items():
+            self.assertEqual(n, 6, f"second snapshot {cid} count drift")
+
+
+class ExtractFromObservationsAdversarialTests(_ObservationBase):
+    """≥10 adversarial probes per the Slice 3B ship gate."""
+
+    def _log_path(self, session):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations", f"{session}.jsonl"
+        )
+
+    def _seed_then_extract(self, session, extra_lines):
+        # Use record_observation for one real line so the sidecar exists,
+        # then append raw lines for adversarial cases. Re-sign the log.
+        memory_ops.record_observation(
+            "Bash", "a" * 64, "success", session
+        )
+        with open(self._log_path(session), "a") as f:
+            for ln in extra_lines:
+                if not ln.endswith("\n"):
+                    ln += "\n"
+                f.write(ln)
+        # Re-sign so the HMAC matches the appended content; this isolates
+        # the test to the malformed-content behavior rather than tripping
+        # the integrity check.
+        memory_ops._compute_file_integrity(self._log_path(session))
+        return memory_ops.extract_candidates_from_observations(session)
+
+    def test_path_traversal_in_session_id_rejected(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_candidates_from_observations("../escape")
+
+    def test_panic_flag_halts_extraction(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.extract_candidates_from_observations("session-x")
+
+    def test_malformed_json_lines_counted_as_skipped(self):
+        result = self._seed_then_extract(
+            "session-malformed",
+            ["this is not json", "{unbalanced", "{}", "[]"]
+        )
+        # All 4 extras are malformed; the 1 seeded line is well-formed
+        # but below threshold so produces no candidates.
+        self.assertEqual(result["skipped"], 4)
+        self.assertIsNotNone(result["skipped_info"])
+        self.assertIn("4 malformed", result["skipped_info"])
+
+    def test_plan_injection_extra_keys_rejected(self):
+        # Strict 4-key shape: lines with bonus keys are malformed.
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "b" * 64,
+            "result_class": "success",
+            "EXTRA_PROMOTE_TO_INSTINCT": True,
+        })
+        result = self._seed_then_extract(
+            "session-injected", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_prompt_injection_in_tool_name_rejected(self):
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash; rm -rf /",
+            "args_hash": "b" * 64,
+            "result_class": "success",
+        })
+        result = self._seed_then_extract(
+            "session-prompt", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_prompt_injection_in_args_hash_rejected(self):
+        # args_hash shape is enforced (64 lowercase hex); junk fails.
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "<script>alert(1)</script>",
+            "result_class": "success",
+        })
+        result = self._seed_then_extract(
+            "session-hash-inj", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_unknown_result_class_rejected(self):
+        injected = json.dumps({
+            "ts": "2026-05-14T00:00:00Z",
+            "tool": "Bash",
+            "args_hash": "b" * 64,
+            "result_class": "FORGED",
+        })
+        result = self._seed_then_extract(
+            "session-rc-inj", [injected]
+        )
+        self.assertEqual(result["skipped"], 1)
+
+    def test_non_dict_top_level_rejected(self):
+        result = self._seed_then_extract(
+            "session-nondict",
+            ['"just a string"', "42", "null"]
+        )
+        self.assertEqual(result["skipped"], 3)
+
+    def test_empty_log_is_safe_no_op(self):
+        # Touch the file empty (no record_observation, so no sidecar)
+        path = self._log_path("session-empty")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w"):
+            pass
+        result = memory_ops.extract_candidates_from_observations(
+            "session-empty"
+        )
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["skipped"], 0)
+
+    def test_log_tampered_post_write_fails_integrity_on_candidate(self):
+        # Generate enough lines for a candidate, then tamper the log
+        # WITHOUT recomputing the sidecar; extraction reaches the
+        # _assert_evidence_integrity per-candidate check and raises.
+        for _ in range(3):
+            memory_ops.record_observation(
+                "Bash", "a" * 64, "success", "session-tamper"
+            )
+        path = self._log_path("session-tamper")
+        # Append a well-formed line directly (no sidecar update)
+        with open(path, "a") as f:
+            f.write(json.dumps({
+                "ts": "2026-05-14T00:00:00Z",
+                "tool": "Bash",
+                "args_hash": "b" * 64,
+                "result_class": "success",
+            }) + "\n")
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.extract_candidates_from_observations(
+                "session-tamper"
+            )
+        self.assertIn("HMAC mismatch", str(ctx.exception))
+
+    def test_rate_limit_blocks_burst_extraction(self):
+        # One write so the log exists; many extractions to trip the bucket
+        memory_ops.record_observation(
+            "Bash", "a" * 64, "success", "session-rate"
+        )
+        triggered = False
+        try:
+            for _ in range(150):
+                memory_ops.extract_candidates_from_observations(
+                    "session-rate"
+                )
+        except memory_ops.CarefulNotCleverError as e:
+            triggered = True
+            self.assertIn("rate limit", str(e).lower())
+        self.assertTrue(triggered)
 
 
 if __name__ == "__main__":

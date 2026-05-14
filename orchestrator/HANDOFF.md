@@ -1,8 +1,8 @@
 # HANDOFF — P1#9 continuous-learning-v2 auto-extraction loop
 
-**Status:** 7 slices shipped. Auto-extraction loop is structurally complete in `single-operator-local` profile. Slice 2.5 dogfood gate is the next decision point — NOT another implementation slice.
+**Status:** 12 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 6, 7.5) + session_id continuity. Auto-extraction is now structurally AND operationally complete: when the operator opts in (env flag + .claude/settings.json registration), every tool call writes a hashed observation, every session has a snapshot-extractable candidate list, every cited evidence trail is HMAC-attested. Only Slice 7 (SessionEnd auto-surfacing) is left.
 
-**Last commit:** ken `3808147` (Slice 7.5: consensus auto-promotion).
+**Last commit:** ken `(pending)` — Slice 6: PostToolUse hook + Python writer + bench harness + 22 tests (registration in .claude/settings.json deferred to operator).
 
 ---
 
@@ -17,8 +17,16 @@
 | 5 | 4 — confidence promotion | `925214d` | `consolidate()` bump (+0.05) for `recall_count≥5 AND last_recalled<14d`; new `actions["confidence_promoted"]` |
 | 6 | 5 — usage history | `58e1c2b` | `usage_history: [{at, session_id}]` FIFO cap=20 in `recall()`; privacy invariant (no query content) |
 | 7 | 7.5 — consensus auto-promotion | `3808147` | `auto_promote_eligible()` + 10th invariant `_assert_promotion_eligibility` (5 cryptographic criteria) |
+| 8 | 2.5 — formalized transcript mining | `d07b6c0` | `mine_transcripts()`, `ingest_relayed_memories()`, `_dedup_against_corpus()` (relay-pattern stable surface) |
+| 9 | 3A — observation log | `b5c9101` | `record_observation()`, `clear_observations()`, `_compute_args_hash()`, flock + FIFO rotation; gitignore for `_observations/` |
+| 10 | 3C — HMAC sidecar activation | `8741a6e` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
+| 11 | 3B — observation extraction | `d6709d8` | `extract_candidates_from_observations()`, `_extract_candidates_from_observation_log()`, `_is_well_formed_observation()`; 3 candidate kinds; snapshot under shared flock; per-candidate integrity validation |
+| 11+ | Slice 6 prereq — session_id continuity | `c7ca362` | `_current_session_id()` resolves env > CLAUDE_SESSION_ID > `<MEMORY_ROOT>/_session/current`; idle staleness 4h; subprocess-survivable |
+| 12 | 6 — PostToolUse hook + writer | `(pending)` | `hook_observe.py` (Python writer), `.claude/hooks/observe-tool-use.sh` (bash wrapper), `bench_hook.py` (perf harness); fire-and-forget; fail-closed |
 
-**Test count:** 251 (227 in `test_memory_ops.py` + 24 in `test_meta_ci.py`). All pass. `~/.memory/` byte-diff empty across every shipped slice.
+**Test count:** 423 (344 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 22 in `test_hook_observe.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
+
+**Measured perf:** direct `record_observation` 1.86 ms/call; bash-wrapped fire-and-forget 14.97 ms/call (the writer runs detached, so the wrapper cost is what users actually feel).
 
 ---
 
@@ -34,15 +42,12 @@ Use the system on real sessions for ~2 weeks. Track:
 
 **Decision gate:** if invocations are zero, the friction profile is wrong; soften before shipping more. If active and stable, schedule Slices 3A/B/C/6.
 
-### **Deferred until dogfood signal**
+### **Next**
 
-| Slice | Effort | Risk | Reason deferred |
+| Slice | Effort | Risk | Reason |
 |---|---|---|---|
-| 3A — observation log | ~1.5 sessions | Higher (new disk surface) | Awaits dogfood; bigger attack-surface jump |
-| 3B — extraction from log | ~1 session | Medium | Needs 3A |
-| 3C — log integrity (HMAC) | ~1 session | Medium | Activates `_assert_evidence_integrity` stub |
-| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs 3A/B/C stable |
-| 7 — session-end auto-extract | ~1 session | Low | Minor wiring; can ship anytime |
+| Operator: enable Slice 6 in production | 5 min | n/a | Add the hook registration block to `.claude/settings.json` + export `MEMORY_AUTO_OBSERVE_ENABLED=true` |
+| 7 — session-end auto-extract | ~1 session | Low | SessionEnd hook → `extract_candidates_from_observations(session_id)` → print candidates to operator |
 
 ### **Maybe never (documented limits per `CONTINUOUS_LEARNING_PLAN.md` §0)**
 
@@ -66,36 +71,43 @@ Use the system on real sessions for ~2 weeks. Track:
 
 ---
 
-## Files Created/Modified (across all 7 slices)
+## Files Created/Modified (across all 9 slices)
 
-- `orchestrator/memory_ops.py` — 10 invariants, 5 mutation defenses, 4 new public functions, 5 profile-aware flag readers
-- `orchestrator/tests/test_memory_ops.py` — 227 tests (was 46 before P1#9)
+- `orchestrator/memory_ops.py` — 10 invariants, 5 mutation defenses, 6 new public functions (Slices 1-3A), `_compute_args_hash`, observation log infrastructure
+- `orchestrator/tests/test_memory_ops.py` — 289 tests (was 46 before P1#9)
 - `orchestrator/tests/test_meta_ci.py` — 24 meta-tests (NEW file from Slice 0.5)
-- `orchestrator/CONTINUOUS_LEARNING_PLAN.md` — 935-line v5 plan
+- `orchestrator/CONTINUOUS_LEARNING_PLAN.md` — v6.1 plan (Slice 3A added to change log)
 - `orchestrator/CONTINUOUS_LEARNING_REVIEWS.md` — 384-line LLM review ledger
 - `orchestrator/CONTINUOUS_LEARNING_DOCTRINE.md` — 150-line plain-language principles
-- `WORKING-CONTEXT.md` — updated with each slice's outcome
+- `open-claw-stuff/.gitignore` — `_observations/`, `_checksums/`, `_integrity.*` added
+- `open-claw-stuff/.memory/README.md` — privacy posture (private repo)
 - `open-claw-stuff/schemas/records/continuous-learning-v2.json` — provenance record + regression baseline
 
 ---
 
 ## How to Resume
 
-If returning **before dogfood window expires** (~2 weeks from 2026-05-12):
-1. Read this file
-2. Check cognitive memory: `python3 orchestrator/memory_ops.py recall "dogfood gate"`
-3. Look at usage metrics: any memories with `is_auto_promoted` or `is_instinct` set?
-4. If yes → schedule a Slice 3A/B/C planning session
-5. If no → consider why; soften friction before extending
+Slice 6 artifacts are shipped but NOT registered. To turn on always-on capture (operator's explicit action):
 
-If returning **after dogfood window** with positive usage data:
-- Run `/orchestra` round 4 review on plan v5 with the dogfood metrics as new context
-- Schedule Slice 3A; budget ~1.5 sessions
+1. Add to `~/.bashrc` or session env: `export MEMORY_AUTO_OBSERVE_ENABLED=true`
+2. Append this block to `.claude/settings.json` under `hooks.PostToolUse`:
+   ```json
+   {
+     "matcher": "*",
+     "hooks": [
+       {"type": "command",
+        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/observe-tool-use.sh"}
+     ]
+   }
+   ```
+3. After a few sessions: `python3 orchestrator/memory_ops.py` then in Python `import memory_ops; memory_ops.extract_candidates_from_observations("<session_id>")` to see what surfaced.
 
-If returning **after dogfood window with zero usage**:
-- The plan got the friction model wrong
-- Re-read v5 §0 friction-tax section before extending
-- Consider whether the entire auto-extraction loop is right for this household
+**Slice 7 (next code work, ~1 session, low risk):** SessionEnd hook calls `extract_candidates_from_observations(session_id)` and prints the candidate list. No auto-promotion; operator decides. Mirror of `.claude/hooks/observe-tool-use.sh` but the body is `python3 -c "..."` that imports and calls the extractor.
+
+**Web-container note:** `~/.memory/_integrity.key` is ephemeral on web; key regenerates per session, invalidating cross-session HMACs. Within-session integrity always holds. Cross-session persistence requires CLI/desktop where `~/.memory/` survives.
+
+Run before any new work: `python3 -m pytest orchestrator/tests/ -q` should print `423 passed`.
+Measure perf: `python3 orchestrator/bench_hook.py 100`.
 
 ---
 
@@ -115,6 +127,4 @@ Priority order:
 2. `<parent>/open-claw-stuff/.memory/` (sibling repo; persistent canonical default)
 3. `~/.memory/` legacy fallback (CLI/desktop only; ephemeral in web)
 
-**Privacy:** `open-claw-stuff` is public-domain. Every encoded memory committed there becomes permanently public. See `open-claw-stuff/.memory/README.md` for the full posture and override paths.
-
-The one memory present (dogfood reminder `a92e68ca`) has been migrated to the new location and is recallable end-to-end.
+**Privacy posture (corrected 2026-05-13):** `open-claw-stuff` is a PRIVATE GitHub repo. Encoded memories committed there are private — as safe as a private GitHub repo gets. The Unlicense is the content license posture (operator-as-publication-gate), not the visibility posture. Secrets/credentials still belong in `.env` regardless of repo visibility. See `open-claw-stuff/.memory/README.md`.
