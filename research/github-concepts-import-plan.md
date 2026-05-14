@@ -198,6 +198,102 @@ Reasons logged so they don't get re-litigated:
 
 ---
 
+## 3A. Addendum — wheat the first pass undersold
+
+Second slower pass through the same 39 repos. The first pass leaned conservative; this pass found additional concepts worth lifting, and reframes one of the first-pass items (§3.1) into something sharper.
+
+### 3.10 [HIGH — supersedes part of §3.1] AST-aware semantic chunking with tree-sitter (cocoindex-code)
+
+**Source.** `cocoindex-io/cocoindex-code` — separate from cocoindex proper.
+**Concept.** Tree-sitter parses every file into a syntax tree, AST walking extracts complete semantic units (functions, classes, method bodies) as the chunking boundary, each chunk is embedded as a whole. Re-indexing is incremental. Reported numbers: 70 % token reduction per turn, 80–90 % cache hits on re-index.
+**Why it fits ken.** This is the better-defined sibling of §3.1's tree-sitter + PageRank repo-map. Whole-function chunks beat line-window chunks because they preserve semantic boundaries. `/investigate` and `keeper` would both benefit.
+**Reframing of §3.1.** Keep aider's PageRank-over-file-dependency-graph for *file selection*; use cocoindex-code-style AST chunking for *within-file selection*. The two compose: PageRank picks the files, AST chunking decides what slices of those files to send.
+**Critical security note — DO NOT install the MCP server.** cocoindex-code ships as an MCP server you connect to Claude Code. That is the exact LiteLLM-March-2026 ingress shape — a `npx`/`pip` install pulled at MCP-server startup. Lift the concept as a local Python CLI invoked from a skill, with tree-sitter as a system dependency (already commonly installed). No MCP server, no floating-tag pull.
+**Risk.** Medium — tree-sitter grammars are downloaded per language and have been a malware vector in the past. Pin grammar checksums.
+**Verification gate.** §4, with explicit prohibition on running cocoindex-code's MCP server.
+
+### 3.11 [HIGH] Structured-document handoffs (MetaGPT SOPs) — also a worm-defense pattern
+
+**Source.** MetaGPT (`geekan/MetaGPT`).
+**Concept.** Agents communicate via *structured documents* (PRD, design doc, interface spec) instead of free-text dialogue. Each role's SOP defines a schema for its output. Document handoff is the inter-agent channel.
+**Why it fits ken.** The existing `orchestrate`/`orchestra` skills pass free text between GPT/Gemini/Grok. A structured envelope — fixed YAML/JSON schema for each handoff — would (a) force clarity in the prompts, (b) make the orchestra's "wheat/chaff verdicts and justifications" feature mechanically checkable rather than vibes-based, (c) act as a **Morris-II defense surface**: a worm payload smuggled in a free-text "justification" field is much more visible inside a fixed schema than buried in prose.
+**What I'd build.** A `handoff-schemas/` directory under `orchestrator/` with one schema per mode (sermon, cruising, sheep, recipe, family-history, triad). Each LLM gets a system prompt that says "your reply must validate against this schema." Reject and retry if it doesn't.
+**Risk.** Low. Schema validation is a defensive narrowing.
+**Verification gate.** §4 plus a worm-survival test (§4.5) using the structured envelope.
+
+### 3.12 [HIGH] Aider's architect / editor model split
+
+**Source.** Aider (`Aider-AI/aider`).
+**Concept.** Two-model pass. The architect (strong reasoning model) proposes the change. The editor (cheap fast model) emits the actual edits in the target diff format. Reported SOTA on aider's own benchmark (85 % with o1-preview + DeepSeek/o1-mini).
+**Why it fits ken.** ken already has three external LLMs wired up. The orchestrator skill currently does round-robin debate, which is the *exploration* shape. Architect/editor is the *execution* shape — different mode. For any code-touching subagent run (the `subagent-driven-development` skill flow), an Opus-architect → Haiku-editor split would be faster and cheaper than a single Opus pass without sacrificing edit quality, and it composes with Anthropic's own model lineup.
+**What I'd build.** A new skill `architect-editor` that takes a coding instruction, sends it first to the architect model with a "propose the change in prose" prompt, then sends the prose + the files to the editor model with a "produce a unified diff against these files" prompt. Pure prompt orchestration, no new dep.
+**Risk.** Low. Pure prompt orchestration.
+**Verification gate.** §4.
+
+### 3.13 [HIGH] Plugin-disabled-by-default + priority registry (markitdown)
+
+**Source.** markitdown plugin architecture.
+**Concept.** A `DocumentConverter` abstract base with a single `convert()` method, plugins register via Python entry points, and the registry is *priority-sorted* (lower number = tried first). Specific-format converters at priority 0.0, generic catch-all at 10.0. **Critically: plugins disabled by default; user must explicitly enable.**
+**Why it fits ken.** This is the exact shape `skill-developer` should use for foreign-skill adoption. Today skill adoption is "drop a directory in `.claude/skills/` and it auto-loads." That is the skill-repository attack vector from §1.4. Lift markitdown's pattern: foreign skills land in `.claude/skills/disabled/` by default, with a `priority:` field in the YAML frontmatter, and an explicit `/skill-developer enable <name>` step that runs `/security-scan` before flipping the bit.
+**What I'd build.** A `disabled/` convention plus a `/skill-developer enable` flow that (a) runs security-scan, (b) confirms with the user, (c) moves the dir up one level. The priority field lives in frontmatter but is advisory until someone wants priority-routed skill dispatch.
+**Risk.** Low — this is a hardening.
+**Verification gate.** §4.6 (skill provenance) becomes mechanically enforceable.
+
+### 3.14 [MEDIUM] Dynamic speaker selection (AutoGen SelectorGroupChat) — with explicit risk
+
+**Source.** AutoGen `SelectorGroupChat`.
+**Concept.** An LLM picks the next speaker based on conversation context, instead of round-robin. Custom selectors can return an agent, a default method (`'auto' | 'manual' | 'random' | 'round_robin'`), or `None` to terminate. A `candidate_func` can restrict the candidate set per turn.
+**Why it fits ken.** Current `orchestra` is fixed round-robin (GPT → Gemini → Grok). For some tasks (deep technical, where Gemini already has the answer) the round-robin wastes two turns. Dynamic selection would let the orchestrator pick the right next voice.
+**Specific risk.** **The selector LLM is prompt-injection-vulnerable.** A worm payload in a prior turn could steer the selector to keep itself in the loop (cf. SRPO summary-resilient payloads). Either (a) use `candidate_func` to enforce minimum diversity (no model speaks twice in a row), or (b) keep round-robin as default and only switch to selector mode under user request.
+**What I'd build.** Add a `--select dynamic` flag to `/orchestra` that uses one of the three external models as the selector for the *next* speaker, with the hard constraint that the selector cannot select itself. Default remains round-robin.
+**Verification gate.** §4 plus §4.5 worm-survival test specifically targeting selector capture.
+
+### 3.15 [MEDIUM] A11y-tree-first hybrid (browser-use) for InTheWake testing
+
+**Source.** browser-use.
+**Concept.** On each step, extract the accessibility tree (interactive elements with type, label, index), pass it to the LLM alongside a screenshot, the LLM acts by element index. Vision fills gaps where the DOM falls short (CAPTCHA, ad popups not in the tree).
+**Why it fits InTheWake.** Two existing skills — `webapp-testing` (Playwright-based, 9 tools) and `accessibility-audit` (WCAG 2.1 AA) — overlap and don't share infrastructure. The a11y-tree-first hybrid is the bridge: if the a11y tree is the primary action surface, then test scenarios *and* accessibility coverage come from the same source. A missing label is both a test failure and a WCAG violation.
+**What I'd build.** A small `accessibility-driven-testing` helper that runs Playwright's `accessibility.snapshot()` (Playwright already supports this), feeds the snapshot to test assertions, and produces a unified report shared by both skills.
+**Risk.** Low.
+**Verification gate.** §4.
+
+### 3.16 [MEDIUM] Tagged declarative manifest (maigret data.json)
+
+**Source.** maigret.
+**Concept.** A single `data.json` describes 3000+ sites with tags (photo / messaging / finance / country). The CLI filters by tag at runtime; a default run scans the top 500 by traffic. One source of truth, multiple traversals.
+**Why it fits InTheWake.** InTheWake has 388 port pages and growing ship/restaurant sets. The existing data files are scattered across `data/ports/` style trees. A single tagged manifest (`region:caribbean`, `season:alaska-summer`, `cruise-line:rcl`, `audience:family`) would let `seasonal-content-planner`, `port-content-builder`, and `content-freshness` all traverse the same source by different filters.
+**What I'd build.** Consolidate the existing port metadata into `data/inthewake-manifest.json` with a tag taxonomy, keep page bodies in their existing files. The manifest is the index, not the content.
+**Risk.** Low — refactor of an existing data layout.
+**Verification gate.** §4.
+
+### 3.17 [LOW–MEDIUM] Trigger taxonomy for hooks (n8n)
+
+**Source.** n8n.
+**Concept.** Six explicit trigger types: Manual, Time-based (Cron / Schedule), Webhook, App-specific, Polling, Custom Event. Each has a clearly defined surface and a known cost profile (polling = wasted calls; webhook = event-driven).
+**Why it fits ken.** The `update-config` skill mentions hooks but doesn't lay out the taxonomy. The `skill-developer` skill talks about trigger types (keywords, intent patterns, file paths, content patterns) but those are *activation* triggers for skills, not the *external* triggers that fire a Claude Code session in the first place. A documented taxonomy of external trigger types would clarify when to reach for cron vs. webhook vs. file-watcher when building automations on top of Claude Code.
+**What I'd build.** A `docs/hooks-taxonomy.md` in ken with the six categories mapped to specific Claude Code hook types and recommended use cases. Documentation only.
+**Risk.** None.
+**Verification gate.** N/A.
+
+### 3.18 [LOW] Watch-mode AI-comment trigger (aider, again)
+
+**Source.** Aider `--watch-files`.
+**Concept.** Background thread (`watchfiles` lib) watches the repo for one-line comments matching `# … AI!` / `// … AI?`. `AI!` triggers an edit, `AI?` triggers an answer. Multiple `AI` comments without `!` accumulate; the trailing `AI!` fires the run with all of them.
+**Why it fits ken.** Different shape from slash-commands. Useful for the keeper / orchestrator loops that want to fire on file-state changes without an explicit prompt. Lower priority than §3.17 because it's a niche workflow.
+**What I'd build.** Nothing immediately; document the pattern in §3.17's taxonomy doc as one option for the "file-watcher trigger" entry.
+**Risk.** Low.
+**Verification gate.** N/A while it's documentation only.
+
+### 3.19 Reconsidered rejections from the first pass
+
+- **crewai hierarchical / manager agent.** First pass dismissed under §3.9 ("framework weight, no proportional gain"). Reconsidered: the *concept* (manager agent that decomposes and delegates) is the same as the existing `subagent-driven-development` skill, which the user already runs. No new lift, but worth recording that ken's `subagent-driven-development` *is* the crewai-hierarchical pattern in skill form.
+- **hermes-agent.** First pass kept the agentskills.io standard (§3.4) and rejected the runtime. Reconsidered: hermes-agent's *multi-channel gateway* (single process serving Telegram / Discord / Slack / WhatsApp / Signal / CLI) is a useful pattern *if* ken ever wants cross-channel access. Not needed today. Logged for future reference.
+- **system-design-primer.** First pass dismissed as interview prep. Reconsidered: the cache-invalidation / TTL section reinforces §3.5 (delta-only recompute) but does not add new lift. Confirm skip.
+- **the-book-of-secret-knowledge.** First pass dismissed as awesome-list. Reconsidered: the sysadmin / pentest tool references could feed the §4 verification gate (specifically §4.2 security-scan tooling choices). Logged as a future reference source, no concept to lift.
+- **dify / langflow / n8n as wholes.** First pass rejected all three. Reconsidered: n8n's trigger taxonomy (§3.17) survives the rejection. dify and langflow stay rejected — visual-builder pattern doesn't fit a CLI-first hub.
+
+---
+
 ## 4. Verification gate every imported concept must pass
 
 This is the gate. It exists because of §1 (the worm landscape). No concept ships without all six.
@@ -213,18 +309,26 @@ This is the gate. It exists because of §1 (the worm landscape). No concept ship
 
 ## 5. Recommended sequence (if approved)
 
-If the user approves any of §3, the order I'd suggest:
+If the user approves any of §3 / §3A, the order I'd suggest. Items revised after the §3A pass:
 
 1. **§3.8 atomic-commit prompt change** — five minutes, zero risk.
-2. **§3.3 role-based debate config** — pure prompt restructure, lives in `orchestrator/roles/`.
-3. **§3.1 repo-map skill** — net-new skill, contained, no external deps.
-4. **§3.5 freshness-delta** — small extension to existing `content-freshness` skill.
-5. **§3.2 memory quarantine** — the security-critical one, do it deliberately with the MINJA test in hand.
-6. **§3.4 agentskills.io compatibility** — only after §3.2 lands, because it widens the skill-adoption surface.
-7. **§3.6 markitdown-style intake** — only if/when PDF input is actually a bottleneck.
-8. **§3.7 scraping policy doc** — orthogonal, can land any time.
+2. **§3.17 trigger-taxonomy doc** — documentation only, clarifies the field before any new hooks land.
+3. **§3.3 role-based debate config** — pure prompt restructure, lives in `orchestrator/roles/`.
+4. **§3.11 structured-document handoffs (MetaGPT SOPs)** — composes with §3.3; together they form the worm-defense version of the orchestrator. Do these two as one piece of work.
+5. **§3.12 architect/editor split skill** — net-new skill, prompt orchestration only, makes the existing three-LLM stack do more.
+6. **§3.10 AST + PageRank repo-map** (supersedes the original §3.1) — net-new skill, system-tool deps only, no MCP server.
+7. **§3.5 freshness-delta** — small extension to `content-freshness`.
+8. **§3.16 tagged manifest for InTheWake** — refactor of existing data files, low risk, high downstream payoff.
+9. **§3.15 a11y-tree-first hybrid** — connects existing webapp-testing and accessibility-audit skills.
+10. **§3.13 plugin-disabled-by-default registry** — the skill-adoption hardening. Should land *before* §3.4 or §3.2 because both of those widen the adoption surface.
+11. **§3.2 memory quarantine** — the security-critical one. Land with MINJA test in hand.
+12. **§3.4 agentskills.io compatibility** — only after §3.13 + §3.2 are in place.
+13. **§3.14 dynamic speaker selection** — opt-in, default off, only after §3.11 schema is in place (so the selector reads structured envelopes, not free text).
+14. **§3.6 markitdown-style intake** — only if/when PDF input is a bottleneck.
+15. **§3.7 scraping policy doc** — orthogonal, can land any time.
+16. **§3.18 watch-mode AI-comments** — niche, documented only initially.
 
-Items in §3.9 are rejected and should not be re-evaluated without a new threat-model justification.
+Items in §3.9 (and the rejections re-confirmed in §3.19) should not be re-evaluated without a new threat-model justification.
 
 ---
 
@@ -252,6 +356,17 @@ Items in §3.9 are rejected and should not be re-evaluated without a new threat-
 
 ### Repos evaluated for concept lifts
 - aider — https://github.com/Aider-AI/aider — repo-map docs https://aider.chat/docs/repomap.html
+- aider architect / editor split — https://aider.chat/2024/09/26/architect.html — chat modes https://aider.chat/docs/usage/modes.html
+- aider watch-mode / AI comments — https://aider.chat/docs/usage/watch.html
+- cocoindex-code (AST + tree-sitter, ships as MCP — do not install) — https://github.com/cocoindex-io/cocoindex-code
+- AutoGen SelectorGroupChat — https://microsoft.github.io/autogen/dev//user-guide/agentchat-user-guide/selector-group-chat.html
+- AutoGen customized speaker selection — https://microsoft.github.io/autogen/0.2/docs/topics/groupchat/customized_speaker_selection/
+- MetaGPT SOPs / role architecture — https://arxiv.org/abs/2308.00352 — IBM writeup https://www.ibm.com/think/topics/metagpt
+- CrewAI hierarchical process — https://docs.crewai.com/en/learn/hierarchical-process
+- markitdown plugin architecture — https://deepwiki.com/microsoft/markitdown/4-plugin-system
+- browser-use vs computer-use DOM comparison — https://techstackups.com/comparisons/browser-use-vs-claude-computer-use/
+- n8n trigger taxonomy — https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.n8ntrigger/
+- maigret site database structure — https://maigret.readthedocs.io/en/latest/library-usage.html
 - mem0 — https://github.com/mem0ai/mem0
 - TradingAgents — https://github.com/TauricResearch/TradingAgents
 - agency-swarm — https://github.com/VRSEN/agency-swarm
