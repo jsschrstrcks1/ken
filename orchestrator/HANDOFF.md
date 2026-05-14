@@ -1,8 +1,8 @@
 # HANDOFF — P1#9 continuous-learning-v2 auto-extraction loop
 
-**Status:** 9 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 4, 5, 7.5). Slice 3A — observation log infrastructure — lands the foundation for hook-driven auto-capture (Slice 6) and observation-extraction (Slice 3B). Next is Slice 3B or 3C (per plan §7 sequencing).
+**Status:** 10 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3C, 4, 5, 7.5). Slice 3C — HMAC sidecar activation — makes the observation log cryptographically attested. The Slice 0 stub `_assert_evidence_integrity` is now real. Next is Slice 3B (observation-log → candidate extraction) — the last piece before Slice 6 hooks can ship.
 
-**Last commit:** ken `(pending)` — Slice 3A: observation log infrastructure (record_observation + clear_observations + flock + 10MB/10K-line FIFO rotation).
+**Last commit:** ken `(pending)` — Slice 3C: HMAC sidecar activation (compute_/validate_log_checksum + `_assert_evidence_integrity` real).
 
 ---
 
@@ -18,9 +18,10 @@
 | 6 | 5 — usage history | `58e1c2b` | `usage_history: [{at, session_id}]` FIFO cap=20 in `recall()`; privacy invariant (no query content) |
 | 7 | 7.5 — consensus auto-promotion | `3808147` | `auto_promote_eligible()` + 10th invariant `_assert_promotion_eligibility` (5 cryptographic criteria) |
 | 8 | 2.5 — formalized transcript mining | `d07b6c0` | `mine_transcripts()`, `ingest_relayed_memories()`, `_dedup_against_corpus()` (relay-pattern stable surface) |
-| 9 | 3A — observation log | `(pending)` | `record_observation()`, `clear_observations()`, `_compute_args_hash()`, flock + FIFO rotation; gitignore for `_observations/` |
+| 9 | 3A — observation log | `b5c9101` | `record_observation()`, `clear_observations()`, `_compute_args_hash()`, flock + FIFO rotation; gitignore for `_observations/` |
+| 10 | 3C — HMAC sidecar activation | `(pending)` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
 
-**Test count:** 346 (289 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate (`test_every_mutation_path_invokes_invariants`) + panic-ordering test green.
+**Test count:** 369 (312 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
 
 ---
 
@@ -40,9 +41,8 @@ Use the system on real sessions for ~2 weeks. Track:
 
 | Slice | Effort | Risk | Reason |
 |---|---|---|---|
-| 3B — extraction from log | ~1 session | Medium | Reads Slice 3A's log; surfaces candidates |
-| 3C — log integrity (HMAC) | ~1 session | Medium | Activates `_assert_evidence_integrity` stub; key lives outside any tracked repo |
-| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs 3A/B/C stable + `MEMORY_SESSION_ID` subprocess-inheritance fix |
+| 3B — extraction from log | ~1 session | Medium | Reads Slice 3A's log + carries `index` so 3C integrity attests the evidence trail end-to-end |
+| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs 3A/B stable + `MEMORY_SESSION_ID` subprocess-inheritance fix |
 | 7 — session-end auto-extract | ~1 session | Low | Minor wiring; can ship anytime |
 
 ### **Maybe never (documented limits per `CONTINUOUS_LEARNING_PLAN.md` §0)**
@@ -83,15 +83,15 @@ Use the system on real sessions for ~2 weeks. Track:
 
 ## How to Resume
 
-Slice 3A is in. The two natural next steps:
+Slices 3A + 3C are in. The observation log is bounded, flock-protected, and HMAC-attested. Next:
 
-**Option A — Slice 3B (extraction from observation log).** Reads `<MEMORY_ROOT>/_observations/<session_id>.jsonl`, clusters by tool name + result_class, returns candidate dicts in the same shape as Slice 2's `extract_candidates_from_session`. Each candidate must carry observation ids in its `evidence` so `_assert_evidence_present` passes. Pre-Slice 3C, `_assert_evidence_integrity` is still the no-op stub.
-
-**Option B — Slice 3C (HMAC sidecar activation).** Adds `<MEMORY_ROOT>/_checksums/<session_id>.txt` running SHA256, called on every `record_observation` write. `_assert_evidence_integrity` becomes real. The HMAC key (`_integrity.key`) MUST live outside any tracked repo (not in `open-claw-stuff/.memory/`).
+**Slice 3B (extraction from observation log).** Reads `<MEMORY_ROOT>/_observations/<session_id>.jsonl`, clusters by tool name + result_class, returns candidate dicts in the Slice-2 shape. CRITICAL: each candidate's `evidence.observations[]` entries MUST include integer `index` alongside `session_id` so `_assert_evidence_integrity` (now active) actually validates the cited log.
 
 **Open prerequisite for Slice 6 hooks:** `MEMORY_SESSION_ID` subprocess-inheritance bug — env var set in one `python3 -c` does not propagate. Fix candidates: harness-level export, session-state file, or template insertion.
 
-Run before either: `python3 -m pytest tests/ -q` should print `346 passed`.
+**Web-container note:** `~/.memory/_integrity.key` is ephemeral on web; key regenerates per session, invalidating cross-session HMACs. Within-session integrity always holds. Cross-session persistence requires CLI/desktop where `~/.memory/` survives.
+
+Run before any new work: `python3 -m pytest orchestrator/tests/ -q` should print `369 passed`.
 
 ---
 

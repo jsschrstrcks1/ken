@@ -235,11 +235,55 @@ def _assert_safety_guard_compliant(operation, target, force=False):
 
 # Invariant 6: Evidence integrity (STUB until Slice 3C).
 def _assert_evidence_integrity(candidate):
-    """STUB until Slice 3C ships HMAC-SHA256 validation against
-    ~/.memory/_checksums/. Currently a no-op; the call-site contract
-    is preserved so subsequent slices can wire the invariant call
-    without breaking when 3C is implemented."""
-    return  # Intentional no-op. Tests assert this is a stub.
+    """Verify HMAC integrity of every observation log cited in the
+    candidate's evidence trail. Activated by Slice 3C.
+
+    Walks ``candidate['evidence']['observations']`` and, for any
+    entry that is clearly Slice-3A-log-backed (carries BOTH a
+    ``session_id`` str AND an integer ``index``), validates the
+    corresponding ``<MEMORY_ROOT>/_observations/<session_id>.jsonl``
+    file against its HMAC sidecar via ``_validate_file_integrity``.
+
+    Observations without that pair are skipped — they describe a
+    different evidence shape (Slice 2's blackboard session_id,
+    Slice 2.5's transcript path, legacy bare ``line_hmac`` markers).
+    The empty-evidence case (``{}``, ``{'id': ...}``,
+    ``{'evidence': {}}``) is also a no-op so candidates that predate
+    the observation log continue to pass.
+
+    Raises ``CarefulNotCleverError`` on any sidecar mismatch, missing
+    key when sidecar is present, missing-log when log is cited, or
+    malformed session_id.
+    """
+    if not isinstance(candidate, dict):
+        return
+    evidence = candidate.get("evidence") or {}
+    observations = evidence.get("observations") or []
+    if not observations:
+        return
+    seen_sessions = set()
+    for obs in observations:
+        if not isinstance(obs, dict):
+            continue
+        sid = obs.get("session_id")
+        idx = obs.get("index")
+        if not (isinstance(sid, str) and sid and isinstance(idx, int)):
+            # Not a Slice-3A log reference — skip integrity check.
+            continue
+        if sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        _validate_session_id(sid)
+        log_path = os.path.join(
+            MEMORY_ROOT, _OBSERVATIONS_SUBDIR, f"{sid}.jsonl"
+        )
+        if not os.path.exists(log_path):
+            raise CarefulNotCleverError(
+                f"evidence integrity: candidate "
+                f"{candidate.get('id', '?')} cites observation log "
+                f"session {sid!r} but no log exists at {log_path}"
+            )
+        _validate_file_integrity(log_path)
 
 
 # Invariant 7: Rate limiting (dynamic per Grok R3).
@@ -574,6 +618,65 @@ def _validate_file_integrity(path):
             f"(file content changed without sidecar update — "
             f"direct write detected)"
         )
+
+
+def _ensure_integrity_key():
+    """Generate the HMAC key on first use. 32 random bytes, mode 0o400.
+
+    Lives at ``~/.memory/_integrity.key`` — outside any tracked repo
+    even when MEMORY_ROOT points at a sibling git directory. Putting
+    the signing key inside a private gitignored subdir is still
+    one .gitignore edit away from accidental commit; keeping it
+    outside the repo tree is the defense-in-depth posture per the
+    doctrine note in ``open-claw-stuff/.memory/README.md``.
+
+    Idempotent: returns silently when the key already exists. No-op
+    when Slice 3C is not active in the caller's environment (the
+    helper only ever gets invoked from log-integrity write paths).
+
+    Also registers the key fingerprint immediately on creation so a
+    subsequent key swap is detected even though the first
+    ``_validate_key_fingerprint`` call (before key generation)
+    no-opped. Without this atomic pairing, the very first post-
+    generation call would register whatever key happens to be on
+    disk — including an attacker-substituted one."""
+    if os.path.exists(_INTEGRITY_KEY_PATH):
+        return
+    os.makedirs(os.path.dirname(_INTEGRITY_KEY_PATH), exist_ok=True)
+    key_bytes = os.urandom(32)
+    with open(_INTEGRITY_KEY_PATH, "wb") as f:
+        f.write(key_bytes)
+    os.chmod(_INTEGRITY_KEY_PATH, 0o400)
+    # Atomic-with-creation fingerprint registration.
+    digest = hashlib.sha256(key_bytes).hexdigest()
+    with open(_INTEGRITY_FINGERPRINT_PATH, "w") as f:
+        f.write(digest)
+    os.chmod(_INTEGRITY_FINGERPRINT_PATH, 0o400)
+
+
+def _compute_file_integrity(path):
+    """Write the HMAC-SHA256 sidecar for ``path``.
+
+    Mirror of ``_validate_file_integrity``: reads the file content,
+    computes HMAC-SHA256 with ``~/.memory/_integrity.key``, writes to
+    ``<path>.hmac``. Auto-generates the key on first use via
+    ``_ensure_integrity_key``.
+
+    Caller is responsible for serializing concurrent writes. In
+    practice this is invoked from inside the flock held by
+    ``record_observation`` so the sidecar is always consistent with
+    the log's post-write state."""
+    import hmac
+    _ensure_integrity_key()
+    with open(_INTEGRITY_KEY_PATH, "rb") as f:
+        key = f.read()
+    with open(path, "rb") as f:
+        content = f.read()
+    digest = hmac.new(key, content, hashlib.sha256).hexdigest()
+    sidecar = path + ".hmac"
+    with open(sidecar, "w") as f:
+        f.write(digest)
+    os.chmod(sidecar, 0o600)
 
 
 def _validate_key_fingerprint():
@@ -2627,8 +2730,9 @@ def record_observation(tool, args_hash, result_class, session_id):
     }
     line = json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
 
-    # Exclusive flock around append + rotation pass. Held on the
-    # same fd to keep concurrent writers blocked across both phases.
+    # Exclusive flock around append + rotation + sidecar write. Held
+    # on the same fd so concurrent writers see a consistent
+    # log+sidecar pair (Slice 3C T6/T9 mitigation).
     with open(path, "a") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
@@ -2636,6 +2740,10 @@ def record_observation(tool, args_hash, result_class, session_id):
             f.flush()
             os.fsync(f.fileno())
             evicted, reason = _rotate_observation_log(path)
+            # Slice 3C: recompute HMAC sidecar to reflect post-write
+            # state. Key fingerprint is validated on the way in.
+            _validate_key_fingerprint()
+            _compute_file_integrity(path)
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
@@ -2661,6 +2769,76 @@ def record_observation(tool, args_hash, result_class, session_id):
     }
 
 
+def compute_log_checksum(session_id):
+    """Explicitly (re)compute the HMAC sidecar for a session's log.
+    Useful for migration / repair paths; normal writes through
+    ``record_observation`` keep the sidecar fresh automatically.
+
+    Returns ``{"enabled": False}`` when observations are off, else
+    ``{"path": str, "hmac_path": str, "wrote": bool}``. Raises
+    ``CarefulNotCleverError`` on missing log, panic, or invalid
+    session_id."""
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("compute_log_checksum", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        raise CarefulNotCleverError(
+            f"compute_log_checksum: no observation log for session "
+            f"{session_id!r}"
+        )
+    _validate_key_fingerprint()
+    _compute_file_integrity(path)
+    return {
+        "enabled": True,
+        "path": path,
+        "hmac_path": path + ".hmac",
+        "wrote": True,
+    }
+
+
+def validate_log_checksum(session_id):
+    """Validate a session's observation log against its HMAC sidecar.
+
+    Returns ``{"enabled": False}`` when observations are off; else
+    ``{"valid": bool, "reason": str or None, "path": str}``. Does NOT
+    raise on integrity failure — wraps the underlying
+    ``_validate_file_integrity`` exception into a structured result
+    so callers can decide whether to treat the failure as fatal.
+    Slice 3B's extraction path raises via ``_assert_evidence_integrity``;
+    other callers may want to log + skip."""
+    _assert_panic_check()
+    if not _observations_enabled():
+        return {"enabled": False}
+    _validate_session_id(session_id)
+    _assert_rate_limit("validate_log_checksum", session_id)
+    path = _observation_log_path(session_id)
+    if not os.path.exists(path):
+        return {
+            "enabled": True, "valid": False,
+            "reason": "no observation log for this session",
+            "path": path,
+        }
+    sidecar = path + ".hmac"
+    if not os.path.exists(sidecar):
+        return {
+            "enabled": True, "valid": False,
+            "reason": "sidecar missing — log was not written via "
+                      "record_observation, or sidecar was deleted",
+            "path": path,
+        }
+    try:
+        _validate_file_integrity(path)
+    except CarefulNotCleverError as e:
+        return {
+            "enabled": True, "valid": False,
+            "reason": str(e), "path": path,
+        }
+    return {"enabled": True, "valid": True, "reason": None, "path": path}
+
+
 def clear_observations(session_id):
     """Delete the observation log for session_id. Explicit cleanup;
     callers use this between sessions or to drop a corrupted log.
@@ -2677,6 +2855,9 @@ def clear_observations(session_id):
     if not os.path.exists(path):
         return {"removed": False, "path": path}
     os.remove(path)
+    sidecar = path + ".hmac"
+    if os.path.exists(sidecar):
+        os.remove(sidecar)
     return {"removed": True, "path": path}
 
 

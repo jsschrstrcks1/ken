@@ -8,6 +8,30 @@
 
 ## 0. Change log
 
+### v6.1 → v6.2 (Slice 3C shipped)
+
+Slice 3C — HMAC sidecar activation — landed at ken `(pending commit)`. Activates the integrity layer that Slices 0.5 + 3A scaffolded.
+
+Adds:
+- `_ensure_integrity_key()` — generates 32-byte random key at `~/.memory/_integrity.key` (mode 0o400) on first use AND registers the fingerprint atomically with creation. Atomic pairing fixes the bootstrap window where an attacker could swap the key before fingerprint registration.
+- `_compute_file_integrity(path)` — writes `<path>.hmac` sidecar with HMAC-SHA256(key, content). Mirror of the existing `_validate_file_integrity`.
+- Public `compute_log_checksum(session_id)` — explicit (re)compute path for migration / repair.
+- Public `validate_log_checksum(session_id)` — structured-result validation (returns `{valid, reason}` instead of raising) so callers can choose hard-fail vs log-and-skip.
+- `_assert_evidence_integrity(candidate)` — STUB → REAL. Walks `evidence.observations[]` and validates the log for any entry with both `session_id` (str) + `index` (int). Legacy / non-3A shapes (`{}`, bare `session_id`, `line_hmac`) no-op so Slice 2 + 2.5 candidates continue to pass.
+
+Wiring:
+- `record_observation` now calls `_validate_key_fingerprint()` + `_compute_file_integrity()` under the same flock as the append, so log + sidecar are always written atomically.
+- `clear_observations` removes the sidecar alongside the log.
+- Test base `_ObservationBase` isolates `_INTEGRITY_KEY_PATH` + `_INTEGRITY_FINGERPRINT_PATH` to the tempdir (no real `~/.memory/` pollution from test runs).
+
+Key design choice — log-reference disambiguation: `_assert_evidence_integrity` only validates when an observation entry has BOTH `session_id` AND integer `index`. Slice 2's `extract_candidates_from_session` produces evidence with bare `session_id` (referencing the blackboard, not the log) and is correctly skipped. Slice 3B (when it ships) MUST include `index` for log-backed evidence to be cryptographically attested.
+
+Web-container caveat: `~/.memory/` is ephemeral on Claude Code web; the key regenerates per session, invalidating cross-session HMACs. Within-session integrity holds. Persistent integrity across sessions requires a local CLI/desktop deployment where `~/.memory/_integrity.key` survives.
+
+Tests added: 23 (12 LogChecksumTests + 11 LogChecksumAdversarialTests). Full suite: 369 passing. CI gate + panic-ordering + helper-seal-lifecycle all still green.
+
+NOT in this slice: Slice 3B extraction from observation log.
+
 ### v6 → v6.1 (Slice 3A shipped)
 
 Slice 3A — observation log infrastructure — landed at ken `(pending commit)`. Adds three new public surfaces plus four helpers:

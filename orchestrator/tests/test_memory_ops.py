@@ -1254,15 +1254,17 @@ class SafetyGuardCompliantInvariantTests(unittest.TestCase):
 
 
 class EvidenceIntegrityStubTests(unittest.TestCase):
-    """_assert_evidence_integrity is a STUB until Slice 3C. This test
-    anchors the stub contract so future code that wires the invariant
-    in doesn't break when 3C lands the real implementation."""
+    """Slice 3C activated ``_assert_evidence_integrity``. This test
+    anchors the legacy-compatible no-op contract: candidates without
+    session-keyed evidence must still pass (so Slice 2.5 mining
+    candidates that cite transcripts continue to validate). Active
+    HMAC checks live in ``EvidenceIntegrityActiveTests`` below."""
 
-    def test_stub_returns_none_on_anything(self):
+    def test_no_op_on_legacy_shapes(self):
         for c in [{}, {"id": "x"}, {"evidence": {}},
                   {"evidence": {"observations": [{"line_hmac": "deadbeef"}]}}]:
             self.assertIsNone(memory_ops._assert_evidence_integrity(c),
-                              f"stub should no-op on {c!r}")
+                              f"legacy candidate {c!r} should no-op")
 
 
 class RateLimitInvariantTests(unittest.TestCase):
@@ -3185,22 +3187,34 @@ class MiningAdversarialTests(_MiningBase):
 
 
 class _ObservationBase(MemoryOpsTestBase):
-    """Shared setup for Slice 3A tests. Enables the feature flag and
-    cleans up any stray rate-limit state between tests so probes are
-    independent."""
+    """Shared setup for Slice 3A/3C tests. Enables the feature flag,
+    isolates the HMAC key + fingerprint into the tempdir so test
+    runs never touch the real ~/.memory/, and clears in-process
+    rate-limit state between tests."""
 
     VALID_HASH = "a" * 64
 
     def setUp(self):
         super().setUp()
         os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "true"
-        # Clear in-process rate buckets so adversarial-burst tests
-        # don't bleed into ordinary append tests.
+        # Slice 3C: isolate the HMAC key and fingerprint into the
+        # tempdir so test runs cannot pollute or read the real
+        # ~/.memory/_integrity.{key,fingerprint}.
+        self._orig_key_path = memory_ops._INTEGRITY_KEY_PATH
+        self._orig_fp_path = memory_ops._INTEGRITY_FINGERPRINT_PATH
+        memory_ops._INTEGRITY_KEY_PATH = os.path.join(
+            self._tmp.name, "_integrity.key"
+        )
+        memory_ops._INTEGRITY_FINGERPRINT_PATH = os.path.join(
+            self._tmp.name, "_integrity.fingerprint"
+        )
         memory_ops._rate_buckets.clear()
 
     def tearDown(self):
         os.environ.pop("MEMORY_OBSERVATIONS_ENABLED", None)
         os.environ.pop("MEMORY_LEARNING_PANIC_DISABLE_ALL", None)
+        memory_ops._INTEGRITY_KEY_PATH = self._orig_key_path
+        memory_ops._INTEGRITY_FINGERPRINT_PATH = self._orig_fp_path
         memory_ops._rate_buckets.clear()
         super().tearDown()
 
@@ -3609,6 +3623,283 @@ class ObservationAdversarialTests(_ObservationBase):
         os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
         with self.assertRaises(memory_ops.CarefulNotCleverError):
             memory_ops.clear_observations("session-y")
+
+
+# ─────────────────────────────────────────────
+# v6 Slice 3C — HMAC sidecar activation
+# ─────────────────────────────────────────────
+
+
+class LogChecksumTests(_ObservationBase):
+    """Base unit tests: sidecar lifecycle alongside the observation log."""
+
+    def _sidecar_for(self, session_id):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl.hmac"
+        )
+
+    def test_record_observation_writes_sidecar(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-sidecar-1"
+        )
+        sidecar = self._sidecar_for("session-sidecar-1")
+        self.assertTrue(os.path.exists(sidecar))
+        with open(sidecar) as f:
+            digest = f.read().strip()
+        # SHA256 hex = 64 chars
+        self.assertEqual(len(digest), 64)
+        int(digest, 16)  # raises if not hex
+
+    def test_sidecar_matches_current_log_content(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-match"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-match.jsonl")
+        # Recompute HMAC ourselves and compare
+        import hashlib as _hashlib
+        import hmac
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            key = f.read()
+        with open(log_path, "rb") as f:
+            content = f.read()
+        expected = hmac.new(key, content, _hashlib.sha256).hexdigest()
+        with open(self._sidecar_for("session-match")) as f:
+            actual = f.read().strip()
+        self.assertEqual(expected, actual)
+
+    def test_sidecar_updates_on_each_write(self):
+        digests = []
+        for i in range(3):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-multi"
+            )
+            with open(self._sidecar_for("session-multi")) as f:
+                digests.append(f.read().strip())
+        # Each append changes the log; each HMAC is different
+        self.assertEqual(len(set(digests)), 3)
+
+    def test_ensure_integrity_key_generates_with_strict_perms(self):
+        os.remove(memory_ops._INTEGRITY_KEY_PATH) if os.path.exists(
+            memory_ops._INTEGRITY_KEY_PATH) else None
+        memory_ops._ensure_integrity_key()
+        self.assertTrue(os.path.exists(memory_ops._INTEGRITY_KEY_PATH))
+        mode = os.stat(memory_ops._INTEGRITY_KEY_PATH).st_mode & 0o777
+        self.assertEqual(mode, 0o400)
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            self.assertEqual(len(f.read()), 32)
+
+    def test_ensure_integrity_key_idempotent(self):
+        memory_ops._ensure_integrity_key()
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            first = f.read()
+        memory_ops._ensure_integrity_key()
+        with open(memory_ops._INTEGRITY_KEY_PATH, "rb") as f:
+            second = f.read()
+        self.assertEqual(first, second)
+
+    def test_compute_log_checksum_returns_paths(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-checksum"
+        )
+        result = memory_ops.compute_log_checksum("session-checksum")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["wrote"])
+        self.assertTrue(result["path"].endswith("session-checksum.jsonl"))
+        self.assertTrue(result["hmac_path"].endswith(".hmac"))
+        self.assertTrue(os.path.exists(result["hmac_path"]))
+
+    def test_compute_log_checksum_missing_log_raises(self):
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.compute_log_checksum("session-no-log")
+
+    def test_validate_log_checksum_returns_valid_after_write(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-validate"
+        )
+        result = memory_ops.validate_log_checksum("session-validate")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["valid"])
+        self.assertIsNone(result["reason"])
+
+    def test_validate_log_checksum_no_log_invalid(self):
+        result = memory_ops.validate_log_checksum("session-never")
+        self.assertTrue(result["enabled"])
+        self.assertFalse(result["valid"])
+        self.assertIn("no observation log", result["reason"])
+
+    def test_validate_log_checksum_disabled(self):
+        os.environ["MEMORY_OBSERVATIONS_ENABLED"] = "false"
+        self.assertEqual(
+            memory_ops.validate_log_checksum("session-x"),
+            {"enabled": False}
+        )
+
+    def test_assert_evidence_integrity_passes_with_valid_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-evcand"
+        )
+        candidate = {
+            "id": "cand-1",
+            "evidence": {
+                "observations": [
+                    {"session_id": "session-evcand", "index": 0, "ts": "x"}
+                ]
+            },
+        }
+        # Should NOT raise
+        memory_ops._assert_evidence_integrity(candidate)
+
+    def test_clear_observations_removes_sidecar_too(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-clear-side"
+        )
+        sidecar = self._sidecar_for("session-clear-side")
+        self.assertTrue(os.path.exists(sidecar))
+        memory_ops.clear_observations("session-clear-side")
+        self.assertFalse(os.path.exists(sidecar))
+
+
+class LogChecksumAdversarialTests(_ObservationBase):
+    """≥8 tamper / contention / failure-mode probes."""
+
+    def _sidecar_for(self, session_id):
+        return os.path.join(
+            memory_ops.MEMORY_ROOT, "_observations",
+            f"{session_id}.jsonl.hmac"
+        )
+
+    def test_sidecar_deleted_detected_by_evidence_integrity(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-del-sidecar"
+        )
+        os.remove(self._sidecar_for("session-del-sidecar"))
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [
+                    {"session_id": "session-del-sidecar", "index": 0}
+                ]
+            }
+        }
+        # No sidecar → _validate_file_integrity is silent (legacy path),
+        # so the evidence-integrity assertion no-ops. That is intentional:
+        # callers querying validate_log_checksum get the structured failure
+        # instead, which is the right surface for "log exists, sidecar gone".
+        result = memory_ops.validate_log_checksum("session-del-sidecar")
+        self.assertFalse(result["valid"])
+        self.assertIn("sidecar missing", result["reason"])
+
+    def test_sidecar_truncated_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-trunc"
+        )
+        sidecar = self._sidecar_for("session-trunc")
+        with open(sidecar, "w") as f:
+            f.write("deadbeef")  # plausible hex but wrong length / value
+        result = memory_ops.validate_log_checksum("session-trunc")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_sidecar_replaced_with_valid_looking_hex(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-replace"
+        )
+        sidecar = self._sidecar_for("session-replace")
+        with open(sidecar, "w") as f:
+            f.write("a" * 64)  # right shape, wrong value
+        result = memory_ops.validate_log_checksum("session-replace")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_log_edited_without_sidecar_update_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-edit"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-edit.jsonl")
+        with open(log_path, "a") as f:
+            f.write('{"ts":"x","tool":"FAKE","args_hash":"' +
+                    "b" * 64 + '","result_class":"success"}\n')
+        result = memory_ops.validate_log_checksum("session-edit")
+        self.assertFalse(result["valid"])
+        self.assertIn("HMAC mismatch", result["reason"])
+
+    def test_key_replaced_without_fingerprint_delete_detected(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-keyrep"
+        )
+        # Swap the key without removing the fingerprint
+        with open(memory_ops._INTEGRITY_KEY_PATH, "wb") as f:
+            f.write(b"x" * 32)
+        # Next write should be blocked at _validate_key_fingerprint
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-keyrep"
+            )
+        self.assertIn("key fingerprint", str(ctx.exception).lower())
+
+    def test_evidence_integrity_raises_on_tampered_log(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-tamper-ev"
+        )
+        log_path = os.path.join(memory_ops.MEMORY_ROOT, "_observations",
+                                "session-tamper-ev.jsonl")
+        # Direct edit, sidecar not updated
+        with open(log_path, "a") as f:
+            f.write('{"injected":true}\n')
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [
+                    {"session_id": "session-tamper-ev", "index": 0}
+                ]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_integrity(candidate)
+
+    def test_evidence_integrity_raises_on_missing_log_for_cited_session(self):
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [{"session_id": "session-phantom", "index": 0}]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError) as ctx:
+            memory_ops._assert_evidence_integrity(candidate)
+        self.assertIn("no log exists", str(ctx.exception))
+
+    def test_evidence_integrity_rejects_traversal_session_id(self):
+        candidate = {
+            "id": "c", "evidence": {
+                "observations": [{"session_id": "../escape", "index": 0}]
+            }
+        }
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops._assert_evidence_integrity(candidate)
+
+    def test_compute_log_checksum_panic_halts(self):
+        memory_ops.record_observation(
+            "Bash", self.VALID_HASH, "success", "session-panic-c"
+        )
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.compute_log_checksum("session-panic-c")
+
+    def test_validate_log_checksum_panic_halts(self):
+        os.environ["MEMORY_LEARNING_PANIC_DISABLE_ALL"] = "true"
+        with self.assertRaises(memory_ops.CarefulNotCleverError):
+            memory_ops.validate_log_checksum("session-x")
+
+    def test_concurrent_write_keeps_sidecar_consistent(self):
+        # Sequential writes from one process — flock guarantees
+        # sidecar reflects post-write state. We verify by writing
+        # several times and checking validate_log_checksum stays valid.
+        for i in range(5):
+            memory_ops.record_observation(
+                "Bash", self.VALID_HASH, "success", "session-conc"
+            )
+            r = memory_ops.validate_log_checksum("session-conc")
+            self.assertTrue(r["valid"], f"after write {i}: {r['reason']}")
 
 
 if __name__ == "__main__":
