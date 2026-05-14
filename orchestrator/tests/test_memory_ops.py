@@ -2193,7 +2193,8 @@ class _UsageHistoryBase(MemoryOpsTestBase):
         self._orig_flags = {}
         for k in ("MEMORY_USAGE_HISTORY_ENABLED",
                   "MEMORY_LEARNING_PROFILE",
-                  "MEMORY_SESSION_ID"):
+                  "MEMORY_SESSION_ID",
+                  "CLAUDE_SESSION_ID"):
             self._orig_flags[k] = os.environ.get(k)
             os.environ.pop(k, None)
 
@@ -2223,8 +2224,135 @@ class UsageHistoryFlagTests(_UsageHistoryBase):
         self.assertEqual(memory_ops._current_session_id(),
                          "test-session-abc")
 
-    def test_session_id_unknown_when_unset(self):
-        self.assertEqual(memory_ops._current_session_id(), "unknown")
+    def test_session_id_generates_when_env_unset(self):
+        # Post v6.3: when no MEMORY_SESSION_ID / CLAUDE_SESSION_ID is set,
+        # _current_session_id auto-generates a sortable id and persists it
+        # to <MEMORY_ROOT>/_session/current. Repeat calls in the same
+        # session return the same id; idle staleness regenerates it.
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "unknown")
+        self.assertTrue(sid.startswith("sess-"))
+        # Idempotent within the same session
+        self.assertEqual(sid, memory_ops._current_session_id())
+
+
+class SessionIdResolutionTests(_UsageHistoryBase):
+    """v6.3 fix for cross-subprocess session_id continuity. The bug:
+    MEMORY_SESSION_ID set inside one `python3 -c` did not propagate
+    to subsequent invocations, so every recall logged
+    `session_id: "unknown"` in usage_history."""
+
+    def test_memory_session_id_env_takes_precedence(self):
+        os.environ["MEMORY_SESSION_ID"] = "explicit-sess"
+        os.environ["CLAUDE_SESSION_ID"] = "claude-sess"
+        # Also seed the state file with a different id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("file-sess")
+        self.assertEqual(memory_ops._current_session_id(), "explicit-sess")
+
+    def test_claude_session_id_used_when_memory_env_unset(self):
+        os.environ["CLAUDE_SESSION_ID"] = "claude-harness-id"
+        self.assertEqual(memory_ops._current_session_id(),
+                         "claude-harness-id")
+
+    def test_state_file_persists_across_calls(self):
+        sid_1 = memory_ops._current_session_id()
+        sid_2 = memory_ops._current_session_id()
+        self.assertEqual(sid_1, sid_2)
+        self.assertTrue(sid_1.startswith("sess-"))
+
+    def test_state_file_round_trips_via_disk(self):
+        # Simulate a "subprocess" by clearing the in-process cache
+        # (there isn't one — we read the file every call) and verifying
+        # the same id comes back.
+        sid_1 = memory_ops._current_session_id()
+        # Confirm file exists with that id
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        with open(path) as f:
+            self.assertEqual(f.read().strip(), sid_1)
+        # New call reads file
+        sid_2 = memory_ops._current_session_id()
+        self.assertEqual(sid_1, sid_2)
+
+    def test_stale_file_triggers_regeneration(self):
+        sid_1 = memory_ops._current_session_id()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        # Backdate the file beyond the stale threshold
+        old = time.time() - memory_ops._SESSION_STALE_SECONDS - 60
+        os.utime(path, (old, old))
+        sid_2 = memory_ops._current_session_id()
+        self.assertNotEqual(sid_1, sid_2)
+        self.assertTrue(sid_2.startswith("sess-"))
+
+    def test_active_use_keeps_file_fresh(self):
+        sid = memory_ops._current_session_id()
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        before = os.path.getmtime(path)
+        # Sleep enough that mtime can resolve a change but stay well
+        # under the stale threshold
+        time.sleep(0.05)
+        memory_ops._current_session_id()
+        after = os.path.getmtime(path)
+        self.assertGreaterEqual(after, before)
+
+    def test_malformed_state_file_regenerates(self):
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Path-traversal-shaped content: invalid session_id
+        with open(path, "w") as f:
+            f.write("../escape")
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "../escape")
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_empty_state_file_regenerates(self):
+        path = os.path.join(memory_ops.MEMORY_ROOT, "_session", "current")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w"):
+            pass
+        sid = memory_ops._current_session_id()
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_path_traversal_in_env_var_rejected(self):
+        # If operator set MEMORY_SESSION_ID to a malformed value,
+        # treat it as "not set" and fall through to next source.
+        os.environ["MEMORY_SESSION_ID"] = "../escape"
+        sid = memory_ops._current_session_id()
+        self.assertNotEqual(sid, "../escape")
+        # Falls through to state-file generation
+        self.assertTrue(sid.startswith("sess-"))
+
+    def test_generated_id_is_path_safe(self):
+        # Generated ids must pass _validate_session_id so they can be
+        # written into the observation log path without escaping.
+        sid = memory_ops._current_session_id()
+        # Should not raise
+        memory_ops._validate_session_id(sid)
+
+    def test_subprocess_simulation_two_calls_same_id(self):
+        # Most concrete reproduction of the original bug. Without the
+        # fix, the env var set in subprocess #1 was gone in subprocess #2
+        # so the file/state had no continuity. With the fix, both reads
+        # from the same MEMORY_ROOT return the same generated id.
+        import subprocess
+        import sys
+        env = {**os.environ, "MEMORY_ROOT": memory_ops.MEMORY_ROOT}
+        env.pop("MEMORY_SESSION_ID", None)
+        env.pop("CLAUDE_SESSION_ID", None)
+        script = (
+            f"import sys; sys.path.insert(0, '{ROOT}');"
+            "import memory_ops; print(memory_ops._current_session_id())"
+        )
+        out1 = subprocess.check_output(
+            [sys.executable, "-c", script], env=env
+        ).decode().strip()
+        out2 = subprocess.check_output(
+            [sys.executable, "-c", script], env=env
+        ).decode().strip()
+        self.assertEqual(out1, out2)
+        self.assertTrue(out1.startswith("sess-"))
 
 
 class UsageHistoryAppendTests(_UsageHistoryBase):

@@ -1990,10 +1990,105 @@ def _usage_history_enabled():
 _USAGE_HISTORY_CAP = 20
 
 
+_SESSION_STATE_SUBDIR = "_session"
+_SESSION_STATE_FILENAME = "current"
+_SESSION_STALE_SECONDS = 4 * 3600  # 4h idle = considered a new session
+
+
+def _session_state_path():
+    """Resolves to ``<MEMORY_ROOT>/_session/current``. Lazily created
+    by ``_current_session_id`` so plain reads of the corpus never
+    touch it."""
+    return os.path.join(MEMORY_ROOT, _SESSION_STATE_SUBDIR,
+                        _SESSION_STATE_FILENAME)
+
+
+def _generate_session_id():
+    """Short, sortable, no path separators: ``sess-YYYYMMDDTHHMMSSZ-<hex6>``."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    suffix = uuid.uuid4().hex[:6]
+    return f"sess-{ts}-{suffix}"
+
+
+def _is_safe_session_id(sid):
+    """Bool wrapper around ``_validate_session_id``."""
+    if not isinstance(sid, str) or not sid:
+        return False
+    try:
+        _validate_session_id(sid)
+    except CarefulNotCleverError:
+        return False
+    return True
+
+
+def _resolve_or_create_session_state():
+    """Read the session-state file, regenerating if stale or absent.
+
+    Touches mtime on every read so an active session keeps the file
+    fresh. After ``_SESSION_STALE_SECONDS`` of no calls, the next
+    invocation generates a fresh id — matching the operator's
+    intuition that "leaving the terminal idle overnight" starts a
+    new session."""
+    path = _session_state_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except OSError:
+        # Read-only FS or permission issue — return a generated id
+        # without trying to persist. Better than crashing the caller.
+        return _generate_session_id()
+
+    if os.path.exists(path):
+        age = time.time() - os.path.getmtime(path)
+        if age < _SESSION_STALE_SECONDS:
+            try:
+                with open(path) as f:
+                    sid = f.read().strip()
+                if _is_safe_session_id(sid):
+                    # Bump mtime so active use keeps the session alive
+                    try:
+                        os.utime(path, None)
+                    except OSError:
+                        pass
+                    return sid
+            except IOError:
+                pass  # fall through to regenerate
+
+    sid = _generate_session_id()
+    try:
+        with open(path, "w") as f:
+            f.write(sid)
+    except IOError:
+        pass  # couldn't persist; return id anyway
+    return sid
+
+
 def _current_session_id():
-    """Read MEMORY_SESSION_ID from env; default to 'unknown' if unset.
-    Slice 5 stores only timestamp + session_id; never query content."""
-    return os.environ.get("MEMORY_SESSION_ID", "unknown")
+    """Resolve the current session_id from the most reliable source
+    available, in order:
+
+      1. ``MEMORY_SESSION_ID`` env var — explicit operator override.
+      2. ``CLAUDE_SESSION_ID`` env var — picked up automatically if
+         the Claude Code harness exports it; future-proofs the
+         resolution if the harness ever propagates the transcript
+         UUID via env.
+      3. Session state file ``<MEMORY_ROOT>/_session/current`` —
+         auto-managed; persists across subprocess invocations so two
+         ``python3 -c`` calls in the same session get the same id.
+
+    Fixes the v6 dogfood bug where ``MEMORY_SESSION_ID`` set inside
+    one subprocess didn't inherit into the next, causing every recall
+    bump to log ``session_id: "unknown"`` in usage_history.
+
+    Slice 5 stores only timestamp + session_id in usage_history;
+    never query content. The privacy invariant is preserved end-to-end
+    regardless of which source resolved the id."""
+    explicit = os.environ.get("MEMORY_SESSION_ID")
+    if explicit and _is_safe_session_id(explicit):
+        return explicit
+    claude = os.environ.get("CLAUDE_SESSION_ID")
+    if claude and _is_safe_session_id(claude):
+        return claude
+    return _resolve_or_create_session_state()
 
 
 # Slice 4 thresholds. Documented inline (auditable in PR history).

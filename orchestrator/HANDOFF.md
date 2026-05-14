@@ -1,8 +1,8 @@
 # HANDOFF — P1#9 continuous-learning-v2 auto-extraction loop
 
-**Status:** 11 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 7.5). The 3A→3B→3C loop is closed: observations are written under flock + HMAC, extraction reads them under a shared-flock snapshot, each candidate is integrity-validated before surface. Only Slice 6 (hooks) + Slice 7 (session-end auto-extract) remain to make capture fully automatic.
+**Status:** 11 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 7.5) + Slice 6 prerequisite (cross-subprocess session_id continuity). The 3A→3B→3C loop is closed and the session_id resolution path is hook-ready. Only Slice 6 (hooks) + Slice 7 (session-end auto-extract) remain to make capture fully automatic.
 
-**Last commit:** ken `(pending)` — Slice 3B: extract_candidates_from_observations + 3 candidate kinds + strict 4-key shape check.
+**Last commit:** ken `(pending)` — cross-subprocess session_id continuity (3-source resolution: env > Claude env > state file).
 
 ---
 
@@ -20,9 +20,10 @@
 | 8 | 2.5 — formalized transcript mining | `d07b6c0` | `mine_transcripts()`, `ingest_relayed_memories()`, `_dedup_against_corpus()` (relay-pattern stable surface) |
 | 9 | 3A — observation log | `b5c9101` | `record_observation()`, `clear_observations()`, `_compute_args_hash()`, flock + FIFO rotation; gitignore for `_observations/` |
 | 10 | 3C — HMAC sidecar activation | `8741a6e` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
-| 11 | 3B — observation extraction | `(pending)` | `extract_candidates_from_observations()`, `_extract_candidates_from_observation_log()`, `_is_well_formed_observation()`; 3 candidate kinds; snapshot under shared flock; per-candidate integrity validation |
+| 11 | 3B — observation extraction | `d6709d8` | `extract_candidates_from_observations()`, `_extract_candidates_from_observation_log()`, `_is_well_formed_observation()`; 3 candidate kinds; snapshot under shared flock; per-candidate integrity validation |
+| 11+ | Slice 6 prereq — session_id continuity | `(pending)` | `_current_session_id()` resolves env > CLAUDE_SESSION_ID > `<MEMORY_ROOT>/_session/current`; idle staleness 4h; subprocess-survivable |
 
-**Test count:** 390 (333 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
+**Test count:** 401 (344 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
 
 ---
 
@@ -42,8 +43,7 @@ Use the system on real sessions for ~2 weeks. Track:
 
 | Slice | Effort | Risk | Reason |
 |---|---|---|---|
-| `MEMORY_SESSION_ID` subprocess fix | ~0.5 session | Low | Prerequisite for Slice 6; today the env var doesn't inherit across `python3 -c` invocations |
-| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Needs the session_id fix above; calls `record_observation` per tool call |
+| 6 — hooks (PreToolUse/PostToolUse) | ~2 sessions + rollout | Highest | Calls `record_observation` per tool call; session_id is now stable across subprocess invocations |
 | 7 — session-end auto-extract | ~1 session | Low | Wiring: SessionEnd hook → `extract_candidates_from_observations` → surface to operator |
 
 ### **Maybe never (documented limits per `CONTINUOUS_LEARNING_PLAN.md` §0)**

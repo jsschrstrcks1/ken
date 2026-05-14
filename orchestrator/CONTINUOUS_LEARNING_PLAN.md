@@ -8,6 +8,29 @@
 
 ## 0. Change log
 
+### v6.3 → v6.4 (cross-subprocess session_id continuity)
+
+Fixes the dogfood bug filed in v6 §0: `MEMORY_SESSION_ID` set inside one `python3 -c` invocation didn't inherit into the next, so every recall logged `session_id: "unknown"` in `usage_history`. Prerequisite for Slice 6 hooks — without a stable session_id across subprocess boundaries, observation logs can't be coherently keyed.
+
+`_current_session_id()` rewritten to resolve in priority order:
+1. `MEMORY_SESSION_ID` env var — explicit operator override (validated via `_validate_session_id`; malformed values fall through)
+2. `CLAUDE_SESSION_ID` env var — future-proofs against a harness that ever exports the transcript UUID
+3. `<MEMORY_ROOT>/_session/current` — auto-managed plain-text file with the generated session_id; mtime touched on every read so an active session stays alive; idle beyond `_SESSION_STALE_SECONDS` (4h) triggers regeneration
+
+Generated ids: `sess-YYYYMMDDTHHMMSSZ-<hex6>` — sortable, no path separators, passes `_validate_session_id`.
+
+Robustness:
+- Read-only MEMORY_ROOT → returns generated id without persisting (better than crashing the caller)
+- Malformed file content (e.g. path-traversal-shaped) → regenerates
+- Empty file → regenerates
+- Concurrent first-time writers race-converge after one round-trip (single small file, not worth flock)
+
+`open-claw-stuff/.gitignore`: `.memory/_session/` added (auto-managed runtime state).
+
+11 new tests covering env precedence, persistence across subprocess (real `subprocess.check_output`), staleness, active-keep-alive, malformed regeneration, and path-traversal rejection. Full suite: 401 passing.
+
+This unblocks Slice 6 (PreToolUse / PostToolUse hooks) by guaranteeing every `record_observation` call within a session keys to the same log file regardless of how many `python3 -c` invocations the harness spawns.
+
 ### v6.2 → v6.3 (Slice 3B shipped — extraction loop is now end-to-end)
 
 Slice 3B — observation-log → candidate extraction — landed at ken `(pending commit)`. Closes the 3A→3B→3C loop. The extraction surface is identical in shape to Slice 2's `extract_candidates_from_session` but reads the structured observation log instead of orchestrator blackboard state, and every candidate's evidence is cryptographically attested by Slice 3C's HMAC sidecars.
