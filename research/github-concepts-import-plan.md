@@ -294,6 +294,226 @@ Second slower pass through the same 39 repos. The first pass leaned conservative
 
 ---
 
+## 3B. Kestrel deep-read — concepts beyond §3 and §3A
+
+Third pass: a deep read of `John-MiracleWorker/Kestrel` (commit `d49708d`, security-cleared in `audit-reports/kestrel-external-scan-2026-05-17.md`). The repo independently converges on §3.2 (memory taxonomy), §3.11 (structured handoffs), and §3.13 (plugin policy). **This section is only the lifts §3 and §3A did not already cover.** Sources are file references against `/tmp/kestrel-scan/Kestrel/` at the pinned commit.
+
+### 3.20 [HIGHEST] Strategy-change envelope for retries
+
+**Source.** `src/nested_memvid_agent/prompts/system_prompt.md:22-29`, `src/nested_memvid_agent/cognition/retry_policy.py`.
+**Concept.** A retry of a failed tool action must produce a structured object before it runs:
+
+```json
+{
+  "changed_strategy": "what is concretely different",
+  "why_different": "why this is not the same attempt",
+  "expected_signal": "what result would validate or falsify it",
+  "fallback_if_fails": "what to do instead of repeating again"
+}
+```
+
+The runtime computes an `action_signature` over the tool call and rejects identical-signature retries unless a meaningfully different `StrategyProposal` is attached. `_WEAK_STRATEGY_MARKERS` rejects strategies that say only "retry," "try again," "do it again," "confidence."
+**Why it fits.** This is the canonical answer to "agent fails, retries same call, claims success" — the most common failure mode of every agent. `systematic-debugging`'s description says "use when encountering any bug, test failure, or unexpected behavior, before proposing fixes" — the envelope is the *shape* a fix-proposal should take.
+**Where to add it.** Slot into `systematic-debugging` as required output for any retry decision. Pair with `verification-before-completion` so `expected_signal` is what gets verified before completion is claimed.
+**Risk.** Zero — pure prompt structure.
+
+### 3.21 [HIGH] Promotion ledger as a separate audit lane
+
+**Source.** `src/nested_memvid_agent/promotion_ledger.py`, `docs/LEARNING_LOOP.md:33-69`.
+**Concept.** Every memory promotion writes a row to a separate `promotion_ledger` table (not the memory store itself) carrying `promotion_id`, source/target layers, validation score, repeat count, explicit-instruction flag, optimizer trace, decision reason, timestamp. Over time, outcome rows append: `useful`, `corrected`, `contradicted`, `tombstoned`, `superseded`, `never_retrieved`. The ledger drives a quarterly tuning playbook — false-positive rate above 5 % across two quarters → raise the threshold by 0.03. **Recommendations are advisory; operator reads, decides, edits, commits with evidence.**
+**Why it fits.** `cognitive-memory` keeps memory with confidence decay but has no feedback loop on whether memories were *actually retrieved and useful*. Without that loop the gates are guesswork.
+**Where to add it.** Extend `cognitive-memory` to write `memory-ledger.jsonl` per repo. Memory writes record the source signal; retrievals write `useful`; corrections write `corrected`; compaction-without-retrieval writes `never_retrieved`. Add `/cognitive-memory ledger --since 90d`.
+**Risk.** Low. Append-only; corruption only loses the feedback signal.
+
+### 3.22 [HIGH] Memory correction as a new frame, never overwrite
+
+**Source.** `docs/NESTED_LEARNING_MODEL.md:125-128`, `docs/MEMORY_OPERATIONS.md:29-37`.
+**Concept.** `memory.correct(target_record_id, "corrected text")` writes a `correction` frame, links `corrects`/`parent_ids` to the original, tombstones the superseded record, hides inactive records from normal retrieval. An `audit` mode opts into tombstones. The original is never overwritten — preserved for forensic replay.
+**Why it fits.** Two surfaces:
+1. `cognitive-memory` relies on "confidence decay" — a real-valued knob with no audit trail. Frame-based correction gives the actual history of what the agent believed and when it changed.
+2. InTheWake content corrections — when `voice-audit` or `internal-consistency-repair` flags a page, current path is in-place edit. Frame-based correction lets `git log` capture *content* corrections separately from *style* edits, and future authors see why a number changed.
+
+**Where to add it.** `cognitive-memory` (append-only with explicit tombstones), and as discipline in `internal-consistency-repair` (repair commit cites the prior value, not just the new one).
+**Risk.** Low. Storage cost only.
+
+### 3.23 [HIGH] Confidence + importance + evidence + layer + kind on every record
+
+**Source.** `docs/NESTED_LEARNING_MODEL.md:111-123`, `src/nested_memvid_agent/models.py` (`MemoryRecord`).
+**Concept.** Every durable memory carries:
+- `confidence` — how likely the content is true. **Use for write gates.**
+- `importance` — how useful for future tasks. **Use for ranking.**
+- `evidence` — source refs (`EvidenceRef`s). **Use for trust.**
+- `layer` — which update loop (working / episodic / semantic / procedural / self / policy).
+- `kind` — fact / event / failure / procedure / policy / preference.
+
+The split between confidence and importance matters: a high-confidence fact can be low-importance (trivia); a high-importance signal can be low-confidence (working hypothesis pursued anyway).
+**Why it fits.** Three surfaces:
+1. `cognitive-memory` has confidence-only. Adding importance separates "I'm sure of this but it rarely matters" from "I'm not sure but if true it changes the plan."
+2. InTheWake port/ship metadata is flat ("verified" boolean). Splitting into confidence + importance + evidence lets `seo-schema-audit` and `voice-audit` apply different filters; image attribution becomes an evidence chain.
+3. `voice-dna` baselines benefit from the same shape — measured pattern is high-confidence-low-importance vs. a load-bearing voice rule is high-confidence-high-importance.
+
+**Where to add it.** Schema change in `cognitive-memory`. Soft introduction in InTheWake — add `evidence_refs: list[str]` to the port manifest and let `seo-schema-audit` validate it.
+**Risk.** Low. Schema extension is additive.
+
+### 3.24 [HIGH] Conflict-set frames — emit, don't blend
+
+**Source.** `docs/MV2_CONTEXT_PACKING.md:30, 49`, packer's `conflict_group_id` + high-confidence polarity check.
+**Concept.** When retrieval surfaces disagreeing records, the packer warns with `conflict_group_id` and a polarity-disagreement marker. It does **not** silently average or pick one. The packed context shows both; resolution goes back to evidence, not guessing.
+**Why it fits.** `internal-consistency-repair` today has Policy 0.2: when multiple guest-count numbers exist, resolve to `passengers_double_occupancy`. That works when different numbers represent different metrics the writer conflated. It fails when *underlying sources actually disagree* — that's a research question, not a normalization question.
+**Where to add it.** `internal-consistency-repair` becomes two-mode: **normalize** (current path for known-aliased fields) and **conflict-emit** (when sources are independent and disagree). `voice-audit` and `emotional-hook-test` similarly benefit — return a conflict-set when two signals disagree instead of a single forced verdict.
+**Risk.** Low. Adds visibility, removes false confidence.
+
+### 3.25 [HIGH] Provisional promotion tier
+
+**Source.** `docs/LEARNING_LOOP.md:21-30`, `docs/NESTED_LEARNING_MODEL.md:109`.
+**Concept.** A signal that misses the full threshold but clears `promotion_threshold - 0.13` gets `promotion_status: provisional` — degraded confidence, half retention, normal retrieval visibility, **but cannot be a source for further promotion** until later evidence confirms. When confirming evidence arrives, `confirm_provisional()` upgrades the existing record in place instead of duplicating.
+**Why it fits.** Existing memory gates are binary (write or reject). Provisional is the middle state: "worth keeping, but don't let it influence other long-term writes." Matches how human reviewers actually behave — most claims are tentative until proven.
+**Where to add it.** Extend `cognitive-memory`'s confidence model with a `status: confirmed | provisional` flag. Provisional records have half TTL and cannot be cited as evidence for other writes.
+**Risk.** Low. Pure addition.
+
+### 3.26 [HIGH] Failure-classifier vocabulary
+
+**Source.** `src/nested_memvid_agent/diagnosis.py:24-77`.
+**Concept.** `classify_failure(failure_text)` returns `FailureClassification(category, confidence, signals, retryable, playbook)`. Categories: `missing_dependency`, `test_failure`, `permission_failure`, `bad_tool_args`, etc. Each category has a default playbook. Classification is *deterministic* (regex pattern matching), not LLM-driven.
+**Why it fits.** `systematic-debugging` is free-form. A classifier vocabulary turns "what went wrong" into a typed signal the lesson manager (§3.27) can index. Also lets `verification-before-completion` refuse completion claims for known-non-retryable failures (e.g., `permission_failure` is non-retryable until config changes).
+**Where to add it.** A `failure-taxonomy.yaml` in ken with the category list and per-category playbook path. `systematic-debugging` consults the taxonomy; new categories require a deliberate add.
+**Risk.** Low. Documentation-shaped.
+
+### 3.27 [HIGH] Lesson cards from resolved failures
+
+**Source.** `src/nested_memvid_agent/cognition/lesson_manager.py`.
+**Concept.** When a failure is classified and later resolved, the resolution becomes a `LessonCard` written to procedural memory. Future preflight against a similar objective (`preflight()` method) fetches the lesson via semantic-or-lexical recall on `f"lesson failure {objective} {expected_tools}"`. The agent enters a similar task already armed with what failed last time and what worked.
+**Why it fits.** Missing half of `cognitive-memory`. Today the memory layer accumulates content; it doesn't accumulate `if-you-see-X-try-Y` recipes. The lesson-card shape (failure category → diagnosis → attempted strategy → similar lessons used) is the procedural complement.
+**Where to add it.** New flow: when `systematic-debugging` resolves a failure, emit a `LessonCard` write. When `subagent-driven-development` starts a task, `preflight()` against the objective surfaces matching lessons.
+**Risk.** Medium — this is the loop that, if poisoned, lets a bad memory steer future work. Pairs with §3.2 write-gate and §3.21 ledger.
+
+### 3.28 [MEDIUM-HIGH] Validation evidence as fixed denominator; human-confirmation as capped bonus only
+
+**Source.** `docs/NESTED_LEARNING_MODEL.md:14-16`, `docs/LEARNING_LOOP.md:19`.
+**Concept.** `ValidationEvidence` records objective evidence refs (tests, lint/type checks, repair validation, review artifacts). `compute_validation_score()` uses a fixed objective denominator. Human "I confirm this" can add a small capped bonus **only when objective evidence exists**. Human confirmation alone never crosses a gate.
+**Why it fits.** Policy version of `verification-before-completion`, with teeth. Today a reviewer says "looks good" and that's the gate. The fixed-denominator rule says: no objective signal = no completion claim. Human confirmation is bonus, not substitute.
+**Where to add it.** Codify in `verification-before-completion` and `voice-audit`. A `voice-audit PASS` requires the audit script clean *and* (optionally) human yes. Human yes alone is not a pass.
+**Risk.** Low. Stricter than current — that's the point.
+
+### 3.29 [MEDIUM-HIGH] Context-packer priority order with explicit "expand on demand"
+
+**Source.** `docs/MV2_CONTEXT_PACKING.md:21-31`, `context.pack` / `context.expand` tool split.
+**Concept.** Retrieved context is packed in fixed priority order: `policy > self > procedural > semantic > episodic > working`. Within each, summaries before raw chunks. Raw chunks expand only when (a) the request asks for it, (b) confidence is low, (c) the item is a correction/failure/conflict, or (d) exact evidence/code is required. **`context.pack` and `context.expand` are separate tools** — packing is cheap, expansion is explicit.
+**Why it fits.** Two surfaces:
+1. Orchestrator (`orchestrate`/`orchestra`) currently passes free text between models. A priority-ordered packed prompt with conflict warnings tightens the debate.
+2. `investigate` writes long pages from research; raw-source expansion as a separate explicit step keeps synthesis lean and citations precise.
+
+**Where to add it.** Define a `packed-context.md` schema for the orchestrator (composes with §3.11). Make raw expansion a deliberate step in `investigate`.
+**Risk.** Low.
+
+### 3.30 [MEDIUM] Capability env-var matrix as the canonical gate
+
+**Source.** `docs/SECURITY.md:9-33`.
+**Concept.** All high-risk capabilities are env-var gated and off by default:
+
+```
+NEST_AGENT_ALLOW_SHELL=false
+NEST_AGENT_ALLOW_FILE_WRITE=false
+NEST_AGENT_ALLOW_POLICY_WRITES=false
+NEST_AGENT_ALLOW_PLUGIN_INSTALL=false
+NEST_AGENT_ALLOW_GIT_COMMIT=false
+NEST_AGENT_ALLOW_GIT_PUSH=false
+NEST_AGENT_ALLOW_REMOTE_MUTATION=false
+NEST_AGENT_GIT_WRITE_MODE=local_branch
+NEST_AGENT_PROTECTED_BRANCHES=main,master,release/*
+NEST_AGENT_ALLOW_MEMORY_IMPORT=false
+NEST_AGENT_ALLOW_EXECUTABLE_SKILLS=false
+NEST_AGENT_ALLOW_MCP_NETWORK_ENDPOINTS=false
+NEST_AGENT_ENABLE_AUTONOMOUS_SCHEDULER=false
+NEST_AGENT_REQUIRE_API_AUTH=false
+```
+
+Env-var-as-gate beats config-as-gate because it shows up in `printenv`, in process listings, in audit trails.
+**Why it fits.** `safety-guard` and `update-config` mention hooks and settings but lack a canonical capability list to be off-by-default. This is the list.
+**Where to add it.** A `capability-matrix.md` in `ken/`. `safety-guard` consults it on each session start in autonomous mode.
+**Risk.** None — documentation only.
+
+### 3.31 [MEDIUM] Mock provider + golden evals for deterministic tests
+
+**Source.** `Makefile` (`chat-smoke = ... --provider mock`), `golden/mv2_context_cases.json`.
+**Concept.** A deterministic `mock` LLM provider returns canned responses for known prompts, used in CI golden evals. Tests never hit a real API, never need keys, never have flaky network failures. Golden evals are JSON cases that exercise the full pipeline against the mock.
+**Why it fits.** Open-claw and ken both have skills that interact with LLMs. Today most tests either skip the LLM call or hit the real API. Mock provider + JSON golden cases is the path to CI-runnable LLM-using tests.
+**Where to add it.** Open-claw's test layer. Ken's `consult`/`orchestrate`/`orchestra` could ship a mock-provider option.
+**Risk.** Low. Pure test infra.
+
+### 3.32 [MEDIUM] `doctor` subcommand convention
+
+**Source.** `Makefile` (`docker-doctor`), `docs/MEMORY_OPERATIONS.md:20-27`.
+**Concept.** A standard `doctor` subcommand introspects state and reports issues. Dry-run by default; `--repair` only after preserving a backup. The doctor reports without acting.
+**Why it fits.** `cross-repo-health` is already shaped like this but isn't named `doctor`. Open-claw doesn't have one. Every CLI tool ken builds should have a `doctor` that says "here's what's wrong, here's what I'd fix, run with `--apply` to do it."
+**Where to add it.** Alias `cross-repo-health` as `ken doctor`. Add `doctor` convention to any new open-claw CLI.
+**Risk.** None.
+
+### 3.33 [MEDIUM] `never_retrieved` outcome as a content-freshness signal
+
+**Source.** `src/nested_memvid_agent/promotion_ledger.py:11-19`, `docs/MEMORY_OPERATIONS.md:50`.
+**Concept.** If a memory was promoted but never retrieved before retention compaction, it gets a `never_retrieved` outcome row. That's a signal the gate let it in too eagerly *or* the content isn't being asked about.
+**Why it fits.** InTheWake has 388 port pages. Some get traffic; some don't. `content-freshness` uses last-edited date. Adding a `never_retrieved`-shaped signal (pages with zero search/click traffic over N months) tells you what to merge, deprecate, or rewrite for retrieval rather than just refresh in place.
+**Where to add it.** `content-freshness` consults a per-page traffic signal (GA4 via `analytics-tracking`). Pages with zero retrievals over 6 months get flagged for deprecation review, not just refresh.
+**Risk.** Low. Read-only signal.
+
+### 3.34 [MEDIUM] Per-layer compaction policy
+
+**Source.** `docs/NESTED_LEARNING_MODEL.md:131-138`.
+**Concept.**
+- Working memory expires aggressively.
+- Episodic is summarized after sessions.
+- Semantic is corrected rather than deleted.
+- Procedural is demoted when recipes fail repeatedly.
+- Policy requires explicit review for deletion or modification.
+
+Different content types get different lifecycle rules.
+**Why it fits.** InTheWake's content lifecycle is single-rule (`content-freshness` runs on dates). Different content has different decay shape: a seasonal news post should expire; a port guide should be corrected; the editorial voice rule should be reviewed.
+**Where to add it.** `content-freshness` reads a per-content-type lifecycle policy (`seasonal: expire`, `port-guide: correct`, `voice-rule: review`).
+**Risk.** Low — refactor of an existing skill.
+
+### 3.35 [MEDIUM] Static-skill vs executable-skill separation
+
+**Source.** `docs/SECURITY.md:77`.
+**Concept.** Static skill manifests (markdown only) install by default. **Executable** skill runtimes (`python`, `shell`, `container`) require `NEST_AGENT_ALLOW_EXECUTABLE_SKILLS=true` **and** exact-call approval. A manifest cannot self-grant the executable bit.
+**Why it fits.** ken's 30 skills are mostly markdown-only (auto-load fine). A few (`indexnow`, `voice-audit`, `seo-schema-audit`) shell out. Current loader treats them identically. Separation: static auto-loads; executable needs explicit per-skill enablement.
+**Where to add it.** `skill-developer`: when a foreign skill arrives with executable-shaped frontmatter (`runtime: python` or `shell: true`), it lands in `.claude/skills/disabled/` until explicit enable. Composes with §3.13.
+**Risk.** Low.
+
+### 3.36 [LOW-MEDIUM] Argv-only subprocess discipline as house style
+
+**Source.** Every `subprocess.run` in Kestrel has `# nosec B603` + `# noqa: S603` + a one-line justification.
+**Concept.** No `shell=True`, ever. Every callsite annotated with a reason it's safe. Bandit runs in CI; every finding either gets fixed or gets an annotated suppression with a reason.
+**Why it fits.** ken has Python scripts (`build-tz-cities.py`, `build_port_list.py`, `fetch_country_ports.sh`, etc.). Some shell out.
+**Where to add it.** Section in `ken/CLAUDE.md`. `security-review` checks for it on Python changes.
+**Risk.** None.
+
+### 3.37 [LOW-MEDIUM] Heuristic detectors as "bounded tasks," not truth engines
+
+**Source.** `docs/LEARNING_LOOP.md:16-18`.
+**Concept.** `SequenceMatcher`, normalized failure signatures, polarity checks, conflict detection — used as *bounded* deterministic detectors for narrow tasks (lesson dedup, contradiction detection). Not general-purpose; not LLM-driven. **The code documents that they are not truth engines.**
+**Why it fits.** `voice-audit`, `icp-2`, `seo-schema-audit`, `accessibility-audit`, `link-integrity` are all this shape — bounded detectors with deterministic rules. When each skill *names* what bounded task it handles and what it explicitly does not handle, the downstream user knows when to escalate to an LLM judgment vs. when the rule is sufficient.
+**Where to add it.** Each detector-style skill's frontmatter gets a `scope:` line: what it detects, what it doesn't. Reduces over-trust on the verdict.
+**Risk.** None — documentation discipline.
+
+### 3.38 [LOW] Run-event SSE bus with redaction
+
+**Source.** `src/nested_memvid_agent/event_bus.py:33-67`.
+**Concept.** Server-sent-event fan-out from a single in-process bus. Every published event passes through `redact_secrets()` first. Subscribers join with `after_id` for replay.
+**Why it fits.** Today `orchestrate`/`orchestra` hand back text dumps when complete. SSE would give live progress to a watching client. Low priority — text dumps work fine — but worth knowing the shape if a live-progress UI is ever wanted.
+**Where to add it.** Document only. Not worth building until there's a watcher to feed.
+**Risk.** None.
+
+### 3.39 Things I deliberately did not lift from Kestrel
+
+- **The `.mv2` binary format itself.** Layered memory + promotion gates lifts cleanly; the format adds parser surface for marginal gain over SQLite + JSONL sidecars.
+- **FastAPI control-plane server.** Out of scope — ken is CLI-first.
+- **Multi-channel adapters** (Telegram / Discord / Slack). Same as §3.19's hermes-agent reconsideration.
+- **ORACLE shadow routing.** Kestrel runs it shadow-only and explicitly says "do not activate beyond shadow without replay-eval evidence." Wait.
+- **Memvid SDK as a dependency.** §4.1 hash-pinning concerns; the layered-memory concept is portable without it.
+
+---
+
 ## 4. Verification gate every imported concept must pass
 
 This is the gate. It exists because of §1 (the worm landscape). No concept ships without all six.
@@ -328,7 +548,29 @@ If the user approves any of §3 / §3A, the order I'd suggest. Items revised aft
 15. **§3.7 scraping policy doc** — orthogonal, can land any time.
 16. **§3.18 watch-mode AI-comments** — niche, documented only initially.
 
-Items in §3.9 (and the rejections re-confirmed in §3.19) should not be re-evaluated without a new threat-model justification.
+After §3B (Kestrel deep-read), insert in this order:
+
+17. **§3.20 retry envelope** — slot into `systematic-debugging`. Five minutes, zero risk, biggest behavioral upgrade in the list.
+18. **§3.30 capability env-var matrix** — documentation only, but enables the gates below.
+19. **§3.23 confidence + importance + evidence record shape** — schema change to `cognitive-memory`; everything below assumes it.
+20. **§3.22 correction-as-frame** — composes with §3.23.
+21. **§3.25 provisional tier** — composes with §3.23.
+22. **§3.21 promotion ledger** — adds the feedback loop on §3.23.
+23. **§3.26 failure-classifier taxonomy** — `failure-taxonomy.yaml` in ken.
+24. **§3.27 lesson cards** — pairs with §3.26.
+25. **§3.28 fixed-denominator validation** — codify in `verification-before-completion`.
+26. **§3.24 conflict-emit mode** — extends `internal-consistency-repair`.
+27. **§3.29 context-packer priority** — composes with §3.11 (structured handoffs).
+28. **§3.33 never-retrieved freshness signal** — extends `content-freshness`.
+29. **§3.34 per-layer compaction policy** — extends `content-freshness`.
+30. **§3.31 mock provider + golden evals** — for any new LLM-using skill in ken or open-claw.
+31. **§3.32 doctor convention** — alias `cross-repo-health` as `ken doctor`.
+32. **§3.35 static vs executable skill separation** — composes with §3.13.
+33. **§3.36 argv-only subprocess** — house-style entry in `ken/CLAUDE.md`.
+34. **§3.37 bounded-task scope tagging** — frontmatter `scope:` on each detector-style skill.
+35. **§3.38 SSE event bus** — documented, not implemented.
+
+Items in §3.9 (and the rejections re-confirmed in §3.19 and §3.39) should not be re-evaluated without a new threat-model justification.
 
 ---
 
