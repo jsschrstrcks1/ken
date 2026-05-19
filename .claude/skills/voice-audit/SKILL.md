@@ -198,4 +198,11 @@ Telegraph style. Bullets. State. Paths. Numbers. The audit's specificity check i
 
 ---
 
+## Examples
+
+- [`examples/good-voice.md`](./examples/good-voice.md) — utility-prose handoff that passes the audit.
+- [`examples/bad-voice.md`](./examples/bad-voice.md) — same handoff in the failure mode this skill catches.
+
+---
+
 *Documentation is the work, six months from now. Audit before commit.*
