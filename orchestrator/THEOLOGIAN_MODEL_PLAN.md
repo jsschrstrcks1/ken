@@ -237,18 +237,42 @@ Corrector LoRAs are *cheaper to train per LoRA* than pure voice-LoRAs — smalle
 
 **Where this beats closed-weight personas**: the closed-weight path can simulate "Pauline scholar persona" or "Spurgeon scholar persona" via prompt + RAG, but a trained LoRA is meaningfully more reliable for systematic fact-correction because the corrections become reflexive rather than prompted. Worth doing the LoRA on the open-weight path even when the persona exists on the closed-weight side.
 
-### 3.6 Pre-DRAFT human exegesis gate (orchestra blind-spot fix)
+### 3.6 Pre-DRAFT human exegesis gate (orchestra blind-spot fix; operator decisions 2026-05-21)
 
 Grok's blind-spot pass on the orchestra design-review (2026-05-21) identified a fatal-flaw-class concern: as originally drafted, step 7.5 inserted theologian consultation *between INTEGRATE and EVALUATE*, which by ordering means machine-generated commentary precedes the pastor's own original exegesis. That inverts the Scripture-governs priority. "Reformed-sounding" language can mask non-authoritative synthesis when the pastor receives generated theologian commentary before producing his own argument.
 
-The fix:
+The fix has three components — pastor-first ordering, override mechanism, and disclosure posture. All three decided by the operator 2026-05-21.
 
-- **Mandatory pre-DRAFT human exegesis stage**. The pastor produces and logs original passage work — Greek/Hebrew, structure, FCF (Fallen Condition Focus), Scopus proposition, theological locus, congregation-burden mapping — before any LoRA or persona consultation fires. The output is a structured exegesis log appended to the sermon file.
-- **Theologian consultation moves to post-exegesis critique** (not generative input). Step 7.5 retains its position in the pipeline as a *stress-test layer*: theologian voices and corrector LoRAs are given the pastor's draft + exegesis log and asked to pressure-test the argument, surface gaps, name disagreements, propose sharpenings. They do not produce alternative arguments to be merged with the pastor's; they offer wheat/chaff verdicts on his.
-- **Visible disclosure on every final manuscript**: a footer line "This manuscript incorporates AI-retrieved historical voices under 1689 LBCF review" — or the operator's preferred phrasing. Honors the Anthropic ToS sensitive-domain disclosure posture (`ken/CLAUDE.md` §Universal usage standards) and the household's pastoral-content red-lane discipline (`cruising/23866c13`).
-- **No AI-on-empty-draft**. If the pastor's exegesis log is empty or stub-only, step 7.5 refuses to fire. The system enforces the order: pastor first, AI second.
+**Component 1 — Mandatory pre-DRAFT human exegesis stage.** The pastor produces and logs original passage work — Greek/Hebrew, structure, FCF (Fallen Condition Focus), Scopus proposition, theological locus, congregation-burden mapping — before any LoRA or persona consultation fires. The output is a structured exegesis log appended to the sermon file.
 
-This is a posture change, not just a code change. It honors what the household's existing memory already encodes: the sermon belongs to the pastor (`romans/454c8aaa` pastoral-voice rule, "real life goes into the teaching, not around it"; `romans/0c10d211` political-neutrality rule; the entire careful-not-clever discipline). The corrector LoRAs and theologian voices sharpen; they do not replace exegetical labor.
+**Component 2 — Soft hard gate with logged override (Decision 2 → B).** Default is hard refusal on empty/stub exegesis log:
+
+- Stages 1+ technically refuse to fire when the sermon file's exegesis-log section is empty or stub-only ("INCOMPLETE:" markers + nothing else, or fewer than a documented minimum-content threshold).
+- A documented override flag exists: `--override-exegesis-gate "<one-line reason>"` (or equivalent flag on the sermon-pipeline runner).
+- The override **requires** a one-line reason logged in the sermon's Integrity Log (per `romans/eac4d8bd` + `romans/9601fa7e` HTML-comment integrity-flag conventions). No silent overrides — the audit trail is conspicuous.
+- Sermons that used the override carry a flag in `sermon-map.md` (per `romans/13109dae` sermon-map maintenance rule) — a new column or status marker like `⚠️ EXEGESIS-OVERRIDE`.
+- After N un-backfilled overrides (default N=3), the system surfaces a reminder at session start: *"you have N sermons with overridden exegesis gates — schedule time to backfill before the next series."* The reminder fires until backfill is complete or the operator explicitly acknowledges/dismisses it.
+- **Override is for genuine emergencies** (death in the family, ER trip, hospital emergency, family crisis). It is not for last-minute prep that could have been done earlier. The careful-not-clever spot-audit ("were you careful or clever on this one?") applies to override-flagged sermons specifically.
+- **Backfill mechanism**: when an override is invoked, the sermon-map flag persists until the pastor retroactively completes the exegesis log. The flag clears when the log meets the minimum-content threshold.
+
+This honors both patterns simultaneously: careful-not-clever discipline holds by default with conspicuous override-audit, and action-over-deliberation works at the moment of real need.
+
+**Component 3 — Disclosure posture (Decision 1 → D + A combined).**
+
+- **A: Manuscript footer.** Every final sermon manuscript ends with the visible disclosure footer. Canonical template lives at `Romans/.claude/disclosure-footer.md` (see template in next paragraph). Stage 12 (Voice-audit + disclosure) appends it during pipeline.
+- **D: Congregation-meeting / pastoral-letter methodology disclosure.** A one-time pastoral letter or congregation meeting explains the methodology: that AI tools assist with research, language-checking, and theologian-corpus consultation; that the exegesis, conviction, and pastoral application are the pastor's; that the methodology is recorded in each manuscript's footer for the long tail of readers. Canonical draft template lives at `Romans/.claude/methodology-disclosure-letter.md`. One-time deliverable; not pipelined.
+- **What's NOT adopted**: pure E (no disclosure) is concealment, off-pattern with the household's honesty discipline. Pure B (top-of-manuscript header) hijacks the sermon opening. F (per-artifact tiering) is honest but operationally complex; deferred unless needed.
+- **Optional C (occasional pulpit reference)**: pastoral judgment; not architecturally required. The pastor may verbally acknowledge AI tool use from the pulpit at series introductions or once a year as he sees fit. Not pipelined.
+
+**Canonical footer template** (lives at `Romans/.claude/disclosure-footer.md`; appended at Stage 12):
+
+> *Methodology note: This manuscript incorporates AI-retrieved historical voices and corrector-LoRA review under 1689 LBCF discipline. The exegesis, conviction, and pastoral application are the pastor's; the AI tools assist with research, source verification, and language-checking. See the congregational methodology letter (date) for details.*
+>
+> *Soli Deo Gloria.*
+
+**No AI-on-empty-draft**. If the pastor's exegesis log is empty or stub-only and the override is not invoked, Stages 1+ refuse to fire. The system enforces the order: pastor first, AI second, with the override as the named emergency exit.
+
+This is a posture change, not just a code change. It honors what the household's existing memory already encodes: the sermon belongs to the pastor (`romans/454c8aaa` pastoral-voice rule, "real life goes into the teaching, not around it"; `romans/0c10d211` political-neutrality rule; the entire careful-not-clever discipline). The corrector LoRAs and theologian voices sharpen; they do not replace exegetical labor. The disclosure footer + methodology letter honor transparency without making the AI the headline.
 
 ## 4. Integration with the existing sermon pipeline
 
@@ -293,7 +317,8 @@ The pipeline is restructured to honor the pre-DRAFT exegesis gate (§3.6) and th
 - **Corrector LoRAs run on author-tagged content** at stages 2 and 10. Detected drift (factual, doctrinal, rhetorical-structural) is surfaced to the Integrity Log; the pastor decides whether to honor or override.
 - **Political-neutrality** rule preserved (`romans/0c10d211`) — LoRA voices that drift political get the integration round's chop.
 - **Voice-audit** post-LoRA: the manuscript must still sound like the pastor, not Spurgeon. LoRA enriches argument; voice belongs to the preacher.
-- **Visible disclosure footer** on every final manuscript (§3.6).
+- **Visible disclosure footer** on every final manuscript (per §3.6 Component 3 / Decision 1). Canonical template at `Romans/.claude/disclosure-footer.md`. Appended at Stage 12.
+- **Pre-DRAFT exegesis gate is a soft hard gate** (per §3.6 Component 2 / Decision 2) — default refusal on empty/stub log; `--override-exegesis-gate "<reason>"` flag exists; override is logged in Integrity Log + sermon-map flag; backfill reminder after N=3 un-backfilled overrides. The override exists for genuine emergencies; the discipline is conspicuous, not silent.
 
 ## 6. InTheWake — what it actually gets
 
@@ -382,8 +407,8 @@ The collapsing of voice-LoRA-as-separate-track into corrector-LoRA-with-voice-as
 - Grok API key refresh (per session handoff — 400 errors). Wright challenger role is harder to validate without Grok available as the structural-role parallel.
 - Perplexity adapter for orchestra (per handoff). Step 5 of the existing sermon pipeline degrades gracefully without it.
 - `retrieve_from_corpus` tool spec — needs design before track A week 4. Tool returns `{author, chunk_id, text, citation_metadata, sha256}`; closed-weight personas must call it before any attributed quote; substring-match + hash verified post-emission.
-- **FTC AI-disclosure escalation — OPEN OPERATOR DECISION.** Current plan ships a visible footer disclosure on every sermon manuscript. Whether to escalate to (a) top-of-manuscript header, (b) audio mention during preached delivery, (c) congregation-meeting disclosure of the methodology, or (d) keep footer-only — is the pastor's call. Not coded yet; awaiting direction.
-- **Pre-DRAFT exegesis-gate enforcement strictness — OPEN OPERATOR DECISION.** Plan currently treats Stage 0 as a hard gate (subsequent stages refuse to fire on empty/stub log). Alternative: advisory-only gate that warns but does not block. Hard gate is the careful-not-clever default; switch to advisory if it proves unworkable under real preaching deadlines.
+- ~~FTC AI-disclosure escalation — OPEN OPERATOR DECISION~~ **DECIDED 2026-05-21 (Decision 1 → D + A combined)**: footer on every manuscript (template at `Romans/.claude/disclosure-footer.md`) + one-time congregation-meeting/pastoral-letter methodology disclosure (template at `Romans/.claude/methodology-disclosure-letter.md`). Per-artifact tiering (F) deferred unless needed. Optional pulpit reference (C) is pastoral judgment, not architecturally required. See §3.6 Component 3.
+- ~~Pre-DRAFT exegesis-gate enforcement strictness — OPEN OPERATOR DECISION~~ **DECIDED 2026-05-21 (Decision 2 → B)**: soft hard gate with logged override. Default refusal on empty/stub log; `--override-exegesis-gate "<reason>"` flag exists; override logged in Integrity Log + sermon-map flag; backfill reminder after N=3 un-backfilled overrides. See §3.6 Component 2.
 
 ## 11. Memory encodings to write after operator approval
 
@@ -407,7 +432,8 @@ The handoff names "Theologian Model Library Plan (in protected memory)" but no d
 - The Wright-NPP integration-round reject rule (verifier pass, both paths).
 - Pipeline restructure (12 stages, three new insertion points — Stage 0 pre-DRAFT exegesis, Stage 2 post-DRAFT corrector, Stage 10 post-7.5 corrector).
 - The cluster topology mapping for inference vs. training, with **NATS-on-m4mini** for sermon-pipeline traffic (VPS keeps non-sermon household NATS).
-- The visible disclosure footer on every final manuscript.
+- The visible disclosure footer on every final manuscript (Decision 1 → D + A combined; operator 2026-05-21): footer template + one-time congregation-meeting / pastoral-letter methodology disclosure; pure-concealment (E) and top-of-manuscript-header (B) explicitly rejected.
+- The soft-hard-gate-with-logged-override mechanism (Decision 2 → B; operator 2026-05-21): default refusal on empty/stub exegesis log; documented override flag with mandatory reason logged in Integrity Log + sermon-map flag; backfill reminder after N=3 un-backfilled overrides.
 
 Each encoded as a protected memory in `romans/` or `shared/` domain with `operator-directive` tag once approved.
 
