@@ -4,7 +4,7 @@ Branch: `claude/theological-model-planning-VU2zD`
 Primary repo: `Romans` (sermons). Secondary application: `InTheWake` (engineering pattern only — see §6).
 Status: planning. No training has begun. Spurgeon corpus scraper is at 5/3,561 sermons.
 
-This plan integrates the multi-LLM-integration handoff (theologian LoRA pool, Open Claw routing, debate mode, Wright-as-challenger) with the protected-memory directives the household already operates under. Where the handoff and memory conflict, memory wins and the wheat/chaff call is named.
+This plan integrates the multi-LLM-integration handoff (theologian LoRA pool, Open Claw routing, debate mode, Wright-as-challenger) with the protected-memory directives the household already operates under. Where the handoff and memory conflict, memory wins and the wheat/chaff call is named. The plan was design-reviewed by the household orchestra (strategy mode, $0.20, 2026-05-21) and stress-tested against four parallel research agents covering Magisterium AI prior art, LoRA voice-transfer literature, multi-agent debate frameworks, and RAG citation-enforcement research; provenance is logged in §12.
 
 ## 1. Anchor directives (protected-memory citations)
 
@@ -54,15 +54,17 @@ This plan integrates the multi-LLM-integration handoff (theologian LoRA pool, Op
 
 ### 3.1 Anti-hallucination as system invariant (load-bearing)
 
-The operator's anti-hallucination directive is non-negotiable. The plan refuses to lean on "the model will be careful." Instead:
+The operator's anti-hallucination directive is non-negotiable. The plan refuses to lean on "the model will be careful." Instead, four layered enforcement mechanisms, none optional:
 
 - **Cite-or-flag-or-fail**. Every attributed quotation in output must resolve to a retrieved chunk ID from the indexed corpus. No retrieval ID, no quote — the system flags or refuses, the model never invents.
+- **Substring-match post-validator** (research-grounded; Wallat et al. SIGIR 2025, arXiv 2412.18004): the literature documents *57% of RAG citations are unfaithful* — the model generates from parametric knowledge then post-rationalizes the citation. Mitigation: every attributed quote string must be a verbatim substring of its retrieved chunk text. Citation-presence without substring-match is the documented failure mode; the validator catches it.
+- **Cryptographic chunk-ID hashing** (Perplexity refinement from orchestra): each retrieved chunk carries a SHA-256 hash computed at index time; the system verifies hash-equality on every quote emission. Detects corpus tampering, stale-chunk reuse, and mid-pipeline chunk substitution.
+- **Forced-tool-use is best-effort, not guaranteed** (research-grounded; Promptfoo + Cao et al. arXiv 2412.04141). `tool_choice: "required"` increases compliance but does not guarantee it; stronger reasoning models hallucinate tool calls *more*, not less, under enforcement pressure (the reliability-capability tradeoff). The post-validator is therefore the actual enforcement; tool-call routing is a strong default, not the gate.
 - **Named-uncertainty in prose** is allowed and preferred over fabricated confidence: "I'm not sure where I first heard this — whoever said it…" (`ken/14bea502`, `ken/39de9e17`). The LoRA-augmented model is *trained* to produce this disposition when retrieval is empty.
 - **Two-source minimum** on factual claims that aren't direct quotation (dates, numbers, historical events).
-- **Cross-check against the source-of-truth files**: ESV verses against the canonical ESV index; Spurgeon attributions against `quotes-and-references/spurgeon/`; modern attributions against their respective corpus directories.
-- **Hallucination audit** runs as a post-step on every generated sermon section: scan attributed claims, verify each has a chunk-ID, surface any without to the Integrity Log per `romans/eac4d8bd`.
+- **Hallucination audit** runs as a post-step on every generated sermon section: scan attributed claims, verify each has a chunk-ID + substring-match + hash-verification, surface any failures to the Integrity Log per `romans/eac4d8bd`.
 
-This is not a feature. It is the architecture. If the cite-or-flag invariant fails, the whole build fails its purpose.
+This is not a feature. It is the architecture. If the cite-or-flag invariant fails, the whole build fails its purpose. The research literature is explicit that persona prompts *amplify* parametric-knowledge leakage (RoleBreak arXiv 2409.16727; SHARP arXiv 2411.07965); the persona-Spurgeon framing is the documented worst case, so the gates above carry more weight than they would on neutral output.
 
 ### 3.2 Cluster-aware deployment (not single-node)
 
@@ -72,8 +74,11 @@ The operator's cluster is documented at `ken/de9c5aa2` + `ken/f98289ea`. Mapping
 - **m3pro** (MBP M3 Pro, home LAN, code-specialized): **secondary inference node** + Whisper. Pairs with m4mini for parallel debate-mode (each node holds one LoRA, full-context round-passing rides NATS between them).
 - **m4max** (MBP M4 Max, mobile, 36 GB — **base-config M4 Max**, not the 48 GB upgrade; confirmed operator 2026-05-21): **opportunistic training node**. Trains LoRAs serially (per `ken/4a66badc` one-at-a-time). When mobile, it falls off the tailnet and training pauses; when home, it resumes. m4max also handles SDXL — keep training scheduled around photography work.
 - **m2mini** (Mac mini M2, remote network): **batch overflow** + NATS replica. Picks up sermon-pipeline jobs that queue up when m4mini is busy.
-- **RackNerd VPS**: NATS broker + MinIO results-archive. **Not a model host.**
-- **rpi5/4a/4b**: NATS replica, scheduled-job runner, photo ingest. No LLM role.
+- **m4mini hosts the NATS broker** for theologian-model traffic (orchestra refinement 2026-05-21). The RackNerd VPS keeps NATS for the rest of the household (family-history, photography ingest, cross-repo sync) but theologian-model + sermon-pipeline traffic stays inside the tailnet on m4mini. Rationale: sermon drafts, congregation-burden tags, and pastoral concerns are sensitive content; local-first NATS for that traffic honors the one-user-trust posture (`ken/7c4c90e3`) without compromising other household services.
+- **RackNerd VPS**: NATS broker for non-sermon household traffic + MinIO results-archive. **Not a model host. Not the sermon-pipeline broker.**
+- **rpi5/4a/4b**: rpi5 holds the m4mini NATS replica (failover), scheduled-job runner, photo ingest. No LLM role.
+
+**Inference runtime commitment**: **llama.cpp** is the only Apple Silicon path that supports the 24+ hot-swappable LoRAs this plan requires (PR #7667, GGUF LoRA support). Ollama hot-swap is not implemented (issues #5788, #9548 as of 2026-05); MLX multi-LoRA serving is alpha-only (MOLA). Throughput baseline on M-series Q4_K_M: 38–58 tok/s. No Apple Silicon port of S-LoRA / Punica exists, so multi-tenant adapter serving at scale stays out of reach until that lands.
 
 This means base-model size is not bound to any single node's RAM. Inference target is **14B Q4** on m4mini and m3pro (each well under their unified-memory budgets); m4max could in principle run larger (up to 32B Q4 per `ken/120e0c1b`) but the always-on inference path stays portable across nodes by anchoring on 14B.
 
@@ -104,6 +109,18 @@ Adapter swap (~2 s claimed in the handoff) is exactly what makes this cluster-di
 - Topical-with-anchor (per `romans/d7a7be68`) → topic-led set; passage-led RAG.
 
 **Debate mode**: two voices argue with full-context round-passing (`ken/04c5571e`); Claude integrates with its own wheat/chaff verdict and justification (`ken/0508b5e6`, `ken/1811ac0e`). Voices can be any mix of local-LoRA or closed-weight-persona (see §3.4).
+
+**Debate-mode constraints (research-grounded refinements)**:
+- **Cap at 3 rounds** (Du et al. arXiv 2305.14325 + arXiv 2311.17371 sweet-spot finding). Cost grows quadratically; marginal value drops sharply past round 3.
+- **Persona re-anchoring each turn**: Li et al. arXiv 2402.10962 documented ~30%+ persona-drift past 8–12 turns; mitigation is split-softmax re-weighting + re-anchoring the persona prompt in each turn rather than relying on initial-context persistence. Apply uniformly on both paths.
+- **Heterogeneity over homogeneity**: the literature is settled that diversity helps and contested that debate-beats-CoT+SC at matched compute (arXiv 2502.08788, 2509.05396, 2511.07784). Routing should select voices that represent different theological emphases on the same passage, not three similar voices.
+- **Abstain-on-tie**: if the integration round can't produce a wheat/chaff verdict with justification, abstain rather than synthesize; surface the disagreement to the pastor as an Integrity Log entry.
+
+**LoRA training discipline (research-grounded)**:
+- **AlignGuard-LoRA (Fisher Information Matrix regularization, arXiv 2508.02079)** applied on every author LoRA. Preserves alignment-critical directions; documented drift reduction up to 50%. This is the documented mitigation for catastrophic-forgetting risk (arXiv 2402.15415, 2402.18865).
+- **Contrastive negative-corpus** per author (Perplexity refinement from orchestra): when training Spurgeon, penalize MacArthur-distinctive / Owen-distinctive / Keller-distinctive terminology so the LoRAs stay separable rather than merging into "Reformed-sounding soup." Negative corpus = the other 23 Tier-1 authors' distinctive vocabulary tagged at index time.
+- **Stylometric evaluation harness**: authorial-perplexity ALM check (PMC12225838) + GRPO + sentence-transformer reward (arXiv 2512.05747) for voice-fidelity scoring. "Evaluate by vibes" is below the publishable bar; voice-audit needs measurement.
+- **OPLoRA orthogonal-projection** (arXiv 2510.13003) considered for top-singular-interference prevention if AlignGuard alone proves insufficient.
 
 ### 3.4 Cross-model theologian adapters (open-weight + closed-weight paths)
 
@@ -138,30 +155,119 @@ LoRAs are weight-bound to their base; you can't attach a Llama-14B LoRA to Claud
 
 **Phasing benefit**: the closed-weight path is **available now** — no training delay. The 24 personas can be drafted and shipped before any LoRA is trained. LoRAs come online one at a time on m4max; each landing LoRA gets head-to-head voice-audit comparison against its closed-weight persona counterpart on a benchmark passage, and the winning voice per author becomes the default for that name.
 
+### 3.5 Corrector LoRAs (new category — operator extension 2026-05-21)
+
+The earlier "no biblical-author LoRAs" rule was too coarse. It conflated two distinct artifacts:
+
+| LoRA type | What it does | Theological posture | Verdict |
+|---|---|---|---|
+| **Voice LoRA on a biblical author** | Produces new prose styled as Paul / John / Peter / etc. | Crosses into impersonating Scripture | **No — rule stands** |
+| **Corrector LoRA on a biblical author** | Catches errors in claims *about* that author (dates, geography, doctrine, context, argument structure) and drives back to the text | Guardrail; serves Scripture-governs | **Yes — and load-bearing** |
+
+The corrector LoRAs are *not* voice impersonators. They are domain scholars with a single output mode: detect drift and correct toward the corpus + reputable conservative scholarship. They serve the cite-or-flag invariant rather than violating it.
+
+**The three functions of a corrector LoRA** (operator extension 2026-05-21):
+
+1. **Factual correction** — dates, geography, historical context, biographical claims. Examples for Paul: "Paul lived in the 2600s AD" → corrects to c. AD 5–67 with citation chain; "Paul wrote Romans from Ephesus around AD 40" → corrects to Corinth, AD 56–57, citing Rom 15:25–26 + Acts 20:2–3, notes AD 40 predates Paul's conversion (c. AD 33–35); "Paul traveled through Mesopotamia" → flags; documented routes were Asia Minor / Macedonia / Achaia / Rome via Crete and Malta.
+
+2. **Doctrinal correction** — claims about the author's positions that the corpus contradicts. "Paul taught justification by faith and works" → flags as contradicting Rom 3:28, 4:5, Gal 2:16; names the Reformed harmonization with James 2 (faith-genre vs. forensic-justification).
+
+3. **Rhetorical-structural critique** — catches sermon argument that violates the apostle's actual argument arc. This is the highest-leverage of the three functions. Paul's argumentation is genuinely different from modern Western homiletic structure:
+   - Diatribe form with hypothetical interlocutors ("what shall we say then," "is the law sin," "by no means")
+   - Rabbinic argumentation patterns (kal vachomer / lesser-to-greater; gezerah shavah on shared vocabulary)
+   - OT citations as midrashic anchors, not just proof-texts
+   - Chiastic structures (Rom 5:12–21, Phil 2:6–11) where the central B carries the weight, not the A/A'
+   - Corporate-then-individual movement (Romans 1–3 builds corporate condemnation precisely to set up the universal need for imputed righteousness in 3:21–26)
+   - Situational polemic disguised as systematic (Galatians)
+   - Periodic sentences with subordinated argument-chains
+
+   Worked failure modes the corrector catches:
+   - Sermon excerpts Romans 3:23 ("all have sinned") and pivots straight to individual conviction, skipping the corporate argument arc that gives v.23 its actual force.
+   - Sermon treats Romans 7's "I" as Paul's autobiographical struggle without naming which exegetical option is being taken (Paul-believer / Paul-pre-conversion / Adam-typology / rhetorical-persona-of-Israel-under-Law).
+   - Sermon uses Galatians 3:28 toward modern social conclusions while skipping the covenantal Abrahamic-inheritance argument the verse actually serves.
+   - Sermon imposes a three-point Western homiletic frame on a chiastic Pauline passage where the chiasm's B is the load-bearing claim.
+
+This function is essentially an **automated Scopus test** for Pauline material (per `romans/32bacde3`'s four diagnostic tests). It also feeds the thus-says-the-lord rubric (`romans/6debe5a2`) categories Exposition & Hermeneutics (25 pts), Structure & Logical Flow (9 pts), and Sermonic Force (5 pts).
+
+**The category this opens**:
+- **Per biblical author**: Paul, Peter, John, James, Jude, Hebrews-author, Luke, Mark, Matthew, the Twelve, David, Isaiah, Jeremiah, Ezekiel, Daniel, Moses, Solomon, Joshua, Samuel-author, Kings-author, Chronicles-author.
+- **Per topic-cluster**: ANE backgrounds, Second Temple Judaism, Greco-Roman world, NT Greek grammar, Hebrew grammar, biblical-theology themes (covenant, kingdom, sacrifice, exile).
+- **Per book**: Romans-specific historical-context corrector, Genesis-specific framework corrector, etc.
+
+Corrector LoRAs are *cheaper to train per LoRA* than voice LoRAs — smaller corpora, narrower objective, no voice-fidelity bar to clear. They are also *higher-leverage* for hallucination prevention because the corrections are reflexive rather than prompted.
+
+**Training corpus per corrector**:
+- The biblical text itself (ESV; the author's books).
+- Conservative Reformed scholarship on that author — Schreiner, Moo, Murray, Carson, Fee, Bruce, Murray Harris, Bock, conservative Witherington on Pauline rhetoric, Aletti / Stowers / Stuhlmacher on rhetorical-criticism diversity.
+- First-century reference works — Hengel, Schürer, conservative archaeology, ANE-background standards.
+- Greek lexical material (BDAG, NIDNTTE) for vocabulary work.
+
+**Framework-agnostic training posture on contested scholarship**: Pauline rhetoric scholarship is *not monolithic* — Witherington (Greco-Roman primary), Stendahl / Stuhlmacher (Jewish midrashic primary), Stowers (diatribe specifically), Aletti (literary rhetoric) read the same passage differently. The corrector is trained on multiple frameworks and surfaces *which framework reads which way* with named-uncertainty rather than pretending one framework is settled.
+
+**Pipeline integration** (see §4):
+- **Post-DRAFT, pre-INTEGRATE**: corrector fires on author-tagged material in the pastor's draft.
+- **Post-step-7.5, pre-EVALUATE**: corrector fires again to catch errors smuggled in by theologian voices.
+- **PostToolUse hook** on Edit/Write of author-tagged sermons (extends the existing advisory hook pattern at `romans/44566500`).
+
+**Where this beats closed-weight personas**: the closed-weight path can simulate "Pauline scholar persona" via prompt + RAG, but a trained LoRA is meaningfully more reliable for systematic fact-correction because the corrections become reflexive rather than prompted. Worth doing the LoRA on the open-weight path even when the persona exists on the closed-weight side.
+
+### 3.6 Pre-DRAFT human exegesis gate (orchestra blind-spot fix)
+
+Grok's blind-spot pass on the orchestra design-review (2026-05-21) identified a fatal-flaw-class concern: as originally drafted, step 7.5 inserted theologian consultation *between INTEGRATE and EVALUATE*, which by ordering means machine-generated commentary precedes the pastor's own original exegesis. That inverts the Scripture-governs priority. "Reformed-sounding" language can mask non-authoritative synthesis when the pastor receives generated theologian commentary before producing his own argument.
+
+The fix:
+
+- **Mandatory pre-DRAFT human exegesis stage**. The pastor produces and logs original passage work — Greek/Hebrew, structure, FCF (Fallen Condition Focus), Scopus proposition, theological locus, congregation-burden mapping — before any LoRA or persona consultation fires. The output is a structured exegesis log appended to the sermon file.
+- **Theologian consultation moves to post-exegesis critique** (not generative input). Step 7.5 retains its position in the pipeline as a *stress-test layer*: theologian voices and corrector LoRAs are given the pastor's draft + exegesis log and asked to pressure-test the argument, surface gaps, name disagreements, propose sharpenings. They do not produce alternative arguments to be merged with the pastor's; they offer wheat/chaff verdicts on his.
+- **Visible disclosure on every final manuscript**: a footer line "This manuscript incorporates AI-retrieved historical voices under 1689 LBCF review" — or the operator's preferred phrasing. Honors the Anthropic ToS sensitive-domain disclosure posture (`ken/CLAUDE.md` §Universal usage standards) and the household's pastoral-content red-lane discipline (`cruising/23866c13`).
+- **No AI-on-empty-draft**. If the pastor's exegesis log is empty or stub-only, step 7.5 refuses to fire. The system enforces the order: pastor first, AI second.
+
+This is a posture change, not just a code change. It honors what the household's existing memory already encodes: the sermon belongs to the pastor (`romans/454c8aaa` pastoral-voice rule, "real life goes into the teaching, not around it"; `romans/0c10d211` political-neutrality rule; the entire careful-not-clever discipline). The corrector LoRAs and theologian voices sharpen; they do not replace exegetical labor.
+
 ## 4. Integration with the existing sermon pipeline
 
 Existing 9-step pipeline (`ken/69213852`): DRAFT → consult_challenge (Grok) → consult_expand (Gemini) → consult_structure (GPT) → consult_verify (Perplexity) → consult_research (You.com) → INTEGRATE (Claude) → EVALUATE (thus-says-the-lord) → VOICE_AUDIT.
 
-Insert a new step **7.5 — theological-corpus consultation** between INTEGRATE and EVALUATE:
+The pipeline is restructured to honor the pre-DRAFT exegesis gate (§3.6) and the corrector LoRAs (§3.5):
 
-1. Router selects 2–3 theologian voices + Wright-challenger based on passage/locus/burden. Each voice is served by **either** its local LoRA (if trained) **or** its closed-weight persona on a frontier API (§3.4).
-2. Each voice produces commentary with RAG-cited quotes. Closed-weight path enforces citation via mandatory `retrieve_from_corpus` tool-call; open-weight path enforces it via the cite-or-flag invariant post-validator.
-3. Full-context round-passing: each voice sees prior commentary (matches `ken/04c5571e`). On the cluster, open-weight voices exchange via NATS; closed-weight voices pass context through the orchestra adapter chain.
-4. Claude integrates with wheat/chaff verdict per voice contribution; rejects NPP-shaped challenges from Wright via the substitutionary-atonement verifier pass. Claude does not also wear a theologian persona in this same run.
-5. Output feeds into step 8 (thus-says-the-lord scoring) with all four required diagnostic tests intact (Scopus, Berean Gate, Fallen-Condition-Focus, Gospel-presence).
+**Revised pipeline (12 stages, three new insertion points marked ★)**:
 
-Step 7.5 is `optional: true` (graceful degradation, matches `ken/69213852`). On the closed-weight path, step 7.5 inherits the orchestra's existing cost-management posture (`ken/6bc81f3a`).
+| # | Stage | Owner | Notes |
+|---|---|---|---|
+| 0 | ★ **Pre-DRAFT human exegesis** | Pastor | Greek/Hebrew, FCF, Scopus, locus, burden map. No AI consults. Log appended to sermon file. Gate: subsequent stages refuse to fire on empty/stub log. |
+| 1 | DRAFT | Claude | First manuscript pass with codebase + memory context. |
+| 2 | ★ **Post-DRAFT corrector** | Corrector LoRAs | Author-tagged material gets fact-checked + doctrinal-checked + rhetorical-structurally critiqued. Output to Integrity Log. |
+| 3 | consult_challenge | Grok | Existing orchestra step. |
+| 4 | consult_expand | Gemini | Existing. |
+| 5 | consult_structure | GPT | Existing. |
+| 6 | consult_verify | Perplexity | Existing. |
+| 7 | consult_research | You.com | Existing (last word). |
+| 8 | INTEGRATE | Claude | Synthesizes the consultation chain. |
+| 9 | **Step 7.5 — post-exegesis theologian critique** | LoRAs + personas | NOT generative. Voices given the pastor's draft + exegesis log; produce wheat/chaff verdicts on his argument with cited support. Debate mode (≤3 rounds, persona re-anchored each turn). Claude integrates wheat/chaff with own justification. Wright runs through the substitutionary-atonement verifier. `optional: true`. |
+| 10 | ★ **Post-7.5 corrector** | Corrector LoRAs | Catches errors smuggled in by theologian voices. |
+| 11 | EVALUATE | thus-says-the-lord rubric | All four diagnostic tests (Scopus, Berean Gate, FCF, Gospel-presence) + 105-pt scoring. Corrector output feeds Exposition + Structure + Sermonic Force categories. |
+| 12 | VOICE_AUDIT | Voice-audit + voice-dna | Confirms manuscript still sounds like the pastor, not the LoRA panel. Mandatory visible-disclosure footer added. |
+
+**Notes**:
+- Stage 0 is **mandatory**, not optional. The whole architecture's posture-correctness rests on it (per §3.6).
+- Stages 2 and 10 are corrector-LoRA passes; same LoRA, different content target. They are **non-generative**: their only output mode is detect + correct + cite.
+- Stage 9 ("step 7.5") is `optional: true` for graceful degradation if voices are unavailable or under-trained, but it has been **reframed**: voices critique the pastor's argument, they do not propose alternative arguments to be merged. This is the orchestra blind-spot fix applied.
+- Persona re-anchoring fires at the start of every turn within Stage 9's debate rounds.
+- Cost-management posture (`ken/6bc81f3a`): Stage 9 inherits the cost calibration. Single-voice consultation for routine weekly sermons; full debate panel for series-anchor sermons (e.g., Romans 9, key holiday preaches, doctrinal-watershed passages).
 
 ## 5. Non-negotiable gates (LoRA output gets no pass)
 
 - **Scripture governs**: the Bible is the authority. Every doctrinal claim traces to a text. The 1689 LBCF is the bumpers — out of the gutter, not the ball.
+- **Pastor-first ordering** (§3.6): the pastor's exegesis precedes any AI consultation. AI never produces an alternative argument to be merged with the pastor's — AI critiques his argument.
 - **Berean Gate**: if the sermon doesn't open/quote/exegete its named text, Fatal-Flaw cap at 60/105 regardless of LoRA quality (`romans/32bacde3`).
-- **Substitutionary atonement** as gospel-call shape — confessional bumper (`romans/1aa5a7b7`).
+- **Substitutionary atonement** as gospel-call shape — confessional bumper (`romans/1aa5a7b7`). Verifier pass on every Wright-tagged contribution.
 - **ESV-only** for quotation, including conversational paraphrase (`romans/a8e030ac`).
-- **Cite-or-flag-or-fail** on every attributed quote: retrieved chunk ID or hard flag. See §3.1.
+- **Cite-or-flag-or-fail** on every attributed quote: retrieved chunk ID + substring-match + hash-equality, or hard flag. See §3.1.
 - **No fabricated quotes, ever.** Named-uncertainty in prose is the disposition when retrieval is empty.
+- **Corrector LoRAs run on author-tagged content** at stages 2 and 10. Detected drift (factual, doctrinal, rhetorical-structural) is surfaced to the Integrity Log; the pastor decides whether to honor or override.
 - **Political-neutrality** rule preserved (`romans/0c10d211`) — LoRA voices that drift political get the integration round's chop.
 - **Voice-audit** post-LoRA: the manuscript must still sound like the pastor, not Spurgeon. LoRA enriches argument; voice belongs to the preacher.
+- **Visible disclosure footer** on every final manuscript (§3.6).
 
 ## 6. InTheWake — what it actually gets
 
@@ -178,7 +284,7 @@ Engineering shared, theology not. The InTheWake LoRAs are zero.
 
 ## 7. Risk register
 
-- **Frontier-model quote fabrication (HIGH RISK)**: Claude / GPT / Grok / Gemini all have Spurgeon, Calvin, Edwards, Piper, etc. in their training data. A persona-prompted "Spurgeon" can confidently emit a plausible-sounding Spurgeon quote that does not exist. Mitigation is **mandatory tool-call retrieval**: the closed-weight persona cannot emit an attributed quote without first calling `retrieve_from_corpus(author, query)` and including the returned chunk ID. Post-validator scans output for any attributed quote without a chunk ID and flags or rejects. This is the single biggest failure mode of the cross-model approach; the cite-or-flag invariant is what holds against it.
+- **Frontier-model quote fabrication (HIGH RISK; research-documented)**: Claude / GPT / Grok / Gemini all have Spurgeon, Calvin, Edwards, Piper, etc. in their training data. A persona-prompted "Spurgeon" can confidently emit a plausible-sounding Spurgeon quote that does not exist. *Wallat et al. SIGIR 2025 (arXiv 2412.18004) documents 57% of RAG citations are unfaithful — the cited document exists and is topical but did not drive the generation.* RoleBreak (arXiv 2409.16727) and SHARP (arXiv 2411.07965) show persona prompts measurably *amplify* parametric-knowledge leakage. The cite-or-flag invariant + substring-match validator + cryptographic chunk-hash (§3.1) are layered specifically against this failure mode. Tool-call enforcement alone (`tool_choice: "required"`) is best-effort, not guaranteed (Promptfoo + Cao arXiv 2412.04141).
 - **Wright NPP-leak from frontier training data**: same problem at the doctrinal level. Frontier models have Wright in training; a Wright persona will tend to import NPP. The substitutionary-atonement bumper runs as a verifier pass on every Wright-tagged contribution at integration — not a soft prompt.
 - **LoRA confabulation under RAG**: open-weight path; default-flag any attributed claim without retrieval ID. Sample audit after every LoRA release.
 - **Training-data gating**: Spurgeon = 5/3,561; Washer/Sproul/MacArthur/etc. = 0 scraped. No LoRA is real until its corpus is real. Closed-weight personas can ship sooner but only if the indexed corpus exists for retrieval to anchor against.
@@ -187,10 +293,18 @@ Engineering shared, theology not. The InTheWake LoRAs are zero.
 - **Cluster failure modes**: m4mini offline drops the always-on inference path → m3pro is the fallback. NATS broker on the VPS is single-point-of-failure for routing → rpi5 holds the NATS replica. m2mini is batch overflow only — don't promote it to primary inference because it's on a remote network. Closed-weight path is unaffected by cluster failures (rides existing orchestra adapters).
 - **Path-selection drift**: if every request defaults to "frontier API is easier" the local LoRA investment never pays back. Router must prefer the open-weight path when both paths are available and the request fits; closed-weight is the bridge until LoRAs land and the depth-needed exception thereafter.
 - **Voice-bleed into the pastor's own voice**: voice-audit must run *after* step 7.5 to confirm the manuscript still reads as the preacher, not the panel.
+- **Multi-agent debate may not beat CoT+SC at matched compute** (research-grounded; arXiv 2502.08788, 2509.05396, 2511.07784). The literature is contested. Mitigation: monitor cost per sermon and skip debate-mode on routine weekly preaches; reserve it for series-anchors and doctrinal-watershed passages. Heterogeneity in voice selection is the documented win.
+- **Persona drift in long-context debate** (arXiv 2402.10962): ~30%+ self-consistency loss past 8–12 turns. Mitigation: persona re-anchoring each turn + 3-round debate cap (§3.3).
+- **LoRA catastrophic forgetting** (arXiv 2402.15415, 2402.18865): base reasoning degrades under naive fine-tune. Mitigation: AlignGuard-LoRA (arXiv 2508.02079) on every author LoRA (§3.3).
+- **Reformed-soup voice collapse**: 24 LoRAs trained on related authors risk merging into a generic Reformed voice rather than preserving distinct theological emphases. Mitigation: contrastive negative-corpus per author (§3.3).
+- **Apple Silicon multi-LoRA serving is narrow**: llama.cpp is the only path; Ollama hot-swap not implemented; MLX multi-LoRA is alpha. Mitigation: commit to llama.cpp; track upstream issues; do not assume the runtime will scale to 24 hot-swappable adapters under contention without empirical testing.
+- **Pastor-first ordering can be circumvented in haste** (Grok blind-spot risk): under sermon-deadline pressure, the pre-DRAFT exegesis stage can be skipped or stub-filled. Mitigation: Stage 0 is a hard gate, not an advisory hook; subsequent stages refuse to fire on empty/stub log; the system honors the discipline so the pastor doesn't have to argue with himself at 11pm Saturday.
+- **Legal exposure from copyrighted estates** (Grok blind-spot): training LoRAs on Sproul, MacArthur, Platt, Piper, Keller, etc., raises copyright and estate-permission questions. The Spurgeon corpus is public domain; the moderns are not. **Acquisition decision per author is gating** and may foreclose certain LoRAs entirely (see §10).
+- **Disclosure compliance**: FTC AI-disclosure guidance for "faith" audiences (2025-2026) calls for conspicuous AI labeling. The visible-disclosure footer (§3.6) is the project's posture; whether the disclosure should escalate (top-of-page, larger font, audio mention in preached delivery) is an **open operator decision** logged in §10.
 
 ## 8. Sequencing (estimates; will drift)
 
-Two tracks running in parallel: **A (closed-weight, ships fast)** and **B (open-weight, depth)**. Track A unblocks step 7.5 in weeks 3–4; track B replaces or supplements voices as LoRAs land.
+Three tracks running in parallel: **A (closed-weight personas — ships fast)**, **B (corrector LoRAs — high-leverage, cheaper)**, **C (voice LoRAs — depth, longest)**. Corrector LoRAs (track B) are ordered *ahead of* most voice LoRAs because they're cheaper to train per LoRA and higher-leverage for hallucination prevention.
 
 **Track A — closed-weight personas (immediate)**
 
@@ -203,32 +317,49 @@ Two tracks running in parallel: **A (closed-weight, ships fast)** and **B (open-
 | 5 | Score against Romans 1a/1b benchmarks (88/105, 91/105 per `romans/50b2c027`). Hallucination audit: every attributed quote must have a chunk ID. |
 | 6 | Cost calibration: measure $/sermon for the full step-7.5 panel; tune voice count per pipeline run based on `ken/6bc81f3a`. |
 
-**Track B — LoRA training (parallel; serial within itself)**
+**Track B — Corrector LoRAs (parallel with A; serial within itself; ahead of voice LoRAs)**
 
 | Week | Work |
 |---|---|
-| 3 | Base-model decision via 3-pass orchestra design review (`ken/05261df2`): PASS 1 design proposal, PASS 2 stress with Romans 9 + Psalm 23 + a wounded-congregation pastoral text, PASS 3 refine. |
-| 5–28 | LoRA training on m4max, one author at a time (serial; `4a66badc`). Recommended order: Spurgeon → Washer → Sproul → MacArthur → Platt → Piper → Calvin → Edwards → Davey → Chandler → Anyabwile → Begg → Ryle → M'Cheyne → Bunyan → Lloyd-Jones → Carson → Schreiner → Baucham → Hamilton → Owen → Chapell → Robinson → Keller. Each landing LoRA gets a head-to-head voice-audit vs. its closed-weight persona on a benchmark passage; the winning voice becomes the default for that author. |
-| 29 | Wright LoRA last. Adversarial review (`ken/07bb1504`) on Wright outputs against the substitutionary-atonement bumper. |
-| 30 | Voice-audit recalibration after all LoRAs land. Post-deploy monitoring of cite-or-flag rate + named-uncertainty disposition + path-selection mix. |
+| 3 | Pre-DRAFT exegesis-gate scaffold (§3.6). Sermon-file exegesis-log format. Hook that refuses Stage 1+ when log is empty. |
+| 4 | Base-model decision via 3-pass orchestra design review (`ken/05261df2`): PASS 1 design proposal, PASS 2 stress with Romans 9 + Psalm 23 + a wounded-congregation pastoral text, PASS 3 refine. Commit to llama.cpp runtime. |
+| 5–12 | Corrector LoRAs, ordered by leverage: **Paul (highest — Romans series anchor)** → Peter → John (epistles) → Hebrews-author → James → Jude → Luke (Acts + Gospel) → Mark → Matthew → John (Gospel). New-Testament-first ordering matches current preaching cadence. AlignGuard-LoRA + contrastive negative-corpus applied throughout. |
+| 13–18 | OT corrector LoRAs: David (Psalms) → Isaiah → Jeremiah → Ezekiel → Daniel → Moses (Pentateuch) → Solomon → other-OT. Lower priority than NT but high-leverage for systematic preaching across the canon. |
+| 19–22 | Topic-cluster correctors: ANE backgrounds → Second Temple Judaism → Greco-Roman world → NT Greek grammar → Hebrew grammar → biblical-theology themes. |
+
+**Track C — Voice LoRAs (parallel with A/B; longest track; serial within itself)**
+
+| Week | Work |
+|---|---|
+| 5–28 | Voice LoRA training on m4max, one author at a time (serial; `4a66badc`). Recommended order: Spurgeon → Washer → Sproul → MacArthur → Platt → Piper → Calvin → Edwards → Davey → Chandler → Anyabwile → Begg → Ryle → M'Cheyne → Bunyan → Lloyd-Jones → Carson → Schreiner → Baucham → Hamilton → Owen → Chapell → Robinson → Keller. Each landing LoRA gets a head-to-head voice-audit vs. its closed-weight persona on a benchmark passage (stylometric ALM + GRPO+sentence-transformer evaluation per §3.3); the winning voice becomes the default for that author. |
+| 29 | Wright voice LoRA last. Adversarial review (`ken/07bb1504`) on Wright outputs against the substitutionary-atonement bumper. |
+| 30 | Voice-audit recalibration after all LoRAs land. Post-deploy monitoring of cite-or-flag rate + named-uncertainty disposition + path-selection mix + voice-audit deltas. |
 
 ## 9. What does NOT get built
 
-- No biblical-author LoRAs and no biblical-author personas.
-- No Greek-scholar voice LoRAs or personas (those become RAG-indexed exegesis aides).
+- **No biblical-author *voice* LoRAs and no biblical-author voice personas.** Scripture is read and exegeted, never impersonated. Producing "Paul-style" new prose crosses 1689 LBCF + Berean Gate + Fatal-Flaw cap. *Note: this is the **voice** rule. Biblical-author **corrector** LoRAs are explicitly **yes** — see §3.5. The two artifacts are theologically distinct.*
+- No Greek-scholar voice LoRAs or voice personas (those become RAG-indexed exegesis aides and feed the corrector layer where useful).
 - No theologian-voice deployment to InTheWake content.
-- No "model decides its own boundary fencing" — the boundary is the retrieval-grounded citation invariant, enforced at the system level on both paths.
+- No theologian-voice generation that produces alternative arguments to be merged with the pastor's draft. Voices critique (Stage 9); they don't replace exegetical labor.
+- No AI consultation on a sermon whose Stage-0 exegesis log is empty or stub-only.
+- No "model decides its own boundary fencing" — the boundary is the retrieval-grounded citation invariant + substring-match + cryptographic hash, enforced at the system level on both paths.
 - No batch parallel LoRA training on m4max — serial, one at a time, per `one-at-a-time`.
 - No Claude-as-theologian-persona in the same pipeline run that Claude is integrating. Conflict-of-interest in the wheat/chaff judgment.
-- No closed-weight persona that omits the `retrieve_from_corpus` tool-call requirement. Persona without the tool gate is just decoration over fabrication.
+- No closed-weight persona that omits the `retrieve_from_corpus` tool-call requirement *and* the post-validator substring-match. Persona without the gates is just decoration over fabrication.
+- No final sermon manuscript shipped without the visible disclosure footer.
+- No Ollama runtime for multi-LoRA serving until upstream hot-swap lands (issues #5788, #9548). llama.cpp only.
 
 ## 10. Open dependencies / blockers
 
-- Spurgeon scrape completion. Without it, the indexed corpus is hypothetical and **both paths are blocked** (closed-weight personas need RAG-grounding too).
-- Washer + Sproul + MacArthur + Platt + Piper + Calvin + Edwards (etc.) corpora — need acquisition decision per author (which sources, IP/copyright posture). Spurgeon is public domain; many of the modern Tier 1 are not. **Until copyright posture is clarified per author, neither LoRA training nor closed-weight persona retrieval can run for that author.** Personas can be drafted in parallel but cannot ship without an indexed corpus to anchor cite-or-flag against.
+- Spurgeon scrape completion. Without it, the indexed corpus is hypothetical and **all three tracks are blocked** (closed-weight personas + corrector LoRAs + voice LoRAs all need RAG-grounding).
+- Washer + Sproul + MacArthur + Platt + Piper + Calvin + Edwards (etc.) corpora — need acquisition decision per author (which sources, IP/copyright/estate posture). Spurgeon is public domain; many of the modern Tier 1 are not. **Until copyright posture is clarified per author, none of the three tracks can run for that author.** Personas can be drafted in parallel but cannot ship without an indexed corpus to anchor cite-or-flag against.
+- Conservative-Reformed scholarship corpora for corrector LoRAs — Schreiner, Moo, Murray, Carson, Fee, Bruce, Murray Harris, Bock — same copyright question.
+- ANE / Second-Temple-Judaism / Greco-Roman reference works — Hengel, Schürer, conservative archaeology — same.
 - Grok API key refresh (per session handoff — 400 errors). Wright challenger role is harder to validate without Grok available as the structural-role parallel.
 - Perplexity adapter for orchestra (per handoff). Step 5 of the existing sermon pipeline degrades gracefully without it.
-- `retrieve_from_corpus` tool spec — needs design before track A week 4. Tool returns `{author, chunk_id, text, citation_metadata}`; closed-weight personas must call it before any attributed quote.
+- `retrieve_from_corpus` tool spec — needs design before track A week 4. Tool returns `{author, chunk_id, text, citation_metadata, sha256}`; closed-weight personas must call it before any attributed quote; substring-match + hash verified post-emission.
+- **FTC AI-disclosure escalation — OPEN OPERATOR DECISION.** Current plan ships a visible footer disclosure on every sermon manuscript. Whether to escalate to (a) top-of-manuscript header, (b) audio mention during preached delivery, (c) congregation-meeting disclosure of the methodology, or (d) keep footer-only — is the pastor's call. Not coded yet; awaiting direction.
+- **Pre-DRAFT exegesis-gate enforcement strictness — OPEN OPERATOR DECISION.** Plan currently treats Stage 0 as a hard gate (subsequent stages refuse to fire on empty/stub log). Alternative: advisory-only gate that warns but does not block. Hard gate is the careful-not-clever default; switch to advisory if it proves unworkable under real preaching deadlines.
 
 ## 11. Memory encodings to write after operator approval
 
@@ -237,17 +368,61 @@ The handoff names "Theologian Model Library Plan (in protected memory)" but no d
 - The Scripture-governs / 1689-is-bumpers framing (operator's verbatim 2026-05-21).
 - The base-model decision (14B Q4) and its cluster-distributed deployment.
 - The full-roster Tier-1 theologian pool (24 names; no demotion).
-- The no-biblical-author-LoRA rule and its Scripture-governs + Berean-Gate grounding.
+- **The voice-vs-corrector LoRA split** (operator extension 2026-05-21): biblical-author *voice* LoRAs are out; biblical-author *corrector* LoRAs are in, with three functions — factual, doctrinal, rhetorical-structural critique.
+- **The pre-DRAFT human exegesis gate** (orchestra blind-spot fix 2026-05-21): pastor exegetes first, AI critiques second. Step 7.5 reframed as post-exegesis critique, not generative input.
 - The RAG-as-citation-invariant rule (anti-hallucination as system invariant, not model behavior).
+- **The substring-match post-validator + cryptographic chunk-hash** as the actual enforcement of cite-or-flag (research-grounded; tool_choice alone is best-effort).
 - **The two-path architecture** (open-weight LoRA + closed-weight persona, sharing corpus and cite-or-flag invariant) per operator confirmation 2026-05-21.
-- **The `retrieve_from_corpus` tool gate** as the citation enforcement mechanism on the closed-weight path.
+- **The `retrieve_from_corpus` tool gate + post-emission substring-match** as the citation enforcement on the closed-weight path.
 - **The Claude-not-integrating-and-persona-in-same-run rule**.
+- **AlignGuard-LoRA (FIM regularization) + contrastive negative-corpus** as the LoRA training discipline (research-grounded).
+- **llama.cpp commitment** as the only Apple Silicon multi-LoRA runtime.
+- **Debate-mode constraints**: ≤3 rounds, persona re-anchored each turn, heterogeneity over homogeneity, abstain-on-tie.
 - The InTheWake engineering-only application.
 - The Wright-NPP integration-round reject rule (verifier pass, both paths).
-- Pipeline step 7.5 insertion into the existing 9-step sermon pipeline.
-- The cluster topology mapping for inference vs. training (m4mini/m3pro inference, m4max training, m2mini overflow, VPS coordinator).
+- Pipeline restructure (12 stages, three new insertion points — Stage 0 pre-DRAFT exegesis, Stage 2 post-DRAFT corrector, Stage 10 post-7.5 corrector).
+- The cluster topology mapping for inference vs. training, with **NATS-on-m4mini** for sermon-pipeline traffic (VPS keeps non-sermon household NATS).
+- The visible disclosure footer on every final manuscript.
 
 Each encoded as a protected memory in `romans/` or `shared/` domain with `operator-directive` tag once approved.
+
+## 12. Research provenance + orchestra design-review log
+
+This plan was stress-tested 2026-05-21 by four parallel research agents + the household orchestra. Provenance is logged here so future sessions can audit what was considered.
+
+### 12.1 Research agents (4 parallel)
+
+**Agent 1 — Magisterium AI methodology + theological-RAG prior art.** Key findings: Magisterium AI uses RAG + open-source base + prompt discipline, no hard cite-or-flag enforcement, publicly admits fallibility; abandoned fine-tuning; 28K-doc Catholic corpus; runs on Grok-as-inference-provider via Longbeard's "Ephrem program." Logos Sermon Assistant explicitly exempts "creative features" from citation grounding — directly the design we must not make. *No public theological-RAG system has documented hard cite-or-flag enforcement at the chunk-ID level. This project's enforcement mechanism would be more rigorous than anything publicly disclosed.* Source: Cognitive Revolution interview with Matthew Sanders, Crux interview, Public Discourse + NewPolity critiques, Hallow FAQ. Adjacent academic: MufassirQAS (arXiv 2401.15378), Quranic RAG benchmark (arXiv 2503.16581), "Preaching with AI" (T&F 2025).
+
+**Agent 2 — LoRA voice-transfer prior art.** Key findings: AuthorMix (arXiv 2603.23069), ASTRAPOP (arXiv 2403.08043) — closest published author-style PEFT methods. GRPO+sentence-transformer reward (arXiv 2512.05747) is the strongest published author-voice eval harness. Authorial-perplexity ALM check (PMC12225838) is the practical eval pattern. Catastrophic forgetting in LoRA documented (arXiv 2402.15415, 2402.18865); AlignGuard-LoRA (arXiv 2508.02079) is the documented FIM-regularization mitigation. OPLoRA orthogonal-projection (arXiv 2510.13003) as fallback. Apple Silicon: llama.cpp only viable path; Ollama hot-swap not implemented (#5788, #9548); MLX multi-LoRA alpha-only. Throughput baseline: 38–58 tok/s on Q4_K_M. **No published theological-author LoRA exists** — this project would be the first.
+
+**Agent 3 — Multi-agent LLM debate frameworks.** Key findings: Du et al. arXiv 2305.14325 (ICML 2024) canonical "debate improves reasoning" paper. Literature has turned skeptical 2024–2026: arXiv 2502.08788 ("Stop Overvaluing MAD"), 2509.05396 ("Talk Isn't Always Cheap"), 2511.07784 ("Can LLM Agents Really Debate?"). Settled: heterogeneity helps. Contested: whether debate beats CoT+SC at matched compute. Persona drift measured at ~30%+ self-consistency loss past 8–12 turns (Li et al. arXiv 2402.10962); mitigation split-softmax. 3-round sweet-spot for cost/value (arXiv 2311.17371). ChatEval (arXiv 2308.07201) formalized judge-integrator pattern — diverse role prompts essential. **No published multi-agent debate has been applied to theology** — this project would be novel applied work.
+
+**Agent 4 — RAG citation enforcement + tool-use gates.** Key findings: AIS framework (Rashkin et al. MIT Press 2023) canonical attribution eval; ALCE (Princeton NLP, EMNLP 2023) found even best models lack complete citation support ~50% on ELI5. **Wallat et al. SIGIR 2025 (arXiv 2412.18004) documents 57% of RAG citations are unfaithful** — model generates from parametric knowledge then post-rationalizes. This is exactly the Spurgeon failure mode. **RoleBreak (arXiv 2409.16727) and SHARP (arXiv 2411.07965) show persona prompts measurably AMPLIFY parametric leakage.** `tool_choice: required` is best-effort, not guaranteed (Promptfoo + Cao et al. arXiv 2412.04141 — reliability-capability tradeoff: stronger reasoners hallucinate tool calls *more* under enforcement). Anthropic Citations API (Jan 2025): pointers valid when emitted, but emission model-discretionary. Stanford HAI: specialized RAG-based legal tools still hallucinate >17%.
+
+### 12.2 Orchestra design-review
+
+Strategy mode, 2026-05-21, $0.1973 total. Claude R1 + 5 fan-out (GPT structure, Gemini expand [missing — cffi error, Claude substitution], Perplexity research, You.com research, Grok challenge) + 2-round Claude↔GPT deliberation + Grok blind-spot pass.
+
+**GPT (WHEAT_WITH_REFINEMENT)**: end-user feedback loop, documentation/training, periodic corpus refresh. Tepid; deliberation rounds drifted into meta-commentary.
+
+**Perplexity (WHEAT_WITH_REFINEMENT)**: substantive — contrastive negative-corpus per author (adopted §3.3); cryptographic source-to-quote hash verification (adopted §3.1); AlignGuard-LoRA (adopted §3.3); NATS-on-m4mini for air-gapped sermon-prep privacy (adopted §3.2); FTC AI-disclosure for faith audiences (open question §10).
+
+**You.com (WHEAT_WITH_REFINEMENT)**: incentive-transparency + calmer-CTA framing. Less directly applicable to a non-monetized project. Flagged FTC Operation AI Comply + Stanford HAI specialized-RAG hallucination data.
+
+**Grok (CHALLENGE)**: hardest pushback. "Two-path is a costly maintenance sink" (rejected — see §3.4 rationale); "Mandatory `retrieve_from_corpus` fails because models generate plausible non-retrieved quotes" (acknowledged + reinforced via substring-match validator §3.1); "Step 7.5 treats theology as post-hoc add-on" (adopted via pre-DRAFT exegesis gate §3.6); "Wright verifier is brittle" (acknowledged as risk §7); "Legal exposure from estates" (acknowledged §10); "Confessional violation of 'Scripture governs' by outsourcing to probabilistic machines" (addressed via §3.6 pre-DRAFT gate + visible disclosure footer §5).
+
+**Grok blind-spot pass (the most consequential finding)**:
+> The plan's fatal flaw is treating probabilistic style emulation and retrieval as a legitimate proxy for theological counsel in a 'Scripture governs doctrine' framework. This inverts the 1689 LBCF priority by inserting machine-generated outputs (even cite-constrained ones) as a parallel authority before human exegesis and Spirit dependence.
+
+**Adopted**: pre-DRAFT human exegesis gate (§3.6); theologian consultation reframed as post-exegesis critique not generative input; visible disclosure footer on every manuscript.
+
+### 12.3 What was considered and rejected
+
+- **Grok's "collapse to single closed-weight RAG"**: rejected. Over-corrects. Two-path architecture stands; the case against it is real but addressable through the gates added.
+- **Grok's "multi-axis orthodoxy scorer replacing Wright verifier"**: deferred. Interesting but premature; build the single-axis verifier first, expand if it proves insufficient.
+- **GPT's "end-user feedback loop" + "documentation materials"**: deferred. Real but secondary; not architectural for the planning phase.
+- **You.com's CTA/monetization framing**: rejected as not applicable (project not monetized).
 
 ---
 
