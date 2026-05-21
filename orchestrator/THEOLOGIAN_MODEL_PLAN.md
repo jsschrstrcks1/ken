@@ -116,11 +116,30 @@ Adapter swap (~2 s claimed in the handoff) is exactly what makes this cluster-di
 - **Heterogeneity over homogeneity**: the literature is settled that diversity helps and contested that debate-beats-CoT+SC at matched compute (arXiv 2502.08788, 2509.05396, 2511.07784). Routing should select voices that represent different theological emphases on the same passage, not three similar voices.
 - **Abstain-on-tie**: if the integration round can't produce a wheat/chaff verdict with justification, abstain rather than synthesize; surface the disagreement to the pastor as an Integrity Log entry.
 
-**LoRA training discipline (research-grounded)**:
-- **AlignGuard-LoRA (Fisher Information Matrix regularization, arXiv 2508.02079)** applied on every author LoRA. Preserves alignment-critical directions; documented drift reduction up to 50%. This is the documented mitigation for catastrophic-forgetting risk (arXiv 2402.15415, 2402.18865).
-- **Contrastive negative-corpus** per author (Perplexity refinement from orchestra): when training Spurgeon, penalize MacArthur-distinctive / Owen-distinctive / Keller-distinctive terminology so the LoRAs stay separable rather than merging into "Reformed-sounding soup." Negative corpus = the other 23 Tier-1 authors' distinctive vocabulary tagged at index time.
-- **Stylometric evaluation harness**: authorial-perplexity ALM check (PMC12225838) + GRPO + sentence-transformer reward (arXiv 2512.05747) for voice-fidelity scoring. "Evaluate by vibes" is below the publishable bar; voice-audit needs measurement.
-- **OPLoRA orthogonal-projection** (arXiv 2510.13003) considered for top-singular-interference prevention if AlignGuard alone proves insufficient.
+**Theologian LoRAs — primarily correctors, voice as secondary mode** (operator extension 2026-05-21 #2):
+
+Each theologian LoRA is trained as a **corpus-scholar first**, with voice as a secondary inference-time mode invoked on explicit request. This is the cleaner architectural fit: the primary disposition is "what did this author actually say?" not "speak as this author." Voice fidelity becomes a secondary evaluation metric, not the gate. Reasons:
+
+- **Aligns training with cite-or-flag**: a LoRA whose default disposition is corrective grounds in the corpus reflexively. Voice-first training grounds in stylistic mimicry, which makes parametric-knowledge leakage easier (per RoleBreak / SHARP findings in §3.1).
+- **Resolves voice-audit tension**: the pastor's voice must dominate final manuscripts (per `voice-audit` + `like-a-human` calibrated to his voice). Theologian voice as a primary mode actively competes with that; theologian voice as explicit-invocation does not.
+- **Tighter training objective**: corrective-LoRA training (detect + cite + correct against indexed corpus) is better-published than voice-transfer training (AuthorMix arXiv 2603.23069, ASTRAPOP arXiv 2403.08043 — both contested on corpus-size thresholds for reliable voice transfer).
+
+Voice-mode invocation pattern: the pastor explicitly requests "give me this in [author]'s voice" at inference time, or debate mode (Stage 9) calls for voice as part of the wheat/chaff critique. Default output mode otherwise is corrective scholarship.
+
+**Author-by-mode matrix** (the operative rule):
+
+| Author class | Corrective mode | Voice mode |
+|---|---|---|
+| **Biblical authors** (Paul, John, Peter, David, Isaiah, etc.) | YES — primary, only | **NO — never available**. Scripture is uniquely inspired; impersonation crosses 1689 LBCF + Berean Gate + Fatal-Flaw cap. |
+| **Theologians** (Spurgeon, Calvin, Edwards, Sproul, MacArthur, Platt, Davey, Chandler, Anyabwile, Begg, Ryle, M'Cheyne, Bunyan, Piper, Owen, Lloyd-Jones, Carson, Schreiner, Baucham, Hamilton, Chapell, Robinson, Keller, Washer — 24 total) | YES — primary, default | YES — secondary, invoked on explicit request |
+| **Topic clusters** (ANE, Second Temple Judaism, Greco-Roman, Greek grammar, Hebrew grammar, biblical-theology themes) | YES — only mode | N/A |
+| **Wright (challenger)** | YES — corrective on claims about Wright | YES — secondary, specifically for the challenger role at Stage 9, gated by the substitutionary-atonement verifier pass on every emit |
+
+**LoRA training discipline (research-grounded; applies to corrective objective primarily)**:
+- **AlignGuard-LoRA (Fisher Information Matrix regularization, arXiv 2508.02079)** applied on every LoRA. Preserves alignment-critical directions; documented drift reduction up to 50%. This is the documented mitigation for catastrophic-forgetting risk (arXiv 2402.15415, 2402.18865).
+- **Contrastive negative-corpus** per author: when training Spurgeon, penalize MacArthur-distinctive / Owen-distinctive / Keller-distinctive terminology so the LoRAs stay separable rather than merging into "Reformed-sounding soup." This matters even for the corrective objective — keeps authors distinguishable in retrieval-grounded output, and prevents the voice-mode (when invoked) from drifting to generic-Reformed.
+- **Stylometric evaluation harness as secondary check**: authorial-perplexity ALM (PMC12225838) + GRPO + sentence-transformer reward (arXiv 2512.05747) for voice-fidelity scoring when voice mode is invoked. Primary evaluation is corrective accuracy (catches attested errors? verifies quotes against the corpus? surfaces relevant material for a passage?).
+- **OPLoRA orthogonal-projection** (arXiv 2510.13003) considered as fallback if AlignGuard alone proves insufficient.
 
 ### 3.4 Cross-model theologian adapters (open-weight + closed-weight paths)
 
@@ -155,16 +174,18 @@ LoRAs are weight-bound to their base; you can't attach a Llama-14B LoRA to Claud
 
 **Phasing benefit**: the closed-weight path is **available now** — no training delay. The 24 personas can be drafted and shipped before any LoRA is trained. LoRAs come online one at a time on m4max; each landing LoRA gets head-to-head voice-audit comparison against its closed-weight persona counterpart on a benchmark passage, and the winning voice per author becomes the default for that name.
 
-### 3.5 Corrector LoRAs (new category — operator extension 2026-05-21)
+### 3.5 Corrector LoRAs (operator extensions 2026-05-21 #1 and #2)
 
-The earlier "no biblical-author LoRAs" rule was too coarse. It conflated two distinct artifacts:
+The earlier "no biblical-author LoRAs" rule was too coarse. It conflated two distinct artifacts (extension #1):
 
 | LoRA type | What it does | Theological posture | Verdict |
 |---|---|---|---|
 | **Voice LoRA on a biblical author** | Produces new prose styled as Paul / John / Peter / etc. | Crosses into impersonating Scripture | **No — rule stands** |
 | **Corrector LoRA on a biblical author** | Catches errors in claims *about* that author (dates, geography, doctrine, context, argument structure) and drives back to the text | Guardrail; serves Scripture-governs | **Yes — and load-bearing** |
 
-The corrector LoRAs are *not* voice impersonators. They are domain scholars with a single output mode: detect drift and correct toward the corpus + reputable conservative scholarship. They serve the cite-or-flag invariant rather than violating it.
+Then extension #2 (operator 2026-05-21): **theologian LoRAs are primarily correctors too — maybe mostly.** This unifies the architecture: most LoRAs in the build are correctors with optional secondary voice mode. See §3.3 for the author-by-mode matrix.
+
+The corrector LoRAs are *not* primarily voice impersonators. They are domain scholars whose default output mode is detect-and-correct against the indexed corpus + reputable scholarship. They serve the cite-or-flag invariant rather than violating it. Voice output is a *secondary inference-time mode* available only for theologians and Wright (never for biblical authors).
 
 **The three functions of a corrector LoRA** (operator extension 2026-05-21):
 
@@ -189,12 +210,16 @@ The corrector LoRAs are *not* voice impersonators. They are domain scholars with
 
 This function is essentially an **automated Scopus test** for Pauline material (per `romans/32bacde3`'s four diagnostic tests). It also feeds the thus-says-the-lord rubric (`romans/6debe5a2`) categories Exposition & Hermeneutics (25 pts), Structure & Logical Flow (9 pts), and Sermonic Force (5 pts).
 
-**The category this opens**:
-- **Per biblical author**: Paul, Peter, John, James, Jude, Hebrews-author, Luke, Mark, Matthew, the Twelve, David, Isaiah, Jeremiah, Ezekiel, Daniel, Moses, Solomon, Joshua, Samuel-author, Kings-author, Chronicles-author.
-- **Per topic-cluster**: ANE backgrounds, Second Temple Judaism, Greco-Roman world, NT Greek grammar, Hebrew grammar, biblical-theology themes (covenant, kingdom, sacrifice, exile).
-- **Per book**: Romans-specific historical-context corrector, Genesis-specific framework corrector, etc.
+**The category this opens** — three sub-categories of corrector LoRAs sharing the same architecture, differing in whether voice mode is available:
 
-Corrector LoRAs are *cheaper to train per LoRA* than voice LoRAs — smaller corpora, narrower objective, no voice-fidelity bar to clear. They are also *higher-leverage* for hallucination prevention because the corrections are reflexive rather than prompted.
+- **Biblical-author correctors** (no voice mode, ever): Paul, Peter, John, James, Jude, Hebrews-author, Luke, Mark, Matthew, the Twelve, David, Isaiah, Jeremiah, Ezekiel, Daniel, Moses, Solomon, Joshua, Samuel-author, Kings-author, Chronicles-author.
+- **Theologian-author correctors** (voice mode invokable on explicit request): the full 24-name Tier-1 roster from §3.3. Each LoRA is primarily a corpus-scholar; voice output is available when the pastor explicitly requests it or when debate mode (Stage 9) calls for it.
+- **Topic-cluster correctors** (no voice mode applicable): ANE backgrounds, Second Temple Judaism, Greco-Roman world, NT Greek grammar, Hebrew grammar, biblical-theology themes (covenant, kingdom, sacrifice, exile).
+- **Per-book correctors** (optional sub-layer): Romans-specific historical-context corrector, Genesis-specific framework corrector, etc.
+
+All four sub-categories train against the same primary objective (corpus-scholar; detect + cite + correct). The voice-mode availability is an *inference-time flag*, not a training-time difference. Biblical-author voice-mode is hard-disabled at the system level (the LoRA may have the capacity but the gateway refuses the invocation); theologian voice-mode is enabled but secondary; topic-cluster voice-mode is N/A.
+
+Corrector LoRAs are *cheaper to train per LoRA* than pure voice-LoRAs — smaller corpora, narrower objective, no voice-fidelity benchmark gate to clear. They are also *higher-leverage* for hallucination prevention because the corrections are reflexive rather than prompted. The collapsing of theologian-voice training into theologian-corrector training (extension #2) shortens the overall sequencing materially — Track C no longer needs to run as a separate stretch.
 
 **Training corpus per corrector**:
 - The biblical text itself (ESV; the author's books).
@@ -205,11 +230,12 @@ Corrector LoRAs are *cheaper to train per LoRA* than voice LoRAs — smaller cor
 **Framework-agnostic training posture on contested scholarship**: Pauline rhetoric scholarship is *not monolithic* — Witherington (Greco-Roman primary), Stendahl / Stuhlmacher (Jewish midrashic primary), Stowers (diatribe specifically), Aletti (literary rhetoric) read the same passage differently. The corrector is trained on multiple frameworks and surfaces *which framework reads which way* with named-uncertainty rather than pretending one framework is settled.
 
 **Pipeline integration** (see §4):
-- **Post-DRAFT, pre-INTEGRATE**: corrector fires on author-tagged material in the pastor's draft.
-- **Post-step-7.5, pre-EVALUATE**: corrector fires again to catch errors smuggled in by theologian voices.
+- **Post-DRAFT, pre-INTEGRATE (Stage 2)**: correctors fire on author-tagged material in the pastor's draft. Both biblical-author correctors and theologian correctors fire here.
+- **Post-step-7.5, pre-EVALUATE (Stage 10)**: correctors fire again to catch errors smuggled in by Stage-9 critique (whether the voices spoke in correction-mode or, with explicit invocation, in voice-mode).
+- **Stage 9 itself** uses theologian correctors in their *primary* corrective mode by default — they critique the pastor's argument and his claims about them, surfacing what the author actually said. Voice mode at Stage 9 is invoked only when the pastor explicitly requests "give me this in Spurgeon's own voice" or when debate-mode framing calls for it (e.g., Wright's challenger role).
 - **PostToolUse hook** on Edit/Write of author-tagged sermons (extends the existing advisory hook pattern at `romans/44566500`).
 
-**Where this beats closed-weight personas**: the closed-weight path can simulate "Pauline scholar persona" via prompt + RAG, but a trained LoRA is meaningfully more reliable for systematic fact-correction because the corrections become reflexive rather than prompted. Worth doing the LoRA on the open-weight path even when the persona exists on the closed-weight side.
+**Where this beats closed-weight personas**: the closed-weight path can simulate "Pauline scholar persona" or "Spurgeon scholar persona" via prompt + RAG, but a trained LoRA is meaningfully more reliable for systematic fact-correction because the corrections become reflexive rather than prompted. Worth doing the LoRA on the open-weight path even when the persona exists on the closed-weight side.
 
 ### 3.6 Pre-DRAFT human exegesis gate (orchestra blind-spot fix)
 
@@ -304,7 +330,7 @@ Engineering shared, theology not. The InTheWake LoRAs are zero.
 
 ## 8. Sequencing (estimates; will drift)
 
-Three tracks running in parallel: **A (closed-weight personas — ships fast)**, **B (corrector LoRAs — high-leverage, cheaper)**, **C (voice LoRAs — depth, longest)**. Corrector LoRAs (track B) are ordered *ahead of* most voice LoRAs because they're cheaper to train per LoRA and higher-leverage for hallucination prevention.
+Two tracks running in parallel (operator extension #2 collapsed Track C into Track B): **A (closed-weight personas — ships fast)** and **B (corrector LoRAs — high-leverage; theologians + biblical authors + topic clusters all here)**. Voice mode for theologians and Wright is an inference-time invocation on the Track B LoRAs, not a separate training track.
 
 **Track A — closed-weight personas (immediate)**
 
@@ -317,27 +343,25 @@ Three tracks running in parallel: **A (closed-weight personas — ships fast)**,
 | 5 | Score against Romans 1a/1b benchmarks (88/105, 91/105 per `romans/50b2c027`). Hallucination audit: every attributed quote must have a chunk ID. |
 | 6 | Cost calibration: measure $/sermon for the full step-7.5 panel; tune voice count per pipeline run based on `ken/6bc81f3a`. |
 
-**Track B — Corrector LoRAs (parallel with A; serial within itself; ahead of voice LoRAs)**
+**Track B — Corrector LoRAs (all categories; serial within itself; voice mode invokable on theologians + Wright)**
 
 | Week | Work |
 |---|---|
 | 3 | Pre-DRAFT exegesis-gate scaffold (§3.6). Sermon-file exegesis-log format. Hook that refuses Stage 1+ when log is empty. |
 | 4 | Base-model decision via 3-pass orchestra design review (`ken/05261df2`): PASS 1 design proposal, PASS 2 stress with Romans 9 + Psalm 23 + a wounded-congregation pastoral text, PASS 3 refine. Commit to llama.cpp runtime. |
-| 5–12 | Corrector LoRAs, ordered by leverage: **Paul (highest — Romans series anchor)** → Peter → John (epistles) → Hebrews-author → James → Jude → Luke (Acts + Gospel) → Mark → Matthew → John (Gospel). New-Testament-first ordering matches current preaching cadence. AlignGuard-LoRA + contrastive negative-corpus applied throughout. |
-| 13–18 | OT corrector LoRAs: David (Psalms) → Isaiah → Jeremiah → Ezekiel → Daniel → Moses (Pentateuch) → Solomon → other-OT. Lower priority than NT but high-leverage for systematic preaching across the canon. |
-| 19–22 | Topic-cluster correctors: ANE backgrounds → Second Temple Judaism → Greco-Roman world → NT Greek grammar → Hebrew grammar → biblical-theology themes. |
+| 5–12 | **Biblical-author correctors** (no voice mode), ordered by leverage: **Paul (highest — Romans series anchor)** → Peter → John (epistles) → Hebrews-author → James → Jude → Luke (Acts + Gospel) → Mark → Matthew → John (Gospel). NT-first matches current preaching cadence. AlignGuard-LoRA + contrastive negative-corpus throughout. |
+| 13–24 | **Theologian-author correctors** (voice mode invokable; primary training objective is corrective scholarship), serial: Spurgeon → Washer → Sproul → MacArthur → Platt → Piper → Calvin → Edwards → Davey → Chandler → Anyabwile → Begg → Ryle → M'Cheyne → Bunyan → Lloyd-Jones → Carson → Schreiner → Baucham → Hamilton → Owen → Chapell → Robinson → Keller. Primary evaluation: corrective accuracy (catches attested errors? verifies quotes against corpus? surfaces relevant material?). Secondary evaluation: voice-fidelity check (stylometric ALM + GRPO+sentence-transformer) only when voice mode is invoked. The voice-mode-default head-to-head against closed-weight persona happens *as a secondary metric*, not the gate. |
+| 25–28 | **OT-author correctors**: David (Psalms) → Isaiah → Jeremiah → Ezekiel → Daniel → Moses (Pentateuch) → Solomon → other-OT. |
+| 29–30 | **Topic-cluster correctors**: ANE backgrounds → Second Temple Judaism → Greco-Roman world → NT Greek grammar → Hebrew grammar → biblical-theology themes. |
+| 31 | **Wright corrector** with voice-mode-enabled-for-challenger-role-only. Adversarial review (`ken/07bb1504`) on Wright outputs against the substitutionary-atonement verifier. |
+| 32 | Voice-audit recalibration after all LoRAs land. Post-deploy monitoring of cite-or-flag rate + named-uncertainty disposition + corrective-accuracy rate + voice-invocation frequency + voice-audit deltas. |
 
-**Track C — Voice LoRAs (parallel with A/B; longest track; serial within itself)**
-
-| Week | Work |
-|---|---|
-| 5–28 | Voice LoRA training on m4max, one author at a time (serial; `4a66badc`). Recommended order: Spurgeon → Washer → Sproul → MacArthur → Platt → Piper → Calvin → Edwards → Davey → Chandler → Anyabwile → Begg → Ryle → M'Cheyne → Bunyan → Lloyd-Jones → Carson → Schreiner → Baucham → Hamilton → Owen → Chapell → Robinson → Keller. Each landing LoRA gets a head-to-head voice-audit vs. its closed-weight persona on a benchmark passage (stylometric ALM + GRPO+sentence-transformer evaluation per §3.3); the winning voice becomes the default for that author. |
-| 29 | Wright voice LoRA last. Adversarial review (`ken/07bb1504`) on Wright outputs against the substitutionary-atonement bumper. |
-| 30 | Voice-audit recalibration after all LoRAs land. Post-deploy monitoring of cite-or-flag rate + named-uncertainty disposition + path-selection mix + voice-audit deltas. |
+The collapsing of voice-LoRA-as-separate-track into corrector-LoRA-with-voice-as-secondary shortens the total stretch from the prior 30-week estimate to ~32 weeks but is *less work per author* and produces *more leverage per LoRA* because correction is now a primary capability of every author LoRA rather than a missing one.
 
 ## 9. What does NOT get built
 
-- **No biblical-author *voice* LoRAs and no biblical-author voice personas.** Scripture is read and exegeted, never impersonated. Producing "Paul-style" new prose crosses 1689 LBCF + Berean Gate + Fatal-Flaw cap. *Note: this is the **voice** rule. Biblical-author **corrector** LoRAs are explicitly **yes** — see §3.5. The two artifacts are theologically distinct.*
+- **No biblical-author *voice* LoRAs and no biblical-author voice personas.** Scripture is read and exegeted, never impersonated. Producing "Paul-style" new prose crosses 1689 LBCF + Berean Gate + Fatal-Flaw cap. Biblical-author **corrector** LoRAs are explicitly yes (§3.5), but voice mode is **hard-disabled at the gateway**, not just absent from training.
+- **No theologian *voice-first* LoRAs.** Theologian LoRAs train primarily as corpus-scholars (operator extension 2026-05-21 #2). Voice mode is a *secondary inference-time invocation*, not the training objective. A theologian LoRA that produces voice-styled output by default rather than corrective scholarship has been trained wrong.
 - No Greek-scholar voice LoRAs or voice personas (those become RAG-indexed exegesis aides and feed the corrector layer where useful).
 - No theologian-voice deployment to InTheWake content.
 - No theologian-voice generation that produces alternative arguments to be merged with the pastor's draft. Voices critique (Stage 9); they don't replace exegetical labor.
@@ -368,7 +392,8 @@ The handoff names "Theologian Model Library Plan (in protected memory)" but no d
 - The Scripture-governs / 1689-is-bumpers framing (operator's verbatim 2026-05-21).
 - The base-model decision (14B Q4) and its cluster-distributed deployment.
 - The full-roster Tier-1 theologian pool (24 names; no demotion).
-- **The voice-vs-corrector LoRA split** (operator extension 2026-05-21): biblical-author *voice* LoRAs are out; biblical-author *corrector* LoRAs are in, with three functions — factual, doctrinal, rhetorical-structural critique.
+- **The voice-vs-corrector LoRA split** (operator extension 2026-05-21 #1): biblical-author *voice* LoRAs are out; biblical-author *corrector* LoRAs are in, with three functions — factual, doctrinal, rhetorical-structural critique.
+- **The theologian-LoRAs-are-primarily-correctors rule** (operator extension 2026-05-21 #2): theologian LoRAs train as corpus-scholars first; voice is a secondary inference-time invocation, not the training objective. Author-by-mode matrix in §3.3 is the operative reference. Track C (voice-only LoRAs) collapsed into Track B.
 - **The pre-DRAFT human exegesis gate** (orchestra blind-spot fix 2026-05-21): pastor exegetes first, AI critiques second. Step 7.5 reframed as post-exegesis critique, not generative input.
 - The RAG-as-citation-invariant rule (anti-hallucination as system invariant, not model behavior).
 - **The substring-match post-validator + cryptographic chunk-hash** as the actual enforcement of cite-or-flag (research-grounded; tool_choice alone is best-effort).
