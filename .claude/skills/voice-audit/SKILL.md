@@ -198,4 +198,67 @@ Telegraph style. Bullets. State. Paths. Numbers. The audit's specificity check i
 
 ---
 
+## AI-Tell Detection Framework (v3)
+
+Added 2026-05-25. This section codifies a layered framework for identifying probable AI authorship in completed prose. The framework was refined through adversarial iteration; earlier versions overclaimed on isolated features (chiasmus, performative tone, "humans don't usually open this way"). The v3 version corrects those errors and operationalizes the core insight: **AI authorship is detected by clustering and density, not by individual features.**
+
+### The operational rule: cluster, don't single
+
+No single feature is a verdict. A passage flagged only for one item in any layer below is at most a yellow flag, not a finding. The framework requires clustering across layers — at least one strong signal and one or more supporting signals, with counter-signals weighed against them — before any AI-likelihood claim is made.
+
+### Layer 1 — Strong signals (high confidence when clustered)
+
+- **Semantic placeholders where concrete referents could go.** AI gravitates to "the mission," "the work," "the hard questions," "the rooms where decisions get made," "the journey," "the challenge." Test each instance: can the abstraction be traced to a concrete referent in surrounding context? If yes, the placeholder is shorthand and acceptable. If no, the placeholder is filler.
+- **Broad authority claims with no specifics.** "I've been in the rooms where decisions get made" without naming a single room is the canonical case. Acceptable form: the claim with the anchor. Unacceptable form: the claim without the anchor.
+- **Triplet closures carrying rhythm but not content.** Test: if the third item in the triplet is deleted, does meaning collapse or does the sentence just lose its musical close? If only the music is lost, the closure was decoration.
+- **Clean, linear persuasion arc** with no digression, no authorial uncertainty, no moment where the writer admits something doesn't fit cleanly. Human prose has friction; optimized AI output rarely does.
+
+### Layer 2 — Supporting signals (need Layer 1 to confirm)
+
+- Stock consultant phrases ("seamlessly," "robust," "leverage," "best-in-class," "world-class")
+- Clichés ("every shape and size," "more with less")
+- Sustained staccato fragment-clustering without rhythm variation
+- Parallel structures and chiasmus when they read manufactured-clean (chiasmus is ancient rhetoric — its presence is human-first; the signal is overuse and unbroken cleanness, not appearance)
+- "Too smooth" delivery — no awkwardness, no recovered phrases, no second thoughts
+
+### Layer 3 — Counter-signals (favor human authorship)
+
+- Named entities, places, dates, paths, file names, command outputs, version numbers
+- Mild awkwardness, sentence-shape variation, unexpected word choices
+- Localized claims with bounded scope ("on Devuan," "in the November release cycle")
+- Authorial hedging that names the limit of what's claimable
+- Specific verifiable quotes with attribution
+- Friction, contradiction, or admitted uncertainty within the prose
+
+### Hard constraints (non-negotiable; these override the cluster test)
+
+Earlier framework versions produced false positives by violating these. They are absolute:
+
+- **Performative is not artificial.** Humans are routinely performative — especially in testimony, advocacy, preaching, public speaking. A passage that reads "performed" is not on that basis AI-generated.
+- **Rhetorical devices are human first.** Chiasmus, anaphora, parallelism, triplet closures, contrast reframing — all are ancient rhetoric, all predate AI by centuries. Their presence is never evidence of AI authorship. Their clean, mechanized overuse without substance is the actual signal.
+- **Specificity strongly favors human authorship; lack of specificity does not prove AI.** Many human writers are vague. Vagueness alone is not a verdict.
+- **All conclusions are probabilistic.** The framework produces "likely AI," "likely human," or "unclear" — never a definitive label.
+- **Context matters.** Testimony, preaching, advocacy, sermon, eulogy, and political address operate at elevated register by genre convention. Apply the framework with awareness of which register the passage is in.
+
+### Cluster scoring (operational)
+
+To produce a verdict, count by layer:
+
+- 0 Layer 1 signals → likely human regardless of Layer 2
+- 1 Layer 1 + 0 Layer 2 → unclear (yellow flag, no verdict)
+- 1 Layer 1 + 2+ Layer 2 → likely AI, modulo counter-signals
+- 2+ Layer 1 → likely AI, modulo counter-signals
+
+Counter-signals modulate the verdict downward by one notch each. Three or more counter-signals override any combination of Layer 1 + Layer 2 signals; this is what protects skilled human writing from false positives.
+
+### Falsification test
+
+Before any change to this framework, run the modified framework against the passages in `falsification-test.md` in this directory. Those passages are highly polished human writing with multiple features the framework lists as AI signals. They should pass the cluster test and produce "likely human" verdicts. If a framework update causes any of those passages to be flagged as AI, the update is too aggressive and must be revised.
+
+### Note on documentation context
+
+This framework is general — it applies to any prose. For ken-specific documentation (README, CLAUDE.md, HANDOFF), the framework's hard constraints still hold, but the counter-signals weight is higher: docs are expected to be specific, hedged, and friction-laden by their nature. A doc that reads as smooth marketing prose is almost always AI-template-shaped. A doc that reads as terse, awkward, command-and-path-exact is almost always human-authored or carefully AI-edited under human discipline. The five-axis scan above (LLM-doc-fluff, specificity, imperative mood, marketing drift, cadence/density) is the documentation-tuned application of the same underlying detection logic.
+
+---
+
 *Documentation is the work, six months from now. Audit before commit.*

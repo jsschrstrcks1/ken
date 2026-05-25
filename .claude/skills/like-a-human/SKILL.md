@@ -134,3 +134,39 @@ When in doubt, cut. ken's docs are short on purpose. The reader's time is more v
 ---
 
 *The orchestrator is the work. The keeper is the work. The tz command is the work. The docs serve the work, not the other way around.*
+
+---
+
+## AI-Tell Discipline (v3 — During-Writing Rules)
+
+Added 2026-05-25. Three rules to internalize during composition. The full post-draft detection framework these rules emerged from lives in `voice-audit/SKILL.md` under "AI-Tell Detection Framework (v3)" — this skill carries the discipline; voice-audit carries the scan.
+
+### Rule 1 — Every abstraction earns a concrete referent within two sentences
+
+If the prose says "the orchestrator," the next sentence (or the one after) identifies which orchestrator function or path. If the prose says "the build," the next sentence names a specific build step or command. If a doc says "the system," surrounding text identifies which system — by name, path, or version.
+
+Test during composition: when an abstract phrase is drafted, ask whether the reader could trace it to a specific referent without re-reading the whole document. If not, the abstraction is filler and either gets a referent or gets cut.
+
+### Rule 2 — Triplet closures and parallel structures must do work, not just sound like work
+
+Parallel constructions and triplet closures are powerful — and they are everywhere in skilled human writing. They are also what AI overproduces because they sound resonant without requiring substance. ken's docs occasionally use them effectively (the closing taglines on many SKILL.md files); the test is whether the structure is carrying content or just rhythm.
+
+Test during composition: if the third item in a triplet is deleted, does the meaning collapse or does the sentence only lose its musical close? If only the music is lost, the closure was decorative — cut it or replace the third item with one that carries distinct content.
+
+### Rule 3 — Cluster, not single
+
+No individual feature determines verdict. A single chiasmus is human rhetoric. A single triplet is human cadence. A single stock phrase is laziness, not AI. The signal is density — multiple features stacking in a short span without counter-signals (named specifics, authorial hedging, friction, unexpected word choice) to balance them.
+
+The discipline during composition: notice when several features are clustering. Then deliberately add a counter-signal — a specific path, a named command, an admitted limitation, an awkward unexpected phrase, a hedge that names the limit of the claim. Counter-signals are what keep skilled writing on the human side of the framework.
+
+### Read alongside
+
+- `voice-audit/SKILL.md` — the post-draft detection framework these rules support
+- `voice-audit/falsification-test.md` — polished human writing the framework must not flag as AI; reference for what skilled prose with structural features looks like
+
+### Important constraints to internalize
+
+- Performative is not artificial. Humans are often performative — especially in testimony, preaching, advocacy.
+- Rhetorical devices (chiasmus, anaphora, parallelism, triplet closure, contrast reframing) are human first, AI second. Their presence is never a verdict.
+- Specificity strongly favors human authorship. Vagueness alone does not prove AI.
+- All conclusions about authorship are probabilistic.
