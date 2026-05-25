@@ -34,6 +34,8 @@ Count instances of:
 - **Conclusion bloat** (closing summaries that restate the section)
 - **Synthetic earnestness** ("Here's the thing:" "The truth is:" "Let's be real:")
 - **Synonym cycling** (`command → utility → tool → function` in one section)
+- **Abstract authority clustering** (multiple instances of `mission, work, framework, ecosystem, platform, journey, story` in the same section without concrete referents — single use is fine; clustering without anchors is the tell. Test each instance: does the surrounding two sentences name a path, command, file, or specific behavior? If yes, the abstraction is shorthand. If no, it is filler dressed as authority.)
+- **Identity-archetype framing** (prose that positions the doc, the system, or the author as "the one who sees what others miss," "the bridge between approaches," or "the voice that warns" — AI-shaped narrative templates that have no place in utility prose. Rare in command-reference and HANDOFF docs; most likely to appear in plan-doc rationale sections and orchestrator-prompt-template framing.)
 
 Report: **count + line numbers + exact phrase**. No paraphrasing.
 
@@ -183,10 +185,11 @@ When the rating is High, the recommendation is to **rewrite the section from a f
 
 ### Orchestrator Prompt Templates (`orchestrator/modes/*`)
 
-These feed *other* models. Voice rules still apply but with two additions:
+These feed *other* models. Voice rules still apply but with three additions:
 
 - **Role boundaries explicit.** The prompt names what the consultant model is and is not for.
 - **No leakage of internal-only context.** Voice-audit also flags any prompt that references private paths or internal docs that consultants shouldn't see.
+- **No identity-archetype framing.** Prompts that position the consultant as "the one who sees what others miss," "the bridge between approaches," or "the voice that warns" are AI-shaped narrative templates. Address the consultant by role and task only — describe what to evaluate, not who to be.
 
 ### CLAUDE.md
 
