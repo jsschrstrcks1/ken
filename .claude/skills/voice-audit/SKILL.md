@@ -261,4 +261,19 @@ This framework is general — it applies to any prose. For ken-specific document
 
 ---
 
+## Examples
+
+Two complementary reference sets live alongside this skill, each serving a distinct calibration purpose:
+
+**Target-voice examples** (what ken HANDOFF prose should read like):
+- [`examples/good-voice.md`](./examples/good-voice.md) — utility-prose handoff that passes the audit.
+- [`examples/bad-voice.md`](./examples/bad-voice.md) — same handoff in the failure mode this skill catches.
+
+**Falsification test** (polished human writing the AI-tell framework must not flag as AI):
+- [`falsification-test.md`](./falsification-test.md) — three Spurgeon passages with multiple structural features the v3 framework would naively flag, but counter-signals that should produce "likely human" verdicts.
+
+The good/bad pair calibrates the audit's general voice scan. The falsification test calibrates the AI-tell detection framework specifically. Both should be referenced when modifying the skill — a change that makes the good example fail or the falsification test flip to "likely AI" is too aggressive.
+
+---
+
 *Documentation is the work, six months from now. Audit before commit.*
