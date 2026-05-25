@@ -514,6 +514,129 @@ Different content types get different lifecycle rules.
 
 ---
 
+## 3C. Voice Studio — voice-stack concepts, customized per repo
+
+Fourth pass: evaluation of `ivtownsendmichelle-source/voice-studio` (HTML single-page tool by Michelle Townsend Consulting, hosted at `https://ivtownsendmichelle-source.github.io/voice-studio/`). Three files in the source repo, HTML 100 %, no install path, no worm surface. Confirmed clean. Concepts below are extracted from `index.html` at the May 25 2026 clone.
+
+**Privacy note (relevant only if anyone fills out the live form).** The site posts to a Netlify form. A submission sends the user's name, email, every pasted writing sample, the 8 personal-voice answers, and the generated profile XML to Netlify and from there presumably to Michelle's email. Not a worm; just real data going to a third party. Evaluating the concept does not require submitting.
+
+The concepts compose with the voice stack each repo carries. **`open-claw-stuff` has no voice skills** ("Empty by default. Skills land here only when they are mature, generic, and ready for the commons.") so nothing lifts directly to it today; any voice work matures in `ken` or `InTheWake` first and only graduates to `open-claw-stuff` if it becomes generic.
+
+### 3.40 [HIGH] User-defined formality scale ("Numbers")
+
+**Source.** `index.html:254-267` (Step 4 prompt), `index.html:1745-1803` (`<numbers_scale>` emission).
+**Concept.** Instead of categorical formality buckets (formal / casual / professional), each writer **defines their own scale** with their own labels. Verbatim example from the page: *"1 = Texting my best friend, 3 = Email to a client, 5 = Board meeting, 7 = Formal grant, 9 = Legal document."* Minimum five Numbers required.
+
+**Per-repo application:**
+- **ken** — Numbers map to documentation registers, not formality. Candidate scale: 1 = WORKING-CONTEXT inline note, 3 = HANDOFF telegraph, 5 = SKILL.md body, 7 = CLAUDE.md operational, 9 = README hero. `voice-dna` measures each register separately; `voice-audit` applies register-appropriate thresholds. Composes with §3.37 (bounded-task scope tagging) — each Number IS a bounded task.
+- **InTheWake** — Numbers map to content surfaces. Candidate scale: 1 = logbook personal aside, 3 = port-guide section body, 5 = ship-spec table prose, 7 = accessibility / disclaimer footer, 9 = editorial policy. The existing `voice-dna` corpus already implicitly spans this range; making it explicit lets `like-a-human` shape voice per-surface instead of one-corpus-fits-all.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** Low. Schema extension on `voice-dna` baseline output.
+
+### 3.41 [HIGH] Captured vs Designed voice distinction
+
+**Source.** `index.html:1751-1801` — every `<number>` carries `type="captured"` or `type="designed"`. Designed Numbers have `<intent>` with `<audience>`, `<want_to_be_known_for>`, `<admired_voices>`, `<avoided_voices>`, and a `<synthesis_status>TO_BE_DESIGNED_BY_STRATEGIST</synthesis_status>` flag.
+**Concept.** A voice profile distinguishes between voices the writer HAS (extracted from samples) and voices the writer WANTS to develop (defined by intent).
+
+**Per-repo application:**
+- **ken** — Captured: the actual prose voice across existing CLAUDE.md / SKILLS.md / HANDOFF files. Designed: utility-prose target the user is moving toward but doesn't yet hit consistently (per the `like-a-human` skill's standards). The `synthesis_status` flag is structurally the same as Kestrel's provisional tier (§3.25) — composes directly.
+- **InTheWake** — Captured: measured cruise-content voice. Designed: "writer-who-has-actually-sailed-the-route" authenticity that some pages reach and others don't. The `<admired_voices>` / `<avoided_voices>` shape maps cleanly to the existing reviewed-vs-flagged pages in `audit-reports/`. Composes with `emotional-hook-test`.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** Low. Pure addition to `voice-dna` schema.
+
+### 3.42 [HIGH] Paired admired / avoided examples with per-example annotation
+
+**Source.** `index.html:1774-1791` — each admired or avoided example carries text plus `<what_admired>` or `<what_bothers>` annotation.
+**Concept.** For each Designed voice, paste both writing the user admires AND writing they avoid. Each example has a one-line *why* — `what_admired` or `what_bothers`. The annotation is the signal, not the text alone.
+
+**Per-repo application:**
+- **ken** — Upgrade to the `voice-audit/examples/good-voice.md` and `bad-voice.md` files committed earlier in this branch (`e92f67e`): split each file into multiple paired examples each with explicit per-example annotation (`what_passes:` / `what_fails:`), not just the file-level "Why this passes / fails" blocks that exist today. Also applies to any future `examples/` directories on `like-a-human` and `icp-2`.
+- **InTheWake** — Same pattern for `voice-audit`, `like-a-human`, and `emotional-hook-test`. The repo already has flagged pages in `audit-reports/`; a representative pair (admired page + avoided page) per content type — port guide, ship page, logbook entry — with annotation explaining exactly what's working and what's failing.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** None. Documentation discipline.
+
+### 3.43 [HIGH] The 8 personal-voice questions as a fixed elicitation set
+
+**Source.** `index.html:432-441` — `PERSONAL_CHARACTERISTICS_QUESTIONS` array.
+**Concept.** Eight specific questions that elicit voice signal a corpus cannot extract: pet peeves, words-that-feel-true, tone-that-would-annoy. Verbatim:
+
+1. What is your biggest pet peeve in business writing?
+2. What word or phrase do you use a lot that feels true to how you talk?
+3. What tone would annoy you if an AI used it?
+4. How do you feel about exclamation marks?
+5. What is your relationship to brevity? Do you prefer short or long sentences?
+6. Do you use humor in your writing? How?
+7. What is the biggest mistake other people make when writing in your voice?
+8. What should an AI know about you that is not obvious?
+
+**Per-repo application:**
+- **ken** — Drop into `like-a-human` as a one-time elicitation. The user's answers become a small `personal-voice.md` reference doc that `voice-audit` and `like-a-human` both consult. Answer once, applies everywhere.
+- **InTheWake** — Same elicitation, separate answer set — the cruise-content voice has different pet peeves than the household-documentation voice. Land at `.claude/skills/like-a-human/personal-voice.md`.
+- **open-claw-stuff** — N/A today; revisit if voice skills ever graduate here.
+
+**Risk.** None. Five-minute lift per repo.
+
+### 3.44 [HIGH] Voice profile *is* the deliverable system prompt
+
+**Source.** `index.html:1690-1838` — `buildSystemPromptXML()` emits `<role>`, `<context>`, `<numbers_scale>`, `<voice_rules>`, `<output_rules>` — a complete, ready-to-paste system prompt.
+**Concept.** The output of voice measurement isn't a report — it's the working artifact. The user (or an orchestrator) copies it once into any LLM session and the voice is in effect.
+
+**Per-repo application:**
+- **ken** — `voice-dna` today outputs a baseline measurement. Add a `build-system-prompt` mode that emits an XML or markdown system prompt the orchestrator can prepend to `consult` / `orchestrate` / `orchestra` calls. Per-mode variants — `sermon` voice prompt, `cruising` voice prompt, etc. — composes with §3.3 (role-based debate) and §3.11 (structured handoffs).
+- **InTheWake** — Same shape: `voice-dna` outputs a system prompt the content-writing skills (`port-page-generator`, `venue-page-writer`, `port-content-builder`) prepend to their LLM calls. Per content-type variants. Voice consistency across 1,241 pages stops being a per-page lint problem and becomes a system-prompt enforcement problem.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** Low. New output mode on existing skill.
+
+### 3.45 [MEDIUM-HIGH] Per-sample metadata (context + recipient + Number)
+
+**Source.** `index.html:1758-1765` — every `<sample>` carries `context`, `recipient`, and the assigned Number.
+**Concept.** Voice samples are tagged with `context` ("what was this — email, text, post"), `recipient` ("who were you writing to"), and the Number they represent. Voice is measured as a function of audience + medium + register, not as a single aggregate.
+
+**Per-repo application:**
+- **ken** — `voice-dna` corpus capture: per-document YAML frontmatter `context:` and `recipient:` fields so the baseline can answer "how does the writer sound in a HANDOFF vs in a CLAUDE.md."
+- **InTheWake** — Same shape, but `recipient:` maps to the `audience-profiles` skill (ICP-shaped — family-cruiser vs solo-explorer vs accessibility-need traveler). Per-page voice can be measured against per-audience expectation.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** Low. Frontmatter extension.
+
+### 3.46 [MEDIUM] Required minimum on anti-pattern collection (≥3)
+
+**Source.** `index.html:323` — "Add at least three custom bad examples to continue."
+**Concept.** Enforce a floor on anti-pattern collection — at least N custom examples required before the profile is considered usable.
+
+**Per-repo application:**
+- **ken** — When extending `examples/` directories beyond `voice-audit` (added in `e92f67e`) to `icp-2`, `like-a-human`, `verification-before-completion`, require ≥3 paired good/bad examples per skill. Document the floor in `skill-developer` next to the `examples_dir:` convention added in this branch.
+- **InTheWake** — Same floor applies to any `examples/` directory added to its detector skills (`voice-audit`, `accessibility-audit`, `seo-schema-audit`, `link-integrity`, `emotional-hook-test`).
+- **open-claw-stuff** — N/A today.
+
+**Risk.** None — documentation discipline.
+
+### 3.47 [LOW] Specific AI-fluff phrase blacklist
+
+**Source.** `index.html:1822-1830` — hardcoded `<voice_rules>` block.
+**Concept.** Three concrete phrases Voice Studio explicitly blacklists in its hardcoded rules: *"I hope this finds you well"*, *"Certainly"*, *"I would be happy to help."* These are universal AI-generated-prose markers.
+
+**Per-repo application:**
+- **ken** — Verify these three are in `voice-audit`'s phrase-trigger list. Add if not.
+- **InTheWake** — Same verify-and-add against its `voice-audit`.
+- **open-claw-stuff** — N/A today.
+
+**Risk.** None.
+
+### 3.48 Things deliberately not lifted from Voice Studio
+
+- **The 9-step wizard UI.** CLI-first stack; no wizard.
+- **The Netlify form submission.** Privacy — user data leaves the household.
+- **Their hardcoded `voice_rules` as-is.** Especially "No em dashes" — opposite of the user's prose style. The *idea* of a hardcoded rules block transfers; the specific contents do not.
+- **"Karen will synthesize" references** (lines 1681-1687 of `index.html`). Out-of-band consultant in Michelle's workflow.
+- **The `.docx` spec file** (`voice-studio-spec.docx`). Not opened — Word documents are an unnecessary parser surface for evaluating a 1900-line HTML file whose XML output schema is already legible.
+
+---
+
 ## 4. Verification gate every imported concept must pass
 
 This is the gate. It exists because of §1 (the worm landscape). No concept ships without all six.
@@ -570,7 +693,18 @@ After §3B (Kestrel deep-read), insert in this order:
 34. **§3.37 bounded-task scope tagging** — frontmatter `scope:` on each detector-style skill.
 35. **§3.38 SSE event bus** — documented, not implemented.
 
-Items in §3.9 (and the rejections re-confirmed in §3.19 and §3.39) should not be re-evaluated without a new threat-model justification.
+After §3C (Voice Studio), the voice-stack picks slot in as a parallel track to the orchestrator / memory tracks above. They land independently in `ken` and `InTheWake`; `open-claw-stuff` waits until anything graduates.
+
+36. **§3.43 eight personal-voice questions** — one-time elicitation per repo, drop into `like-a-human/personal-voice.md`. Cheapest §3C item.
+37. **§3.47 specific AI-fluff phrase blacklist** — verify three phrases are in each repo's `voice-audit` trigger list.
+38. **§3.42 per-example annotation** — upgrade the `voice-audit/examples/` files already committed in `ken` (`e92f67e`); add the same pattern to `InTheWake`'s `voice-audit` next time it's touched.
+39. **§3.40 user-defined Numbers scale** — schema extension to `voice-dna` in `ken` and `InTheWake`. Per-repo register tables differ.
+40. **§3.41 Captured vs Designed distinction** — extends §3.40; composes with §3.25 provisional tier.
+41. **§3.45 per-sample metadata** — frontmatter `context:` and `recipient:` on `voice-dna` corpus docs.
+42. **§3.44 voice profile as deliverable system prompt** — new output mode on `voice-dna`; composes with §3.3 and §3.11.
+43. **§3.46 ≥3 anti-pattern floor** — discipline applied when extending `examples/` to other detector skills.
+
+Items in §3.9 (and the rejections re-confirmed in §3.19, §3.39, and §3.48) should not be re-evaluated without a new threat-model justification.
 
 ---
 
