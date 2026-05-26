@@ -134,3 +134,79 @@ When in doubt, cut. ken's docs are short on purpose. The reader's time is more v
 ---
 
 *The orchestrator is the work. The keeper is the work. The tz command is the work. The docs serve the work, not the other way around.*
+
+---
+
+## AI-Tell Discipline (v3 — During-Writing Rules)
+
+Added 2026-05-25. Three rules to internalize during composition. The full post-draft detection framework these rules emerged from lives in `voice-audit/SKILL.md` under "AI-Tell Detection Framework (v3)" — this skill carries the discipline; voice-audit carries the scan.
+
+### Rule 1 — Every abstraction earns a concrete referent within two sentences
+
+If the prose says "the orchestrator," the next sentence (or the one after) identifies which orchestrator function or path. If the prose says "the build," the next sentence names a specific build step or command. If a doc says "the system," surrounding text identifies which system — by name, path, or version.
+
+Test during composition: when an abstract phrase is drafted, ask whether the reader could trace it to a specific referent without re-reading the whole document. If not, the abstraction is filler and either gets a referent or gets cut.
+
+**✗ Negative example (abstraction without referent):**
+> "The orchestrator handles the multi-LLM workflow efficiently. The system processes requests through the pipeline. The architecture supports all the major use cases."
+
+Three abstractions in three sentences: "the multi-LLM workflow," "the pipeline," "the major use cases." Each could be tested by asking "which workflow? which pipeline? which use cases?" — none can be answered from the prose. This is filler shaped like documentation.
+
+**✓ Positive example (every abstraction earns its referent):**
+> "The orchestrator runs the cruising-mode pipeline defined at `/home/user/ken/orchestrator/modes/cruising.json` — read standards → generate → consultant pass → integrate. The consultant step currently routes to GPT for the content pass and Gemini for the completeness pass. Total tokens average around 8,200 in / 5,400 out per page."
+
+Same opening subject, but each abstraction is anchored: the pipeline by file path; the workflow by named steps; the consultant routing by named model assignments; the cost shape by token counts.
+
+### Rule 2 — Triplet closures and parallel structures must do work, not just sound like work
+
+Parallel constructions and triplet closures are powerful — and they are everywhere in skilled human writing. They are also what AI overproduces because they sound resonant without requiring substance. ken's docs occasionally use them effectively (the closing taglines on many SKILL.md files); the test is whether the structure is carrying content or just rhythm.
+
+Test during composition: if the third item in a triplet is deleted, does the meaning collapse or does the sentence only lose its musical close? If only the music is lost, the closure was decorative — cut it or replace the third item with one that carries distinct content.
+
+**✗ Negative example (decorative triplet that collapses to one claim if any item is cut):**
+> "The orchestrator is fast, reliable, and powerful."
+
+Cut "and powerful." Cut "reliable." Cut "fast." Each cut leaves the sentence saying the same thing — "the orchestrator is good." The three adjectives are empty paraphrases of one another. The triplet is doing rhythm work, not substance work.
+
+**✓ Positive example (triplet where each item carries distinct content):**
+> "Bash for spawning. Python for routing. tz for time-aware execution."
+
+Cut "tz for time-aware execution" and the doc is silent on how scheduling interacts with timezone. Cut "Python for routing" and the dispatch layer disappears. Cut "Bash for spawning" and the process model is unspecified. Each item is a distinct system component. The triplet is the architecture summary.
+
+**✓ Another positive (working triplet from ken's documentation tradition):**
+> "The PDFs are the cron job. The architecture is the mechanism. The voice is what the reader actually feels."
+
+Three layers of a single argument: artifact (PDFs), production system (architecture), reader-side experience (voice). Each names a distinct level. Cut any item and the layered argument collapses to a single level.
+
+### Rule 3 — Cluster, not single
+
+No individual feature determines verdict. A single chiasmus is human rhetoric. A single triplet is human cadence. A single stock phrase is laziness, not AI. The signal is density — multiple features stacking in a short span without counter-signals (named specifics, authorial hedging, friction, unexpected word choice) to balance them.
+
+The discipline during composition: notice when several features are clustering. Then deliberately add a counter-signal — a specific path, a named command, an admitted limitation, an awkward unexpected phrase, a hedge that names the limit of the claim. Counter-signals are what keep skilled writing on the human side of the framework.
+
+**✗ Negative example (real AI-cluster in documentation prose — multiple Layer 1 + Layer 2 signals, zero counter-signals):**
+> "Our comprehensive solution leverages cutting-edge technology to deliver seamless experiences. It empowers users, streamlines workflows, and unlocks new possibilities. With our robust architecture, you can scale to meet any challenge. This is the future of intelligent automation."
+
+The cluster: marketing verbs ("leverages," "empowers," "streamlines," "unlocks") + adjective stack ("comprehensive," "cutting-edge," "seamless," "robust," "intelligent") + semantic placeholders ("the future," "any challenge," "intelligent automation") + triplet closure ("empowers... streamlines... unlocks") + zero named specifics + zero paths + zero version numbers + zero hedging. Every documentation tell triggered. This is the prose CLAUDE.md exists to prevent.
+
+**✓ Positive example (structural features retained, counter-signals dominate):**
+> "The orchestrator runs on Bash and Python 3.11. Memory persists via SQLite at `/home/user/ken/.cognitive-memory/memory.db`. Adapter loading is fail-closed — a single missing adapter logs to stderr and continues without it. Gemini adapter currently fails with `ModuleNotFoundError: No module named '_cffi_backend'` on this Devuan host; the fallback to other adapters works."
+
+Specific runtime version (Python 3.11), specific path (the SQLite database), specific failure mode (fail-closed), specific named error message (the cffi exception), specific platform (Devuan), specific behavior under the error (other adapters still work). This passage has parallel construction and named-system rhythm — but each named component is verifiable, the admitted current failure is the friction AI rarely produces unprompted, and the prose admits the system is imperfect right now. Counter-signals dominate the structural rhythm.
+
+**✓ Another positive (high structural density that passes because of cluster-breaking specificity):**
+> "Trust bytes, not strings. When asked whether something is correct, unique, working, or consistent — run the ground-truth check, not the proxy check. The proxy can be clean while the ground truth is broken."
+
+Manufactured-quotable opening line. Parallel construction. Contrast reframing ("not X, but Y"). Triplet of conditions ("correct, unique, working, or consistent" — actually a four-item list, not a triplet). But the rule exists because of a specific failure mode CLAUDE.md documents in detail: byte-identical images assigned to different ships on `ships.html` that passed URL-string uniqueness checks. The named historical failure is the counter-signal that makes the maxim load-bearing rather than aphoristic.
+
+### Read alongside
+
+- `voice-audit/SKILL.md` — the post-draft detection framework these rules support
+- `voice-audit/falsification-test.md` — polished human writing the framework must not flag as AI; reference for what skilled prose with structural features looks like
+
+### Important constraints to internalize
+
+- Performative is not artificial. Humans are often performative — especially in testimony, preaching, advocacy.
+- Rhetorical devices (chiasmus, anaphora, parallelism, triplet closure, contrast reframing) are human first, AI second. Their presence is never a verdict.
+- Specificity strongly favors human authorship. Vagueness alone does not prove AI.
+- All conclusions about authorship are probabilistic.

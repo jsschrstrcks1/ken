@@ -138,6 +138,11 @@ The actual guidance, documentation, patterns, examples
 - ✅ **Examples**: Real code examples
 - ✅ **Structure**: Clear headings, lists, code blocks
 
+**Optional frontmatter fields:**
+
+- `priority: N` — soft loading-order hint, lower number = earlier in a sequenced load. Claude Code itself does not currently consume this field; it is an informational convention adopted by some third-party agent templates (e.g. `CLAUDE.md` + `AGENT.md` starter kits) and may be respected by future tooling. Add it only when a skill has an obvious precedence relative to others; leave it off otherwise. Do not write a loader that depends on it.
+- `examples_dir: ./examples/` — declares that paired good/bad example files live in an `examples/` subdirectory next to `SKILL.md`. Detector-style skills (e.g. `voice-audit`, `icp-2`, `like-a-human`) benefit from paired `good-<topic>.md` + `bad-<topic>.md` files showing what the rule catches and what it leaves alone.
+
 ### Step 2: Add to skill-rules.json
 
 See [SKILL_RULES_REFERENCE.md](SKILL_RULES_REFERENCE.md) for complete schema.
