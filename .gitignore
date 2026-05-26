@@ -1,14 +1,27 @@
-# API keys
+# Protected Areas — NEVER COMMIT
+
+# Cognitive memory store (hundreds of encoded memories across domains)
+~/.memory/
+.memory/
+memory/
+
+# Session state (ephemeral orchestrator runs)
+orchestrator/state/
+.claude/state/
+
+# API keys and secrets
 .env
 .env.*
 !.env.example
-orchestrator/orchestra_stderr.txt
-orchestrator/state/
 
-# Per-repo session pulse + stale-session archive (managed by orchestrator/checkpoint.py)
-.claude/state/
+# Observation logs (raw hook capture)
+/tmp/observe-hook.err
+orchestrator/orchestra_stderr.txt
 
 # Python bytecode caches
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Local project symlinks (for reference only, never commit)
+projects_*/
