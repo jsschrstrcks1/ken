@@ -23,6 +23,7 @@ _try_load("gemini")
 _try_load("grok")
 _try_load("youdotcom")
 _try_load("perplexity")
+_try_load("ollama")
 
 # Report on startup (to stderr so it doesn't pollute JSON output)
 if ADAPTER_ERRORS:
