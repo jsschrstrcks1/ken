@@ -39,6 +39,7 @@ for _env_path in _env_candidates:
 
 from adapters import ADAPTERS
 from verify import verify_claims
+from integrity_lora_wrapper import IntegrityLoRAWrapper
 
 STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
 MODES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modes")
@@ -119,7 +120,26 @@ def run_step(step, blackboard):
     system_prompt = ROLES.get(role, ROLES["freestyle"])
 
     try:
-        result = adapter.query(prompt=prompt, system=system_prompt)
+        # Route through Integrity LoRA wrapper for cached discipline layer
+        lora_wrapper = IntegrityLoRAWrapper(mode="cached")
+        
+        # For Claude: use cached system prompt (90% cost savings)
+        if model_name.lower() == "claude":
+            result = lora_wrapper.query_claude_cached(prompt=prompt)
+        else:
+            # For other models: inject Integrity LoRA into system prompt
+            result = lora_wrapper.query_with_integrity(
+                prompt=prompt,
+                model=model_name,
+                mode="injected"
+            )
+            # Reformat result for consistency with adapter output
+            if "usage" not in result:
+                result["usage"] = {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "estimated_cost_usd": 0.0,
+                }
     except Exception as e:
         msg = f"API call failed: {e}"
         print(f"  → {msg}", file=sys.stderr)

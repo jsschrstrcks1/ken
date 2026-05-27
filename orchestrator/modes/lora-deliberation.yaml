@@ -1,0 +1,75 @@
+name: lora-deliberation
+lead: gpt
+
+constraints:
+  - Preserve dataset integrity — every decision unit must be traceable to source
+  - Be specific about convergence (how many models? published research?)
+  - Flag assumptions (single-operator threat model applies)
+  - Cite training examples when possible, not abstract principles
+
+context_boundary:
+  send_externally:
+    - CONTINUOUS_LEARNING_REVIEWS.md (reasoning traces)
+    - Dataset structure (1,613 memory + 38 decision units)
+    - Validation criteria (9 tests, ≥85% pass rate)
+  keep_local:
+    - Memory file contents (private)
+    - Ken's strategic goals
+
+output_schema:
+  dataset_quality_verdict: ""
+  register_smearing_risk: ""
+  submit_now_or_v11: ""
+  highest_failure_mode: ""
+  per_domain_adapters_recommendation: ""
+  consensus_confidence: 0.0
+  dissents: []
+  action_items: []
+
+max_loops: 1
+
+orchestra:
+  fan_out:
+    - model: gpt
+      role: structure
+      description: >
+        Evaluate dataset quality: Is 1,651 examples (1,613 memory + 38 decision units) sufficient?
+        Check: Are all 38 decision units traceable to CONTINUOUS_LEARNING_REVIEWS.md?
+        Do they capture the highest-leverage patterns? Produce a verdict on whether
+        to submit v1 now ($2-4, 30-60m) or wait for v1.1 with additional bundles ($15-20).
+
+    - model: gemini
+      role: expand
+      description: >
+        Identify register-smearing risk: Does a single LoRA trained on 7 memory domains
+        (ken, romans, sheep, cruising, recipes, photography, family-history) suffer
+        voice degradation? Propose specific register-separation tests. What's the
+        highest-impact failure mode NOT covered by current training data?
+
+    - model: perplexity
+      role: research
+      description: >
+        Published research on LoRA fine-tuning best practices: What does the literature
+        say about training data size (1,651 examples), dataset diversity (7 domains),
+        convergence detection (do 38 examples adequately represent 3 review rounds)?
+        Find 3-5 published LoRA studies that apply to this scenario. Cite sources.
+
+    - model: youdotcom
+      role: research
+      description: >
+        Cost-benefit analysis: Is per-domain adapter training ($100 extra, 5 separate
+        LoRAs) worth the investment over a unified LoRA? Find examples of multi-register
+        systems (multi-lingual models, multi-domain NLP) that made this tradeoff.
+        What was the outcome? Cite sources.
+
+    - model: grok
+      role: challenge
+      description: >
+        Adversarial review: What's the strongest argument AGAINST submitting v1 right now?
+        What could go wrong during fine-tuning? What if v1 passes validation but fails
+        in production (register smearing, scope drift, adversarial jailbreak)? What's
+        the cost of a failed $2-4 experiment vs delaying 2 hours to build v1.1?
+        Be brutal but specific.
+
+  deliberation_rounds: 2
+  blind_spot_model: grok
