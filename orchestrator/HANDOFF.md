@@ -1,6 +1,6 @@
 # HANDOFF — P1#9 continuous-learning-v2 auto-extraction loop
 
-**Status:** 12 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 6, 7.5) + session_id continuity. Auto-extraction is now structurally AND operationally complete: when the operator opts in (env flag + .claude/settings.json registration), every tool call writes a hashed observation, every session has a snapshot-extractable candidate list, every cited evidence trail is HMAC-attested. Only Slice 7 (SessionEnd auto-surfacing) is left.
+**Status:** 12 slices shipped (0, 0.5, 1, 2, 2.5, 3A, 3B, 3C, 4, 5, 6, 7.5) + session_id continuity. Auto-extraction is now structurally AND operationally complete: when the operator opts in (env flag + .claude/settings.json registration), every tool call writes a hashed observation, every session has a snapshot-extractable candidate list, every cited evidence trail is HMAC-attested. ALL 13 SLICES SHIPPED. CL-v2 is complete.
 
 **Last commit:** ken `(pending)` — Slice 6: PostToolUse hook + Python writer + bench harness + 22 tests (registration in .claude/settings.json deferred to operator).
 
@@ -22,7 +22,7 @@
 | 10 | 3C — HMAC sidecar activation | `8741a6e` | `compute_log_checksum()`, `validate_log_checksum()`, `_ensure_integrity_key()`, `_compute_file_integrity()`; activates `_assert_evidence_integrity` |
 | 11 | 3B — observation extraction | `d6709d8` | `extract_candidates_from_observations()`, `_extract_candidates_from_observation_log()`, `_is_well_formed_observation()`; 3 candidate kinds; snapshot under shared flock; per-candidate integrity validation |
 | 11+ | Slice 6 prereq — session_id continuity | `c7ca362` | `_current_session_id()` resolves env > CLAUDE_SESSION_ID > `<MEMORY_ROOT>/_session/current`; idle staleness 4h; subprocess-survivable |
-| 12 | 6 — PostToolUse hook + writer | `(pending)` | `hook_observe.py` (Python writer), `.claude/hooks/observe-tool-use.sh` (bash wrapper), `bench_hook.py` (perf harness); fire-and-forget; fail-closed |
+| 12 | 6 — PostToolUse hook + writer | `c7ca362` | `hook_observe.py` (Python writer), `.claude/hooks/observe-tool-use.sh` (bash wrapper), `bench_hook.py` (perf harness); fire-and-forget; fail-closed |
 
 **Test count:** 423 (344 in `test_memory_ops.py` + 24 in `test_meta_ci.py` + 22 in `test_hook_observe.py` + 33 in other test files). All pass. CI gate + panic-ordering + helper-seal-lifecycle all green.
 
