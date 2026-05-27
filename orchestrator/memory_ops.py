@@ -70,6 +70,7 @@ import json
 import math
 import os
 import re
+import calendar
 import time
 import uuid
 
@@ -308,10 +309,17 @@ def _assert_temporal_consistency(ts, chain=None):
     """Reject timestamps > 5min in the future or > 5min before the
     chain head. Mitigates clock-skew and backdating attacks (T12).
     Tuned from v3's 60s/1h after NTP drift on consumer hardware was
-    shown to exceed 60s (Grok R3)."""
+    shown to exceed 60s (Grok R3).
+
+    Timestamps are stored as UTC strings (%Y-%m-%dT%H:%M:%SZ).
+    Uses calendar.timegm() — not time.mktime() — to parse them so the
+    result is always UTC epoch regardless of the machine's local timezone.
+    (time.mktime treats its struct_time argument as local time, which
+    produces wrong results on any machine not running in UTC.)
+    """
     now = time.time()
     try:
-        ts_epoch = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+        ts_epoch = calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
     except (ValueError, TypeError):
         raise CarefulNotCleverError(
             f"temporal consistency: unparseable timestamp {ts!r}"
@@ -325,7 +333,7 @@ def _assert_temporal_consistency(ts, chain=None):
         for e in chain:
             if "at" in e:
                 try:
-                    chain_ts.append(time.mktime(
+                    chain_ts.append(calendar.timegm(
                         time.strptime(e["at"], "%Y-%m-%dT%H:%M:%SZ")))
                 except (ValueError, TypeError):
                     continue
