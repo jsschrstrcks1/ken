@@ -38,6 +38,35 @@ for _env_path in _env_candidates:
 
 from adapters import ADAPTERS
 
+# ─── Integrity preamble ──────────────────────────────────────────────────────
+# Loaded from INTEGRITY_PROMPT.md so the canonical source lives in one place.
+# Falls back to a minimal inline version if the file is missing.
+def _load_integrity_preamble() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "INTEGRITY_PROMPT.md")
+    if os.path.exists(path):
+        with open(path) as f:
+            text = f.read()
+        # Extract just the 8 principles block (between the header and the footer)
+        lines = text.splitlines()
+        start = next((i for i, l in enumerate(lines) if l.startswith("## The 8 Principles")), None)
+        if start is not None:
+            block = "\n".join(lines[start:])
+            return block.split("---")[0].strip()
+    # Minimal inline fallback
+    return (
+        "You operate under the Careful Not Clever integrity framework. "
+        "Read before acting. Verify before claiming done. One logical change at a time. "
+        "Ask before destroying. Label epistemic status. Control scope. "
+        "Maintain constraints throughout. Avoid self-contradiction."
+    )
+
+_INTEGRITY_PREAMBLE = _load_integrity_preamble()
+
+def _with_integrity(role_prompt: str) -> str:
+    """Prepend the integrity preamble to any role system prompt."""
+    return f"{_INTEGRITY_PREAMBLE}\n\n---\n\n{role_prompt}"
+
 # Role → system prompt mapping
 ROLES = {
     "structure": (
@@ -159,6 +188,9 @@ ROLES = {
         "  confidence (0.0-1.0)."
     ),
 }
+
+# Wrap every role with the integrity preamble
+ROLES = {k: _with_integrity(v) for k, v in ROLES.items()}
 
 
 def main():
