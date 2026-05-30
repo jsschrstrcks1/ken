@@ -477,4 +477,101 @@ Strategy mode, 2026-05-21, $0.1973 total. Claude R1 + 5 fan-out (GPT structure, 
 
 ---
 
+## 13. Per-author training inventory + LoRA execution plan (2026-05-27)
+
+Section 3.5 lays out the corrector-vs-voice architecture in the abstract. This section grounds it in the actual corpus acquired through 2026-05-27 and converts the architecture into a concrete training sequence.
+
+### 13.1 Corpus inventory (as of 2026-05-27)
+
+| Author | Files | ~Words | License | LoRA mode (§3.5) | Status |
+|---|---:|---:|---|---|---|
+| Spurgeon | 3,789 | 45.0M | Public domain | Voice + Corrector | Acquired, clean |
+| MacArthur | 5,452 | 32.4M | Living; GTY perm pending | Corrector only | Acquired, private |
+| Edwards | 74 | 26.3M | Public domain | Voice + Corrector | Acquired; OCR cleanup needed |
+| Piper | 13,707 | 26.7M | Living; DG copyright | Corrector only | Acquired, private |
+| Calvin | 68 | 16.9M | Public domain | Voice + Corrector | Acquired; OCR + dedup needed |
+| Owen | 66 | 15.6M | Public domain | Voice + Corrector | Acquired; OCR + dedup needed |
+| Bunyan | 25 | 9.2M | Public domain | Voice + Corrector | Acquired, mostly clean |
+| **Ken** (Romans repo) | 739 | ~4.2M | Operator's own | **Corrector** | Already on hand, clean |
+| Sproul (growing) | 6,984+ | 6.5M+ | Living; perm pending | Corrector only | Phase 2 scrape running |
+| M'Cheyne | 12 | 3.4M | Public domain | Voice + Corrector | Acquired |
+| Ryle | 26 | 3.0M | Public domain | Voice + Corrector | Acquired |
+| Ferguson / Parsons / Godfrey | 36 | <50k | Living | Insufficient; deferred | Phase 2 will expand |
+
+**Raw total: ~190M words across roughly 31,000 files.** Estimated unique-words after dedup + OCR-noise drop: 150–170M.
+
+### 13.2 LoRA priority sequencing
+
+Priority is the product of (volume × pastoral leverage × license-clean). Operator decisions 2026-05-27:
+
+1. **Spurgeon — voice + corrector.** Public-domain, largest clean corpus, the Reformed-Baptist voice anchor. Per-sermon Markdown with normalized frontmatter. **First end-to-end run; pipeline pilot.**
+2. **Ken — corrector only.** Full ~4.2M-word corpus across all eras (operator directive: do not segment by era — voice drift detection targets out-of-envelope drift, not within-envelope variance). Train second because (a) architecturally most sensitive — drift detection on the pastor's own draft prose is a meta-protection on the rest of the architecture, (b) operator already has measured voice-DNA baseline in `Romans/voice-research/` that calibrates training-set quality, (c) it proves the pipeline on the smallest viable volume.
+3. **MacArthur — corrector.** 32M words, contemporary expositor, doctrinal precision; pastor quotes him often → high leverage on misattribution detection.
+4. **Piper — corrector.** 26M words; Christian Hedonism vocabulary is so distinctive ("supremely satisfied," "in God") that paraphrase loses fidelity → corrector trained on actual Piper text catches mistaken paraphrase.
+5. **Edwards — corrector.** Puritan systematic theology + revival theology baseline; especially *Religious Affections* + *Freedom of Will* for affections/sovereignty claims.
+6. **Calvin — corrector.** *Institutes* + *Commentaries* baseline for Reformed dogmatics.
+7. **Owen — corrector.** *Death of Death*, *Mortification of Sin*, *Hebrews exposition* for sanctification/atonement claims (highest stakes for a Reformed Baptist pulpit).
+8. **Sproul — corrector.** Pending Phase 2 completion (learn.ligonier.org sweep). Popular-level apologetics + holiness/Reformed-101 baseline; the contemporary voice the pastor's congregation is most likely to encounter.
+9. **Bunyan — voice (optional).** *Pilgrim's Progress* allegorical voice for illustrative writing only.
+10. **Ryle / M'Cheyne — voice + corrector (optional).** 19th-century Anglican-evangelical / Scottish-revival pastoral voices.
+
+Ferguson / Parsons / Godfrey are deferred until the learn.ligonier.org scrape expands their corpora beyond viability threshold.
+
+### 13.3 Data-prep pipeline (per author)
+
+1. **Dedup multi-edition overlap.** Calvin's *Institutes* exists in three corpus copies (CCEL Beveridge, Gutenberg, archive.org Beveridge 1845). Edwards has Worcester + Dwight + Hickman + 1858 + 1879. Owen has 1826 Russell + 1850 Goold + Hebrews 1790 + 1811. Expected dedup drop: 30–50% on those three authors.
+2. **OCR cleanup.** archive.org `djvu_txt` has predictable error patterns (`rn`→`m`, `cl`→`d`, missing periods, hyphenated line-breaks). Regex pass + fuzzy match against CCEL clean text where overlap exists, to anchor corrections.
+3. **Format normalization.** Strip frontmatter (Source / Author / Description), normalize curly↔straight quotes, fix UTF-8 encoding, segment into ≥60-char paragraphs.
+4. **JSONL conversion.** `{"text": "<paragraph>"}` per line; ~2k-token chunks for LoRA training windowing.
+5. **Train/eval split.** 95/5 holdout; eval drawn from later-edition or alternate-source so the split is not pure paraphrase of the train set.
+
+### 13.4 Training infrastructure
+
+- **m4max** (32 GB unified memory; cf. memory `de9c5aa2`) — primary LoRA training via MLX-LM (`mlx_lm.lora`) on a Llama-3.1-8B base. Rough budget: 1 M training tokens ≈ 8 hours at r=16 / α=32 / batch=4.
+- **m4mini cluster** — parallel Whisper transcription of the audio queue (Renewing Your Mind, Ultimately with R.C. Sproul, MacArthur sermons, Stephen Davey podcast) while m4max trains.
+- **Open-claw** — orchestration, memory store, model registry.
+
+### 13.5 Validation strategy (per §5 non-negotiable gates)
+
+For each corrector LoRA:
+
+- **Holdout sermon test set.** Operator-curated 5–10 sermons per author from sources not in training corpus.
+- **Adversarial misattribution test.** Plant 20 false attributions per author ("Calvin says X" where X is actually Wesley / Arminius / Wright / etc.). Pass = LoRA flags ≥18/20.
+- **Cite-or-flag invariant.** Every correction must produce a citation chain (file + paragraph reference). No citation → bench rejection.
+
+For voice LoRAs (public-domain authors only):
+
+- **Perplexity drift** ≤ 1.15× corpus baseline.
+- **Human voice-recognition test** ≥ 80% on 20-sample blind eval.
+
+For the Ken corrector LoRA specifically:
+
+- **Sermon-drift detection benchmark.** Inject AI-paraphrased rewrites of operator's actual sermon paragraphs (5 sermons × 4 paraphrase strategies = 20 samples); LoRA must flag drift in ≥18/20.
+- **Cross-era stability check.** Sample 10 paragraphs from each of (pre-Romans / mid-Romans / post-Romans) eras; LoRA must classify all 30 as in-envelope. If cross-era variance shows up as out-of-envelope flags, the LoRA is over-fit to one era and the training data needs re-balancing.
+
+### 13.6 Pipeline integration
+
+LoRA correctors fire at the same pipeline points as the rest of §3.5:
+
+- **Post-DRAFT, pre-INTEGRATE (Stage 2):** all author-tagged correctors fire on the pastor's draft. Ken corrector fires on the whole draft as drift detector.
+- **Post-step-7.5, pre-EVALUATE (Stage 10):** correctors fire again to catch errors smuggled in by Stage-9 critique.
+- **Stage 9 (debate):** theologian correctors fire in primary correction-mode by default. Voice mode invoked only on explicit operator request.
+- **PostToolUse hook** on Edit/Write of sermon files (extending the existing advisory hook pattern at `romans/44566500`).
+
+Ken corrector adds one additional fire-point not present in the §3.5 architecture:
+
+- **Pre-COMMIT hook on sermon files:** Ken LoRA evaluates final draft against voice envelope; if drift score exceeds threshold, advisory warning before commit. Non-blocking — pastor decides whether the drift is intentional (e.g. quoting another author) or unintentional (AI bleed-through).
+
+### 13.7 First concrete next step
+
+Build the Spurgeon training set end-to-end as the pipeline pilot:
+
+1. Run dedup pass on `Romans/quotes-and-references/spurgeon/sermons/` (3,544 files; some are reprints of the same sermon under different titles).
+2. Normalize frontmatter + paragraph segmentation.
+3. JSONL conversion + 95/5 split.
+4. Validate corpus on m4max with a 10k-token sanity LoRA before committing to the full ~45M-word run.
+5. If pipeline passes Spurgeon end-to-end, run the same scripts on the Ken corpus next.
+
+---
+
 Soli Deo Gloria.
