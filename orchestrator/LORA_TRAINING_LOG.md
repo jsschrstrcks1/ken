@@ -78,27 +78,28 @@
 **Architecture:** Corrector LoRA (exegesis strengthening, not voice)
 **Training Material:** Southeastern Baptist Theological Seminary chapel + lecture recordings
 
-### Step 1 — Podcast Transcription 🔄 IN PROGRESS
+### Step 1 — Podcast Transcription ⏸️ BLOCKED
 
-- **Source:** `/Volumes/1TB External/Projects/Apple Podcasts/` (30 files, 3 GB)
-- **Method:** OpenAI Whisper API (parallel batch, 10-sec rate limit between calls)
-- **Output dir:** `~/lora-data/sebts-exegesis/transcripts/`
-- **Expected completion:** ~5 minutes at 10-sec intervals
-- **Status:** Background sub-agent running (PID 5072)
-- **Monitoring:** Queue file at `~/lora-data/sebts-exegesis/transcription-queue.json`
+- **Source:** `/Volumes/1TB External/Projects/Apple Podcasts/` (30 files, 3 GB total)
+- **Format issue:** Files are MP4 video containers; Whisper API expects audio-only or handles mixed better with ffmpeg preprocessing
+- **Blocker:** Need to extract audio streams from MP4s before transcription
+- **Alternative:** Use local m3pro Whisper + ffmpeg pipeline (more reliable for video sources)
+- **Status:** Awaiting decision — extract locally (needs ffmpeg) vs. cloud pipeline (needs video→audio conversion)
+- **Queue file:** `~/lora-data/sebts-exegesis/transcription-queue.json` (4 failures logged)
 
-### Step 2 — Transcript Cleaning & Segmentation (Ready after Step 1)
+### Step 2 — Transcript Cleaning & Segmentation ⏸️ BLOCKED (Waiting on Step 1)
 
-- **Input:** 30 .txt transcripts from Whisper
+- **Input:** 30 .txt transcripts from Whisper (pending)
 - **Process:** Strip filler words, segment by exegetical pericope, deduplicate
 - **Output:** `train.jsonl` / `eval.jsonl` (95/5 split)
 - **Expected samples:** 500-1,000 (depending on lecture length)
 
-### Step 3 — LoRA Training (After Step 2)
+### Step 3 — LoRA Training ⏸️ BLOCKED (Waiting on Steps 1–2)
 
 - **Config:** r=16, α=32, batch=4, lr=2e-5, epochs=2 (same as Ken)
 - **Objective:** Exegesis-aware correction (detect weak hermeneutics, flag eisegesis)
 - **Expected runtime:** ~2 hrs on m4max
+- **Status:** Queued after Ken LoRA completes
 
 ---
 
@@ -114,10 +115,17 @@
 - SSH port 22: connection refused
 - **Action:** Ken must enable SSH on m4max, or I can proceed with alternative training setup
 
-**Parallel tasks:**
-- **Ken:** Data ready, awaiting m4max SSH (Step 2→3)
-- **SEBTS:** Transcription in progress (Step 1, ETA ~5 min)
-- **Next:** Once SEBTS transcription done → clean → train; m4max needed for both Ken + SEBTS training
+**Action items:**
+1. **Ken LoRA (CRITICAL):** Data ready (Step 1 ✅). Need m4max SSH access or cloud training endpoint to proceed with Steps 2–3.
+2. **SEBTS Transcription:** Blocked on MP4 audio extraction. Options:
+   - ✓ Extract audio locally with ffmpeg, then transcribe
+   - ✓ Use m3pro Whisper (hardened pipeline per MEMORY.md)
+   - ✓ Defer to after Ken training (lower priority)
+3. **Next priority:** Get Ken LoRA training running (m4max or alternative) — this is the foundational validator.
+
+**Timeline estimate:**
+- If m4max available: Ken (3 hrs) → SEBTS (2 hrs) → done by ~16:00 EDT today
+- If m4max unavailable: Ken blocked; SEBTS requires audio extraction preprocessing
 
 ---
 

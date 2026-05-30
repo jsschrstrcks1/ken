@@ -9,9 +9,9 @@ Output: /Users/kenbaker/lora-data/sebts-exegesis/transcripts/
 import os
 import json
 import time
+import subprocess
 from pathlib import Path
 from datetime import datetime
-import subprocess
 import sys
 
 # Configuration
@@ -21,6 +21,22 @@ QUEUE_FILE = OUTPUT_DIR.parent / "transcription-queue.json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+def load_api_key():
+    """Load OPENAI_API_KEY from environment or .zshrc"""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key
+    
+    # Try loading from .zshrc
+    try:
+        result = subprocess.run(
+            ['bash', '-c', 'source ~/.zshrc && echo $OPENAI_API_KEY'],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip() or None
+    except:
+        return None
+
 def find_audio_files():
     """Find all .mp3 and .mp4 files in podcast dir"""
     audio_files = []
@@ -28,10 +44,9 @@ def find_audio_files():
         audio_files.extend(PODCAST_DIR.glob(ext))
     return sorted(audio_files)
 
-def transcribe_with_whisper_api(audio_path):
+def transcribe_with_whisper_api(audio_path, api_key):
     """
     Transcribe using OpenAI Whisper API.
-    Requires OPENAI_API_KEY env var.
     """
     try:
         import openai
@@ -39,9 +54,8 @@ def transcribe_with_whisper_api(audio_path):
         print("ERROR: openai package not installed. pip install openai")
         return None
     
-    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        print("ERROR: OPENAI_API_KEY not set")
+        print(f"ERROR: OPENAI_API_KEY not available for {audio_path.name}")
         return None
     
     client = openai.OpenAI(api_key=api_key)
@@ -69,6 +83,14 @@ def transcribe_with_whisper_api(audio_path):
         return None
 
 def main():
+    # Load API key
+    api_key = load_api_key()
+    if not api_key:
+        print("ERROR: OPENAI_API_KEY not found in environment or ~/.zshrc")
+        sys.exit(1)
+    
+    print(f"✓ API key loaded (starts with: {api_key[:10]}...)")
+    
     audio_files = find_audio_files()
     
     if not audio_files:
@@ -95,7 +117,7 @@ def main():
         
         print(f"[{i}/{len(audio_files)}] Processing {audio_path.name}...")
         
-        result = transcribe_with_whisper_api(audio_path)
+        result = transcribe_with_whisper_api(audio_path, api_key)
         
         if result:
             # Save transcript
