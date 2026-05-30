@@ -1,0 +1,105 @@
+# Adversarial Review Mode — single-shot critique from a hostile reviewer
+#
+# Backs the careful-not-clever v1.8.1-alpha §"The limit of this rule"
+# requirement that a non-author runs the line-by-line audit. The mode
+# pretends the reviewer is interviewing for the engineer's job: they
+# win by finding the most damaging, specific, evidence-grounded flaw
+# in the work under review.
+#
+# Designed to be invoked as a final phase before merge / completion,
+# OR as the body of /adversarial-review (see
+# InTheWake/.claude/skills/adversarial-review/SKILL.md).
+#
+# Default lead: grok. Grok's challenge role has been the most reliably
+# adversarial in household practice. Override with --model gpt|gemini
+# to compare framings.
+
+name: adversarial-review
+lead: grok  # the reviewer; not the engineer
+
+# Round budget: this is a single-shot critique. No deliberation, no
+# iteration. The engineer (not the orchestra) decides how to act on
+# findings. Adding deliberation would soften the framing — the value
+# is in the unanswered ruthless first pass.
+max_iterations: 1
+no_synthesis: true  # do not blend findings; surface them raw
+
+# Cost guardrail: a single-shot grok call on a 9-commit batch lands
+# around $0.04. Budget cap stops accidental loops if a future caller
+# wires this into a recurring hook.
+budget_cap_usd: 0.50
+
+pipeline:
+  - step: load_rule
+    description: >
+      Load the canonical Claim-Evidence Discipline section from
+      careful-not-clever.md verbatim. The reviewer must apply the EXACT
+      rule the engineer is supposed to live under, not a paraphrase.
+    source: ".claude/skills/careful-not-clever/CAREFUL.md"
+    section_marker: "## Claim-Evidence Discipline"
+
+  - step: collect_commits
+    description: >
+      Collect the commit messages (subjects + bodies) for the requested
+      range. Default range is origin/main..HEAD; caller can override.
+    git_command: "git log --format='%n=== %h ===%n%s%n%n%b' ${BASE_REF}..HEAD"
+
+  - step: build_prompt
+    description: >
+      Build the adversarial prompt from a fixed template. The engineer
+      cannot supply prompt text directly — only the commit range and
+      model. This is the trust boundary: if the engineer could soften
+      the framing, "external review" becomes prompt engineering for a
+      clean bill of health.
+    template: |
+      You are the adversarial reviewer of another engineer's work.
+      Your goal: find every flaw, gap, missed verification, and
+      overstated claim the engineer would prefer you didn't surface.
+      Treat this as an interview for their job. The most rigorous,
+      specific critique earns you the position. Vague critique earns
+      nothing.
+
+      Apply EXACTLY this rule to their commits:
+      ${CLAIM_EVIDENCE_DISCIPLINE_SECTION}
+
+      Commits under review:
+      ${COMMIT_DETAIL}
+
+      For each commit, find at least one issue. Cite specific file
+      and line range. State the claim that overstates the evidence.
+      Identify what evidence would actually support the claim. Rate
+      severity BLOCKING/HIGH/MEDIUM/LOW. Try hard before saying "Pass."
+
+      You may NOT defer to the engineer's reasoning, soften findings
+      for collegiality, praise the work, manufacture problems without
+      artifacts, or repeat criticisms the engineer already self-
+      surfaced in commit messages.
+
+      Output structured findings with severity tags. End with verdict:
+      "Hire me — I would have caught X, Y, Z" OR "Defer to the
+      incumbent — I found nothing they didn't already self-surface."
+
+  - step: invoke_reviewer
+    model: grok  # override via --model
+    role: challenge
+    description: >
+      Single-shot call to the reviewer model. No iteration, no
+      deliberation. The engineer reads the response and decides.
+
+  - step: write_report
+    description: >
+      Save the full reviewer output to
+      audit-reports/external-audit-<timestamp>-<model>.md alongside
+      metadata: branch, commit range, rule version, cost, token counts.
+    output_dir: "audit-reports/"
+    output_pattern: "external-audit-{timestamp}-{model}.md"
+
+# Anti-patterns this mode explicitly refuses:
+# - Round-robin deliberation (would soften findings)
+# - Multi-model voting (would average toward the median; we want the
+#   ruthless outlier)
+# - Auto-blocking commits on findings (clever-not-careful; the human
+#   judges)
+# - Allowing custom prompts (engineer could prompt-engineer a pass)
+# - Caching findings across runs (each invocation is fresh, lest stale
+#   approvals carry over to new work)

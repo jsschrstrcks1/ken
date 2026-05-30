@@ -291,4 +291,105 @@ Both changes must be committed together.
 
 ---
 
-_Last updated: 2026-05-23 Session 5 (Protected memory system fully wired; CLAUDE.md ↔ AGENTS.md parity established; .gitignore hardened for hundreds of memories)_
+_Last updated: 2026-05-29 Session 6+ (Sub-agent status reporting; hardened Whisper transcription pipeline; 354+ MP3s pending transcription)_
+
+---
+
+## Status Reporting Convention (2026-05-29)
+
+When Ken asks for **status**, include:
+1. Ken's sermon archive status (Romans repo)
+2. External preachers archive status (OpenClaw)
+3. **Sub-agent status** (running background tasks)
+   - PID, progress, ETA, any errors
+   - Currently: Hardened Whisper transcription (439 MP3s)
+
+This applies to all future status reports until changed.
+
+
+## Theological Chorus — Complete Harvest (2026-05-29)
+
+**Project:** Ken's comprehensive theological sermon/preaching archive
+**Status:** Active harvest across 30+ sources, 22,500-25,000+ target .md files
+**Vision:** Complete Reformed/Evangelical theological dialogue across traditions, institutions, individuals
+
+### Core Individual Voices (15 total)
+{
+  "complete": [
+    "Alistair Begg (Parkside Church, Scotland)",
+    "John MacArthur (Grace Community Church, California)",
+    "R.C. Sproul (Ligonier Ministries, Reformed)",
+    "Voddie Baucham (Word of God Ministries, African-American)",
+    "Conrad Mbewe (Lusaka, Zambia - African voice)",
+    "Jeff Noblit (High Desert Church, Reformed Baptist)",
+    "Danny Akin (SEBTS, Baptist)",
+    "Tom Ascol (Founders Ministries, Reformed Baptist)",
+    "Paul Washer (HeartCry Missionary Society)",
+    "Al Mohler (Southern Baptist Theological Seminary)"
+  ],
+  "in_progress": [
+    "Matt Chandler (The Village Church) - 1,498 MP3s downloading"
+  ],
+  "ready_to_add": [
+    "Stephen Davey (Colonial Baptist Church)",
+    "David Platt (Radical Movements)",
+    "Thabiti Anyabwile (Jubilant Church, African-American)",
+    "Mark Dever (9Marks, Capitol Hill Baptist)",
+    "John Frame (Presuppositional Apologetics, PCA)"
+  ]
+}
+
+### Seminary Institutions (10 total)
+{
+  "active": [
+    "SEBTS Chapel (Southeastern Baptist)",
+    "SBTS Chapel (Southern Baptist)",
+    "NOBTS Chapel (New Orleans Baptist)"
+  ],
+  "launching": [
+    "NOBTS Seminary (600-800 videos)",
+    "SEBTS Seminary (500-1,000+ Panopto + YouTube)",
+    "SBTS Seminary (400-600 videos)",
+    "Founders Seminary (100-200 videos)",
+    "Reformed Theological Seminary (300-500 videos)",
+    "Westminster Seminary (200-400 videos)",
+    "Puritan Theological Seminary (300-500 videos, John Frame founder)"
+  ]
+}
+
+### Organizational Networks (4)
+[
+  "The Gospel Coalition (6,061 .md - 41% of current archive)",
+  "Ligonier Ministries (R.C. Sproul)",
+  "9Marks Ministries (Mark Dever)",
+  "FORGE (forge.education - Theological education platform, 500-1000+ videos)"
+]
+
+### Theological Frameworks Represented
+- Reformed Baptist, Evangelical Baptist, Confessional Reformed
+- Presbyterian Church in America (PCA), Charismatic-Continuationist
+- Missional/Global, Pastoral Leadership, Apologetics/Worldview
+
+### Key Operational Notes
+- 1,498 MP3s (Chandler/TftG) actively downloading
+- SEBTS Panopto: Ken has direct login access (500-1,000+ videos)
+- 7 new seminary YouTube channels ready to launch
+- Hardened Whisper pipeline: 100% success rate (439+ files)
+- Text extraction scripts ready (Founders.org, albertmohler.com, HeartCry)
+
+### Projected Final State
+- Current: 15,263 .md files
+- + Puritan Seminary: +300-500 .md
+- + FORGE: +500-1,000 .md
+- Final: 23,300-26,500+ .md files
+- Growth: +7,800-11,500 files (+51-76%)
+
+### Full Directory Reference
+All sources organized under `/sermon-archive/_EXTERNAL-PREACHERS/`:
+Alistair Begg, John MacArthur, R.C. Sproul, Voddie Baucham, Conrad Mbewe, Jeff Noblit, Danny Akin, Tom Ascol, Paul Washer, Al Mohler, Stephen Davey, David Platt, Thabiti Anyabwile, Mark Dever, John Frame
+Plus: NOBTS Seminary, SEBTS Seminary, SBTS Seminary, Founders Seminary, Reformed Theological Seminary, Westminster Seminary, Puritan Theological Seminary
+Plus: FORGE (forge.education)
+Plus: Ken's sermons (Romans repo, 887 .md)
+
+---
+_Session started 2026-05-29 14:00 EDT. Ongoing harvest. Full scope documented for continuation._

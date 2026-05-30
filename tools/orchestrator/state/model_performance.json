@@ -1,0 +1,25 @@
+{
+  "models": {
+    "gpt": {
+      "strategy": {
+        "total_calls": 6,
+        "successful_responses": 6,
+        "format_failures": 0,
+        "total_cost": 0.0589,
+        "avg_quality": 0.5,
+        "quality_samples": []
+      }
+    },
+    "perplexity": {
+      "strategy": {
+        "total_calls": 6,
+        "successful_responses": 6,
+        "format_failures": 0,
+        "total_cost": 0.0682,
+        "avg_quality": 0.5,
+        "quality_samples": []
+      }
+    }
+  },
+  "runs": 12
+}

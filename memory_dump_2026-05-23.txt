@@ -1,0 +1,16 @@
+# Cognitive Memory Dump
+
+Generated from `/home/user/open-claw-stuff/.memory` on 2026-05-23.
+
+Excludes `personal` domain.
+
+## Summary
+
+- **Total memories:** 726
+- ken: 218
+- shared: 166
+- romans: 123
+- sheep: 72
+- cruising: 131
+- recipes: 16
+- photography: 0

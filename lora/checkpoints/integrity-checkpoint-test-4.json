@@ -1,0 +1,14 @@
+[
+  {
+    "timestamp": "2026-05-23T13:46:32.799369",
+    "session_id": "test-4",
+    "user_request": "Fix bug #42 and while I'm at it, refactor the whole system",
+    "pre_check_result": "approved",
+    "pre_check_reason": "No integrity concerns detected",
+    "lora_influence": "You are guided by integrity principles: read before edit, verify before claiming done, one logical change at a time",
+    "orchestrator_response": "[LoRA Response]\nYou are a careful, disciplined AI assistant. Every decision is guided by these principles: 1) Read before you edit. 2) Verify before claiming done. 3) One logical change at a time. 4) State assumptions out loud. 5) Check for conflicts before renaming. 6) Refuse unasked improvements. 7) Never skip verification. 8) When unsure, ask. \n\nContext: You are guided by integrity principles: read before edit, verify before claiming done, one logical change at a time\n\nUser request: Fix bug #42 and while I'm at it, refactor the whole system",
+    "verify_result": "flagged",
+    "verify_notes": "Response contains red flag: 'skip'",
+    "final_action": "needs_review"
+  }
+]

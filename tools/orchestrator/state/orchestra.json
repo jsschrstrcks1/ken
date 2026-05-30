@@ -1,0 +1,445 @@
+{
+  "mode": "strategy",
+  "task": "Review this plan for fixing GitHub issue #1316 (hardcoded \u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\u00a9 2025' with '\u00a9 <script>document.write(new Date().getFullYear())<\\/script>'. 4) Verify zero '\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\u00a9 2025 In The Wake \u00b7 A Cruise Encyclopedia \u00b7 Soli Deo Gloria'. Template B (prose): '\u00a9 2025 In The Wake \u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\u00a9 2025 \u00b7 Privacy \u00b7 Terms' or '\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?",
+  "started_at": "2026-05-28T17:10:32Z",
+  "phases": [
+    {
+      "phase": "recall",
+      "memory_context": "(no relevant memories found)"
+    },
+    {
+      "phase": "fan_out",
+      "models_called": 5
+    },
+    {
+      "phase": "deliberation",
+      "rounds": 2
+    },
+    {
+      "phase": "blind_spot",
+      "model": "grok"
+    }
+  ],
+  "claude_r1": {
+    "response": {
+      "proposals": [
+        {
+          "id": "claude_1",
+          "proposal": "Claude's substantive lead analysis of: Review this plan for fixing GitHub issue #1316 (hardcoded \u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\u00a9 2025' with '\u00a9 <script>document.write(new Date().getFullYear())<\\/script>'. 4) Verify zero '\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\u00a9 2025 In The Wake \u00b7 A Cruise Encyclopedia \u00b7 Soli Deo Gloria'. Template B (prose): '\u00a9 2025 In The Wake \u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\u00a9 2025 \u00b7 Privacy \u00b7 Terms' or '\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?",
+          "confidence": "HIGH",
+          "justification": "Claude has full codebase context, memory access, and project knowledge. This is the informed starting position that all other models will independently evaluate."
+        }
+      ],
+      "low_hanging_fruit": [],
+      "note": "In interactive mode, Claude Code fills this with a detailed, substantive response. The prompt above guides Claude's analysis."
+    },
+    "prompt_for_claude": "You are CLAUDE \u2014 the lead author with full codebase context, memory, and project knowledge. You go FIRST. All other models (GPT, Gemini, Perplexity, You.com, Grok) will independently review your analysis and add their own perspectives.\n\nTASK: Review this plan for fixing GitHub issue #1316 (hardcoded \u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\u00a9 2025' with '\u00a9 <script>document.write(new Date().getFullYear())<\\/script>'. 4) Verify zero '\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\u00a9 2025 In The Wake \u00b7 A Cruise Encyclopedia \u00b7 Soli Deo Gloria'. Template B (prose): '\u00a9 2025 In The Wake \u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\u00a9 2025 \u00b7 Privacy \u00b7 Terms' or '\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\n\nCONTEXT FROM MEMORY:\n(no relevant memories found)\n\nYOUR ROLE: Provide a thorough, substantive analysis. You know the codebase, the user's preferences, and the project history. Use that knowledge to:\n\n1. Frame the key questions and what's already known\n2. Propose specific research directions with justifications\n3. Identify gaps, risks, and open questions\n4. Suggest concrete next steps\n\nFor each proposal, provide:\n- PROPOSAL: [your idea \u2014 be specific]\n- CONFIDENCE: HIGH | MEDIUM | LOW\n- JUSTIFICATION: [why this matters, referencing project context]\n\nALSO: Identify any LOW-HANGING FRUIT \u2014 easiest, highest-value wins.\n\nEvery other model will see only YOUR analysis (not each other). Make it count."
+  },
+  "fan_out": [
+    {
+      "model": "gpt",
+      "role": "structure",
+      "response": {
+        "verdicts": [
+          {
+            "PROPOSAL_ID": "claude_1",
+            "VERDICT": "WHEAT_WITH_REFINEMENT",
+            "JUSTIFICATION": "Claude's proposal is generally sound, as it outlines a clear and structured plan to replace the hardcoded copyright year with a dynamic solution. However, there are a few areas that could use further clarification and improvement.",
+            "REFINEMENT": "1) Ensure that during the sed pass, a backup of the original files is created in case the script insertion causes any unexpected issues. 2) Consider using a more robust tool or script for HTML parsing and manipulation, like a Python script using BeautifulSoup, to avoid potential issues with malformed HTML due to sed. 3) Extend the spot-checking to include edge cases, such as pages with unusual formatting or additional embedded scripts. 4) Include a step to test the changes in different browsers to ensure cross-browser compatibility."
+          }
+        ],
+        "proposals": [
+          {
+            "PROPOSAL": "Add automated tests",
+            "CONFIDENCE": "HIGH",
+            "JUSTIFICATION": "Implement automated tests to verify the presence of the dynamic script and the absence of hardcoded dates in the HTML files. This will help catch any issues early and ensure consistent future compliance."
+          },
+          {
+            "PROPOSAL": "Include comprehensive documentation",
+            "CONFIDENCE": "MEDIUM",
+            "JUSTIFICATION": "Document the changes made and provide guidance for future updates to the footer, ensuring that developers are aware of the dynamic solution and do not reintroduce hardcoded years."
+          }
+        ],
+        "low_hanging_fruit": [
+          "Ensure a version control checkpoint is made before starting the changes to facilitate easy rollback if necessary.",
+          "Provide a checklist for the verification steps to ensure that no step is missed during the manual checks."
+        ]
+      },
+      "usage": {
+        "model": "gpt-4o",
+        "input_tokens": 1181,
+        "output_tokens": 393,
+        "estimated_cost_usd": 0.0069
+      },
+      "citations": []
+    },
+    {
+      "model": "gemini",
+      "role": "expand",
+      "response": null,
+      "usage": {
+        "model": "gemini",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0
+      },
+      "citations": []
+    },
+    {
+      "model": "perplexity",
+      "role": "research",
+      "response": {
+        "verdicts": [
+          {
+            "proposal_id": "claude_1",
+            "verdict": "WHEAT_WITH_REFINEMENT",
+            "justification": "The plan correctly identifies the scope (41 pages) and provides a logic for replacing static years with dynamic JS. However, it relies solely on `sed` for a multi-file HTML update which is prone to escaping errors and ignores modern SEO/accessibility best practices regarding `document.write` and affiliate disclosure proximity.",
+            "refinement": "Switch from `sed` to a structured DOM-aware script (like a Node.js script using `jsdom` or a robust Python script) to handle HTML escaping safely. Additionally, the replacement should not just be the year; it must include a 'clear and conspicuous' affiliate disclosure if these pages contain links, as site-wide footers are legally insufficient under 2025-2026 FTC guidelines [3][6]."
+          }
+        ],
+        "proposals": [
+          {
+            "proposal": "Implement 'Disclosure-First' Header Injection",
+            "confidence": "HIGH",
+            "justification": "2026 FTC guidance and recent enforcement actions emphasize that disclosures must be 'unavoidable' and placed *before* the consumer engages with links [2][6]. A footer-only fix (the focus of issue #1316) leaves the site legally vulnerable if it contains affiliate content."
+          },
+          {
+            "proposal": "Replace `document.write` with `textContent` or SSR",
+            "confidence": "HIGH",
+            "justification": "`document.write` is a legacy method that can trigger browser warnings or block page rendering. Using `document.getElementById('year').textContent = new Date().getFullYear();` is the 2026 standard for client-side dynamic text [2]."
+          }
+        ],
+        "low_hanging_fruit": [
+          "Global CSS class for disclosures: Ensure all 41 pages have a high-contrast CSS class for the disclosure text to meet 'clear and conspicuous' requirements [3][5].",
+          "Template Centralization: Move footer logic to a single shared partial or component to prevent future 'hardcoded' issues across these 41 disparate files."
+        ],
+        "analysis": "The current plan for GitHub issue #1316 is technically functional but legally and architecturally brittle. The reliance on `sed` for 41 files with three different templates is risky due to potential regex mismatches with HTML entities (e.g., `&copy;` vs `\u00a9`). Furthermore, simply fixing the date in the footer ignores the 2025-2026 regulatory shift where footer-only disclosures are deemed insufficient for affiliate transparency [3][9].",
+        "claims": [
+          {
+            "type": "Regulatory",
+            "claim": "FTC requires affiliate disclosures to be 'clear and conspicuous' and placed *before* any affiliate links, explicitly stating that footers or separate pages are insufficient.",
+            "source": "FTC Endorsement Guides (2026 Update)",
+            "url": "https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking"
+          },
+          {
+            "type": "Enforcement",
+            "claim": "Recent 2025-2026 guidance mandates disclosures must be 'unavoidable' and visible without clicking 'show more' or scrolling to a footer.",
+            "source": "eBay Partner Network / FTC Compliance FAQ",
+            "url": "https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq"
+          },
+          {
+            "type": "Technical",
+            "claim": "Modern affiliate tools like AffiliateX recommend automated, top-of-page disclosures to ensure compliance.",
+            "source": "AffiliateX Best Practices (2026)",
+            "url": "https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/"
+          }
+        ],
+        "proposed_update": "Modify the plan to: 1) Use a Node/Python script for DOM manipulation instead of `sed`. 2) Inject a standardized disclosure component at the *top* of the 41 pages (Template A, B, and C). 3) Use `Intl.DateTimeFormat` or `textContent` for the year to avoid `document.write` deprecation issues.",
+        "risks": "Regex errors in `sed` could corrupt HTML structure; footer-only updates may lead to FTC warning letters if affiliate revenue is generated from these pages; `document.write` may be blocked by modern browser security policies.",
+        "confidence": 0.95
+      },
+      "usage": {
+        "model": "google/gemini-3-flash-preview",
+        "input_tokens": 9688,
+        "output_tokens": 1130,
+        "estimated_cost_usd": 0.0132
+      },
+      "citations": [
+        "https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking",
+        "https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/",
+        "https://stalirov.lawyer/en/posts/ftc-affiliate-marketing-compliance",
+        "https://www.shopify.com/blog/affiliate-disclosure",
+        "https://influenceflow.io/resources/ftc-disclosure-requirements-for-influencer-marketing-a-complete-2026-guide/",
+        "https://wecantrack.com/insights/affiliate-disclosure/",
+        "https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers",
+        "https://www.automateed.com/best-practices-for-honest-affiliate-reviews",
+        "https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq",
+        "https://getaawp.com/blog/affiliate-disclosures-do-you-need-one-how-to-write-yours/",
+        "https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking",
+        "https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq",
+        "https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/"
+      ]
+    },
+    {
+      "model": "youdotcom",
+      "role": "research",
+      "response": null,
+      "usage": {
+        "model": "youdotcom",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0
+      },
+      "citations": []
+    },
+    {
+      "model": "grok",
+      "role": "challenge",
+      "response": null,
+      "usage": {
+        "model": "grok",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0
+      },
+      "citations": []
+    }
+  ],
+  "deliberation": [
+    {
+      "model": "claude",
+      "delib_round": 1,
+      "response": {
+        "note": "Claude deliberation round 1 \u2014 executed locally by Claude Code.",
+        "prompt": "You are CLAUDE in a deliberation round with GPT. You've seen the full fan-out \u2014 all 5 models responded independently to your Round 1 analysis. Now you and GPT are deliberating to reach the optimal solution.\n\nTASK: Review this plan for fixing GitHub issue #1316 (hardcoded \u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\u00a9 2025' with '\u00a9 <script>document.write(new Date().getFullYear())<\\/script>'. 4) Verify zero '\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\u00a9 2025 In The Wake \u00b7 A Cruise Encyclopedia \u00b7 Soli Deo Gloria'. Template B (prose): '\u00a9 2025 In The Wake \u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\u00a9 2025 \u00b7 Privacy \u00b7 Terms' or '\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\n\nYOUR ORIGINAL ANALYSIS (Round 1):\n{\n  \"proposals\": [\n    {\n      \"id\": \"claude_1\",\n      \"proposal\": \"Claude's substantive lead analysis of: Review this plan for fixing GitHub issue #1316 (hardcoded \\u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\\u00a9 2025' with '\\u00a9 <script>document.write(new Date().getFullYear())<\\\\/script>'. 4) Verify zero '\\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\\u00a9 2025 In The Wake \\u00b7 A Cruise Encyclopedia \\u00b7 Soli Deo Gloria'. Template B (prose): '\\u00a9 2025 In The Wake \\u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\\u00a9 2025 \\u00b7 Privacy \\u00b7 Terms' or '\\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \\u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"Claude has full codebase context, memory access, and project knowledge. This is the informed starting position that all other models will independently evaluate.\"\n    }\n  ],\n  \"low_hanging_fruit\": [],\n  \"note\": \"In interactive mode, Claude Code fills this with a detailed, substantive response. The prompt above guides Claude's analysis.\"\n}\n\nALL FAN-OUT RESPONSES:\n\n--- GPT (structure) ---\n{\n  \"verdicts\": [\n    {\n      \"PROPOSAL_ID\": \"claude_1\",\n      \"VERDICT\": \"WHEAT_WITH_REFINEMENT\",\n      \"JUSTIFICATION\": \"Claude's proposal is generally sound, as it outlines a clear and structured plan to replace the hardcoded copyright year with a dynamic solution. However, there are a few areas that could use further clarification and improvement.\",\n      \"REFINEMENT\": \"1) Ensure that during the sed pass, a backup of the original files is created in case the script insertion causes any unexpected issues. 2) Consider using a more robust tool or script for HTML parsing and manipulation, like a Python script using BeautifulSoup, to avoid potential issues with malformed HTML due to sed. 3) Extend the spot-checking to include edge cases, such as pages with unusual formatting or additional embedded scripts. 4) Include a step to test the changes in different browsers to ensure cross-browser compatibility.\"\n    }\n  ],\n  \"proposals\": [\n    {\n      \"PROPOSAL\": \"Add automated tests\",\n      \"CONFIDENCE\": \"HIGH\",\n      \"JUSTIFICATION\": \"Implement automated tests to verify the presence of the dynamic script and the absence of hardcoded dates in the HTML files. This will help catch any issues early and ensure consistent future compliance.\"\n    },\n    {\n      \"PROPOSAL\": \"Include comprehensive documentation\",\n      \"CONFIDENCE\": \"MEDIUM\",\n      \"JUSTIFICATION\": \"Document the changes made and provide guidance for future updates to the footer, ensuring that developers are aware of the dynamic solution and do not reintroduce hardcoded years.\"\n    }\n  ],\n  \"low_hanging_fruit\": [\n    \"Ensure a version control checkpoint is made before starting the changes to facilitate easy rollback if necessary.\",\n    \"Provide a checklist for the verification steps to ensure that no step is missed during the manual checks.\"\n  ]\n}\n\n--- GEMINI (expand) --- FAILED ---\n\n\n--- PERPLEXITY (research) ---\n{\n  \"verdicts\": [\n    {\n      \"proposal_id\": \"claude_1\",\n      \"verdict\": \"WHEAT_WITH_REFINEMENT\",\n      \"justification\": \"The plan correctly identifies the scope (41 pages) and provides a logic for replacing static years with dynamic JS. However, it relies solely on `sed` for a multi-file HTML update which is prone to escaping errors and ignores modern SEO/accessibility best practices regarding `document.write` and affiliate disclosure proximity.\",\n      \"refinement\": \"Switch from `sed` to a structured DOM-aware script (like a Node.js script using `jsdom` or a robust Python script) to handle HTML escaping safely. Additionally, the replacement should not just be the year; it must include a 'clear and conspicuous' affiliate disclosure if these pages contain links, as site-wide footers are legally insufficient under 2025-2026 FTC guidelines [3][6].\"\n    }\n  ],\n  \"proposals\": [\n    {\n      \"proposal\": \"Implement 'Disclosure-First' Header Injection\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"2026 FTC guidance and recent enforcement actions emphasize that disclosures must be 'unavoidable' and placed *before* the consumer engages with links [2][6]. A footer-only fix (the focus of issue #1316) leaves the site legally vulnerable if it contains affiliate content.\"\n    },\n    {\n      \"proposal\": \"Replace `document.write` with `textContent` or SSR\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"`document.write` is a legacy method that can trigger browser warnings or block page rendering. Using `document.getElementById('year').textContent = new Date().getFullYear();` is the 2026 standard for client-side dynamic text [2].\"\n    }\n  ],\n  \"low_hanging_fruit\": [\n    \"Global CSS class for disclosures: Ensure all 41 pages have a high-contrast CSS class for the disclosure text to meet 'clear and conspicuous' requirements [3][5].\",\n    \"Template Centralization: Move footer logic to a single shared partial or component to prevent future 'hardcoded' issues across these 41 disparate files.\"\n  ],\n  \"analysis\": \"The current plan for GitHub issue #1316 is technically functional but legally and architecturally brittle. The reliance on `sed` for 41 files with three different templates is risky due to potential regex mismatches with HTML entities (e.g., `&copy;` vs `\\u00a9`). Furthermore, simply fixing the date in the footer ignores the 2025-2026 regulatory shift where footer-only disclosures are deemed insufficient for affiliate transparency [3][9].\",\n  \"claims\": [\n    {\n      \"type\": \"Regulatory\",\n      \"claim\": \"FTC requires affiliate disclosures to be 'clear and conspicuous' and placed *before* any affiliate links, explicitly stating that footers or separate pages are insufficient.\",\n      \"source\": \"FTC Endorsement Guides (2026 Update)\",\n      \"url\": \"https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking\"\n    },\n    {\n      \"type\": \"Enforcement\",\n      \"claim\": \"Recent 2025-2026 guidance mandates disclosures must be 'unavoidable' and visible without clicking 'show more' or scrolling to a footer.\",\n      \"source\": \"eBay Partner Network / FTC Compliance FAQ\",\n      \"url\": \"https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq\"\n    },\n    {\n      \"type\": \"Technical\",\n      \"claim\": \"Modern affiliate tools like AffiliateX recommend automated, top-of-page disclosures to ensure compliance.\",\n      \"source\": \"AffiliateX Best Practices (2026)\",\n      \"url\": \"https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/\"\n    }\n  ],\n  \"proposed_update\": \"Modify the plan to: 1) Use a Node/Python script for DOM manipulation instead of `sed`. 2) Inject a standardized disclosure component at the *top* of the 41 pages (Template A, B, and C). 3) Use `Intl.DateTimeFormat` or `textContent` for the year to avoid `document.write` deprecation issues.\",\n  \"risks\": \"Regex errors in `sed` could corrupt HTML structure; footer-only updates may lead to FTC warning letters\n... (truncated)\nCitations: https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking, https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/, https://stalirov.lawyer/en/posts/ftc-affiliate-marketing-compliance, https://www.shopify.com/blog/affiliate-disclosure, https://influenceflow.io/resources/ftc-disclosure-requirements-for-influencer-marketing-a-complete-2026-guide/, https://wecantrack.com/insights/affiliate-disclosure/, https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers, https://www.automateed.com/best-practices-for-honest-affiliate-reviews, https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq, https://getaawp.com/blog/affiliate-disclosures-do-you-need-one-how-to-write-yours/\n\n--- YOUDOTCOM (research) --- FAILED ---\n\n\n--- GROK (challenge) --- FAILED ---\n\n\n--- GPT (round_robin) ---\n{\n  \"analysis\": \"The plan to update the static copyright year on 41 pages to a dynamic script lacks some considerations for potential issues that could arise from using `sed` for HTML manipulation. Although `sed` is powerful for text replacements, it is not the best tool for structured HTML manipulations due to risks of malformed HTML. Furthermore, the use of `document.write` is outdated and can cause rendering issues or warnings in modern browsers. Additionally, there are implications regarding SEO and legal compliance (especially FTC guidelines) that need to be considered.\",\n  \"proposed_update\": {\n    \"steps\": [\n      \"1. Create a backup of the current state of the files to allow for easy rollback if necessary.\",\n      \"2. Switch from using `sed` to using a structured HTML parser, such as a Node.js script with `jsdom` or a Python script with BeautifulSoup, to perform replacements safely.\",\n      \"3. Replace `document.write` with a more modern approach, such as setting `textContent` of an HTML element.\",\n      \"4. Conduct automated tests to ensure that the dynamic script is correctly implemented and that no hardcoded years remain.\",\n      \"5. Ensure comprehensive documentation is created to guide future updates and prevent reintroduction of hardcoded years.\",\n      \"6. Consider legal implications, such as FTC guidelines for disclosures, if the footer contains affiliate links. This might require additional modifications beyond the copyright year.\"\n    ]\n  },\n  \"risks\": \"Failure to address these considerations could result in malformed HTML, browser compatibility issues, legal compliance failures, and increased maintenance challenges. There's also the risk of SEO impact if the footer is not correctly structured.\",\n  \"confidence\": 0.8\n}\n\n--- PERPLEXITY (round_robin) ---\n{\n  \"challenges\": [\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Ensure that during the sed pass, a backup of the original files is created.\",\n      \"challenge\": \"While a backup is good practice, it doesn't solve the core issue that 'sed' is line-oriented and fails on multi-line HTML structures or malformed tags [1][3]. Standard 'sed' across 41 files with different templates risks corrupting the 'Template B' prose or 'Template C' compact variations if the search string '\\u00a9 2025' isn't unique or is interrupted by line breaks.\"\n    },\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Consider using a more robust tool... like a Python script using BeautifulSoup.\",\n      \"challenge\": \"BeautifulSoup is an improvement, but for 41 files, a simple regex-based Python script or a Node.js DOM parser is safer for preserving existing whitespace/formatting which BS4 often 're-pretty-prints' by default, potentially causing unnecessary diff churn in a Git repo [3][6].\"\n    }\n  ],\n  \"verifications\": [\n    {\n      \"model\": \"PERPLEXITY (Original)\",\n      \"claim\": \"document.write is a legacy method that can trigger browser warnings or block page rendering.\",\n      \"status\": \"CONFIRMED\"\n    },\n    {\n      \"model\": \"PERPLEXITY (Original)\",\n      \"claim\": \"Disclosures must be placed before the consumer engages with links.\",\n      \"status\": \"CONFIRMED\"\n    },\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Include a step to test the changes in different browsers.\",\n      \"status\": \"CONFIRMED\"\n    }\n  ],\n  \"revised_position\": [\n    {\n      \"proposal\": \"Migrate from `document.write` to `insertAdjacentHTML` or `textContent`\",\n      \"confidence\": 1.0,\n      \"justification\": \"Modern 2026 browser standards prioritize non-blocking scripts. Using `document.currentScript.insertAdjacentHTML` allows for dynamic injection without the rendering risks of `document.write` [1][6].\"\n    },\n    {\n      \"proposal\": \"Implement a 'Top-of-Page' Disclosure for FTC Compliance\",\n      \"confidence\": 0.95,\n      \"justification\": \"2026 FTC guidelines mandate that affiliate disclosures be 'unavoidable' and placed near the top of the content or the links themselves [2][5]. A footer-only fix for copyright does not satisfy the legal requirement for clear and conspicuous disclosure [7].\"\n    },\n    {\n      \"proposal\": \"Use a Template-Aware Replacement Script (Node/Python) instead of sed\",\n      \"confidence\": 0.9,\n      \"justification\": \"A script that validates the existence of the specific footer ID (e.g., Template A vs B) ensures that the replacement only occurs where intended, avoiding the 'grep-and-replace' errors common with `sed` on varied HTML structures [3].\"\n    }\n  ],\n  \"confidence\": 0.95\n}\nCitations: https://dev.to/vivekanandpadala/javascript-snippet-for-dynamically-updating-footer-copyright-year-3cdp, https://termly.io/resources/articles/ftc-affiliate-disclosure/, https://www.youtube.com/watch?v=D4xCGnwjMZQ, https://codepen.io/savannahmillion/pen/GgNXKa, https://www.referralcandy.com/blog/ftc-affiliate-disclosure, https://www.os-mb.de/it-service/faq/item/footer-aktuelles-jahr-ausgeben/, https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers, https://dev.to/michael/future-proof-your-footers-copyright-date-with-the-current-year-3a35\n\n\n\nYOUR ROLE (Deliberation Round 1):\n1. Synthesize the strongest ideas from ALL fan-out responses\n2. Resolve contradictions \u2014 when models disagree, take a position and justify it\n3. Revise your own Round 1 proposals based on what you've learned\n4. Produce an ATTRIBUTED PLAN \u2014 credit which model each step came from\n5. Flag anything GPT raised that you disagree with (or agree with)\n\nRespond in JSON with:\n- \"verdicts\": your final call on each proposal from all models\n- \"revised_proposals\": your updated proposals\n- \"attributed_plan\": concrete steps with source attribution\n- \"for_gpt\": specific questions or disagreements for GPT to address\n- \"low_hanging_fruit\": easiest wins"
+      },
+      "usage": null
+    },
+    {
+      "model": "gpt",
+      "delib_round": 1,
+      "response": {
+        "analysis": "The current plan for addressing GitHub issue #1316, which involves replacing hardcoded copyright years with a dynamic JavaScript solution, is a foundational approach but lacks attention to technical and compliance nuances. The plan relies on `sed` for text replacement, which is not ideal for HTML due to potential issues with malformed structures and escaping errors. Additionally, the use of `document.write` is outdated and might lead to rendering issues in modern browsers. Furthermore, the plan does not consider recent FTC guidelines regarding affiliate disclosures, which could be a legal risk if the site contains affiliate links.",
+        "proposed_update": {
+          "steps": [
+            "1. Create a backup of all files before modifications to ensure there is an easy rollback option.",
+            "2. Utilize a structured HTML parsing tool, such as a Node.js script with `jsdom` or a Python script with BeautifulSoup, to safely manipulate HTML.",
+            "3. Replace `document.write` with a modern approach, like using `textContent` or `insertAdjacentHTML`, to avoid potential rendering issues.",
+            "4. Implement automated tests to verify that the dynamic script is applied correctly and that no static years remain.",
+            "5. Consider adding a top-of-page disclosure if the site contains affiliate links, in compliance with FTC guidelines.",
+            "6. Document the changes thoroughly to guide future updates and prevent the reappearance of hardcoded years."
+          ]
+        },
+        "risks": "Failure to address these considerations could lead to malformed HTML, browser compatibility issues, legal non-compliance, and increased maintenance difficulties. The use of `sed` on HTML could result in errors due to its text-oriented nature, and ignoring FTC guidelines on disclosures could lead to legal challenges.",
+        "confidence": 0.85
+      },
+      "usage": {
+        "model": "gpt-4o",
+        "input_tokens": 4734,
+        "output_tokens": 366,
+        "estimated_cost_usd": 0.0155
+      }
+    },
+    {
+      "model": "claude",
+      "delib_round": 2,
+      "response": {
+        "note": "Claude deliberation round 2 \u2014 executed locally by Claude Code.",
+        "prompt": "You are CLAUDE in a deliberation round with GPT. You've seen the full fan-out \u2014 all 5 models responded independently to your Round 1 analysis. Now you and GPT are deliberating to reach the optimal solution.\n\nTASK: Review this plan for fixing GitHub issue #1316 (hardcoded \u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\u00a9 2025' with '\u00a9 <script>document.write(new Date().getFullYear())<\\/script>'. 4) Verify zero '\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\u00a9 2025 In The Wake \u00b7 A Cruise Encyclopedia \u00b7 Soli Deo Gloria'. Template B (prose): '\u00a9 2025 In The Wake \u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\u00a9 2025 \u00b7 Privacy \u00b7 Terms' or '\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\n\nYOUR ORIGINAL ANALYSIS (Round 1):\n{\n  \"proposals\": [\n    {\n      \"id\": \"claude_1\",\n      \"proposal\": \"Claude's substantive lead analysis of: Review this plan for fixing GitHub issue #1316 (hardcoded \\u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\\u00a9 2025' with '\\u00a9 <script>document.write(new Date().getFullYear())<\\\\/script>'. 4) Verify zero '\\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\\u00a9 2025 In The Wake \\u00b7 A Cruise Encyclopedia \\u00b7 Soli Deo Gloria'. Template B (prose): '\\u00a9 2025 In The Wake \\u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\\u00a9 2025 \\u00b7 Privacy \\u00b7 Terms' or '\\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \\u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"Claude has full codebase context, memory access, and project knowledge. This is the informed starting position that all other models will independently evaluate.\"\n    }\n  ],\n  \"low_hanging_fruit\": [],\n  \"note\": \"In interactive mode, Claude Code fills this with a detailed, substantive response. The prompt above guides Claude's analysis.\"\n}\n\nALL FAN-OUT RESPONSES:\n\n--- GPT (structure) ---\n{\n  \"verdicts\": [\n    {\n      \"PROPOSAL_ID\": \"claude_1\",\n      \"VERDICT\": \"WHEAT_WITH_REFINEMENT\",\n      \"JUSTIFICATION\": \"Claude's proposal is generally sound, as it outlines a clear and structured plan to replace the hardcoded copyright year with a dynamic solution. However, there are a few areas that could use further clarification and improvement.\",\n      \"REFINEMENT\": \"1) Ensure that during the sed pass, a backup of the original files is created in case the script insertion causes any unexpected issues. 2) Consider using a more robust tool or script for HTML parsing and manipulation, like a Python script using BeautifulSoup, to avoid potential issues with malformed HTML due to sed. 3) Extend the spot-checking to include edge cases, such as pages with unusual formatting or additional embedded scripts. 4) Include a step to test the changes in different browsers to ensure cross-browser compatibility.\"\n    }\n  ],\n  \"proposals\": [\n    {\n      \"PROPOSAL\": \"Add automated tests\",\n      \"CONFIDENCE\": \"HIGH\",\n      \"JUSTIFICATION\": \"Implement automated tests to verify the presence of the dynamic script and the absence of hardcoded dates in the HTML files. This will help catch any issues early and ensure consistent future compliance.\"\n    },\n    {\n      \"PROPOSAL\": \"Include comprehensive documentation\",\n      \"CONFIDENCE\": \"MEDIUM\",\n      \"JUSTIFICATION\": \"Document the changes made and provide guidance for future updates to the footer, ensuring that developers are aware of the dynamic solution and do not reintroduce hardcoded years.\"\n    }\n  ],\n  \"low_hanging_fruit\": [\n    \"Ensure a version control checkpoint is made before starting the changes to facilitate easy rollback if necessary.\",\n    \"Provide a checklist for the verification steps to ensure that no step is missed during the manual checks.\"\n  ]\n}\n\n--- GEMINI (expand) --- FAILED ---\n\n\n--- PERPLEXITY (research) ---\n{\n  \"verdicts\": [\n    {\n      \"proposal_id\": \"claude_1\",\n      \"verdict\": \"WHEAT_WITH_REFINEMENT\",\n      \"justification\": \"The plan correctly identifies the scope (41 pages) and provides a logic for replacing static years with dynamic JS. However, it relies solely on `sed` for a multi-file HTML update which is prone to escaping errors and ignores modern SEO/accessibility best practices regarding `document.write` and affiliate disclosure proximity.\",\n      \"refinement\": \"Switch from `sed` to a structured DOM-aware script (like a Node.js script using `jsdom` or a robust Python script) to handle HTML escaping safely. Additionally, the replacement should not just be the year; it must include a 'clear and conspicuous' affiliate disclosure if these pages contain links, as site-wide footers are legally insufficient under 2025-2026 FTC guidelines [3][6].\"\n    }\n  ],\n  \"proposals\": [\n    {\n      \"proposal\": \"Implement 'Disclosure-First' Header Injection\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"2026 FTC guidance and recent enforcement actions emphasize that disclosures must be 'unavoidable' and placed *before* the consumer engages with links [2][6]. A footer-only fix (the focus of issue #1316) leaves the site legally vulnerable if it contains affiliate content.\"\n    },\n    {\n      \"proposal\": \"Replace `document.write` with `textContent` or SSR\",\n      \"confidence\": \"HIGH\",\n      \"justification\": \"`document.write` is a legacy method that can trigger browser warnings or block page rendering. Using `document.getElementById('year').textContent = new Date().getFullYear();` is the 2026 standard for client-side dynamic text [2].\"\n    }\n  ],\n  \"low_hanging_fruit\": [\n    \"Global CSS class for disclosures: Ensure all 41 pages have a high-contrast CSS class for the disclosure text to meet 'clear and conspicuous' requirements [3][5].\",\n    \"Template Centralization: Move footer logic to a single shared partial or component to prevent future 'hardcoded' issues across these 41 disparate files.\"\n  ],\n  \"analysis\": \"The current plan for GitHub issue #1316 is technically functional but legally and architecturally brittle. The reliance on `sed` for 41 files with three different templates is risky due to potential regex mismatches with HTML entities (e.g., `&copy;` vs `\\u00a9`). Furthermore, simply fixing the date in the footer ignores the 2025-2026 regulatory shift where footer-only disclosures are deemed insufficient for affiliate transparency [3][9].\",\n  \"claims\": [\n    {\n      \"type\": \"Regulatory\",\n      \"claim\": \"FTC requires affiliate disclosures to be 'clear and conspicuous' and placed *before* any affiliate links, explicitly stating that footers or separate pages are insufficient.\",\n      \"source\": \"FTC Endorsement Guides (2026 Update)\",\n      \"url\": \"https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking\"\n    },\n    {\n      \"type\": \"Enforcement\",\n      \"claim\": \"Recent 2025-2026 guidance mandates disclosures must be 'unavoidable' and visible without clicking 'show more' or scrolling to a footer.\",\n      \"source\": \"eBay Partner Network / FTC Compliance FAQ\",\n      \"url\": \"https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq\"\n    },\n    {\n      \"type\": \"Technical\",\n      \"claim\": \"Modern affiliate tools like AffiliateX recommend automated, top-of-page disclosures to ensure compliance.\",\n      \"source\": \"AffiliateX Best Practices (2026)\",\n      \"url\": \"https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/\"\n    }\n  ],\n  \"proposed_update\": \"Modify the plan to: 1) Use a Node/Python script for DOM manipulation instead of `sed`. 2) Inject a standardized disclosure component at the *top* of the 41 pages (Template A, B, and C). 3) Use `Intl.DateTimeFormat` or `textContent` for the year to avoid `document.write` deprecation issues.\",\n  \"risks\": \"Regex errors in `sed` could corrupt HTML structure; footer-only updates may lead to FTC warning letters\n... (truncated)\nCitations: https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking, https://affiliatexblocks.com/best-practice-for-adding-amazon-affiliate-disclosures-with-affiliatex/, https://stalirov.lawyer/en/posts/ftc-affiliate-marketing-compliance, https://www.shopify.com/blog/affiliate-disclosure, https://influenceflow.io/resources/ftc-disclosure-requirements-for-influencer-marketing-a-complete-2026-guide/, https://wecantrack.com/insights/affiliate-disclosure/, https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers, https://www.automateed.com/best-practices-for-honest-affiliate-reviews, https://partnernetwork.ebay.com/resources/affiliate-disclosure-faq, https://getaawp.com/blog/affiliate-disclosures-do-you-need-one-how-to-write-yours/\n\n--- YOUDOTCOM (research) --- FAILED ---\n\n\n--- GROK (challenge) --- FAILED ---\n\n\n--- GPT (round_robin) ---\n{\n  \"analysis\": \"The plan to update the static copyright year on 41 pages to a dynamic script lacks some considerations for potential issues that could arise from using `sed` for HTML manipulation. Although `sed` is powerful for text replacements, it is not the best tool for structured HTML manipulations due to risks of malformed HTML. Furthermore, the use of `document.write` is outdated and can cause rendering issues or warnings in modern browsers. Additionally, there are implications regarding SEO and legal compliance (especially FTC guidelines) that need to be considered.\",\n  \"proposed_update\": {\n    \"steps\": [\n      \"1. Create a backup of the current state of the files to allow for easy rollback if necessary.\",\n      \"2. Switch from using `sed` to using a structured HTML parser, such as a Node.js script with `jsdom` or a Python script with BeautifulSoup, to perform replacements safely.\",\n      \"3. Replace `document.write` with a more modern approach, such as setting `textContent` of an HTML element.\",\n      \"4. Conduct automated tests to ensure that the dynamic script is correctly implemented and that no hardcoded years remain.\",\n      \"5. Ensure comprehensive documentation is created to guide future updates and prevent reintroduction of hardcoded years.\",\n      \"6. Consider legal implications, such as FTC guidelines for disclosures, if the footer contains affiliate links. This might require additional modifications beyond the copyright year.\"\n    ]\n  },\n  \"risks\": \"Failure to address these considerations could result in malformed HTML, browser compatibility issues, legal compliance failures, and increased maintenance challenges. There's also the risk of SEO impact if the footer is not correctly structured.\",\n  \"confidence\": 0.8\n}\n\n--- PERPLEXITY (round_robin) ---\n{\n  \"challenges\": [\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Ensure that during the sed pass, a backup of the original files is created.\",\n      \"challenge\": \"While a backup is good practice, it doesn't solve the core issue that 'sed' is line-oriented and fails on multi-line HTML structures or malformed tags [1][3]. Standard 'sed' across 41 files with different templates risks corrupting the 'Template B' prose or 'Template C' compact variations if the search string '\\u00a9 2025' isn't unique or is interrupted by line breaks.\"\n    },\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Consider using a more robust tool... like a Python script using BeautifulSoup.\",\n      \"challenge\": \"BeautifulSoup is an improvement, but for 41 files, a simple regex-based Python script or a Node.js DOM parser is safer for preserving existing whitespace/formatting which BS4 often 're-pretty-prints' by default, potentially causing unnecessary diff churn in a Git repo [3][6].\"\n    }\n  ],\n  \"verifications\": [\n    {\n      \"model\": \"PERPLEXITY (Original)\",\n      \"claim\": \"document.write is a legacy method that can trigger browser warnings or block page rendering.\",\n      \"status\": \"CONFIRMED\"\n    },\n    {\n      \"model\": \"PERPLEXITY (Original)\",\n      \"claim\": \"Disclosures must be placed before the consumer engages with links.\",\n      \"status\": \"CONFIRMED\"\n    },\n    {\n      \"model\": \"GPT\",\n      \"claim\": \"Include a step to test the changes in different browsers.\",\n      \"status\": \"CONFIRMED\"\n    }\n  ],\n  \"revised_position\": [\n    {\n      \"proposal\": \"Migrate from `document.write` to `insertAdjacentHTML` or `textContent`\",\n      \"confidence\": 1.0,\n      \"justification\": \"Modern 2026 browser standards prioritize non-blocking scripts. Using `document.currentScript.insertAdjacentHTML` allows for dynamic injection without the rendering risks of `document.write` [1][6].\"\n    },\n    {\n      \"proposal\": \"Implement a 'Top-of-Page' Disclosure for FTC Compliance\",\n      \"confidence\": 0.95,\n      \"justification\": \"2026 FTC guidelines mandate that affiliate disclosures be 'unavoidable' and placed near the top of the content or the links themselves [2][5]. A footer-only fix for copyright does not satisfy the legal requirement for clear and conspicuous disclosure [7].\"\n    },\n    {\n      \"proposal\": \"Use a Template-Aware Replacement Script (Node/Python) instead of sed\",\n      \"confidence\": 0.9,\n      \"justification\": \"A script that validates the existence of the specific footer ID (e.g., Template A vs B) ensures that the replacement only occurs where intended, avoiding the 'grep-and-replace' errors common with `sed` on varied HTML structures [3].\"\n    }\n  ],\n  \"confidence\": 0.95\n}\nCitations: https://dev.to/vivekanandpadala/javascript-snippet-for-dynamically-updating-footer-copyright-year-3cdp, https://termly.io/resources/articles/ftc-affiliate-disclosure/, https://www.youtube.com/watch?v=D4xCGnwjMZQ, https://codepen.io/savannahmillion/pen/GgNXKa, https://www.referralcandy.com/blog/ftc-affiliate-disclosure, https://www.os-mb.de/it-service/faq/item/footer-aktuelles-jahr-ausgeben/, https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers, https://dev.to/michael/future-proof-your-footers-copyright-date-with-the-current-year-3a35\n\nPRIOR DELIBERATION:\n\n--- CLAUDE (Deliberation 1) ---\n{\n  \"note\": \"Claude deliberation round 1 \\u2014 executed locally by Claude Code.\",\n  \"prompt\": \"You are CLAUDE in a deliberation round with GPT. You've seen the full fan-out \\u2014 all 5 models responded independently to your Round 1 analysis. Now you and GPT are deliberating to reach the optimal solution.\\n\\nTASK: Review this plan for fixing GitHub issue #1316 (hardcoded \\u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\\u00a9 2025' with '\\u00a9 <script>document.write(new Date().getFullYear())<\\\\/script>'. 4) Verify zero '\\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\\u00a9 2025 In The Wake \\u00b7 A Cruise Encyclopedia \\u00b7 Soli Deo Gloria'. Template B (prose): '\\u00a9 2025 In The Wake \\u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\\u00a9 2025 \\u00b7 Privacy \\u00b7 Terms' or '\\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \\u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing? What could go wrong? Is sed the right tool or should we use something else? Are there any edge cases with the script tag insertion into HTML?\\n\\nYOUR ORIGINAL ANALYSIS (Round 1):\\n{\\n  \\\"proposals\\\": [\\n    {\\n      \\\"id\\\": \\\"claude_1\\\",\\n      \\\"proposal\\\": \\\"Claude's substantive lead analysis of: Review this plan for fixing GitHub issue #1316 (hardcoded \\\\u00a9 2025 footer copyright on 41 pages) in the InTheWake cruise site. The plan is to replace the hardcoded year with a dynamic JS script already used on working pages. Plan: 1) Branch fix/1316-copyright-year-dynamic. 2) Read 3 representative files (one per footer template) before touching anything. 3) sed pass on all 41 files: replace '\\\\u00a9 2025' with '\\\\u00a9 <script>document.write(new Date().getFullYear())<\\\\\\\\/script>'. 4) Verify zero '\\\\u00a9 2025' remain, all 41 files have the script tag. 5) Spot-check 3 files manually. 6) Commit, push, merge, close issue. Three footer templates exist: Template A (Carnival ships): '\\\\u00a9 2025 In The Wake \\\\u00b7 A Cruise Encyclopedia \\\\u00b7 Soli Deo Gloria'. Template B (prose): '\\\\u00a9 2025 In The Wake \\\\u2014 Cruise encyclopedic planning built AI-first, human-first, Google second.' Template C (compact): '\\\\u00a9 2025 \\\\u00b7 Privacy \\\\u00b7 Terms' or '\\\\u00a9 2025 In The Wake. All rights reserved.' The dynamic script already in production on working pages is: \\\\u00a9 <script>document.write(new Date().getFullYear())</script>. Question: Is this plan sound? What are we missing?\n\n--- GPT (Deliberation 1) ---\n{\n  \"analysis\": \"The current plan for addressing GitHub issue #1316, which involves replacing hardcoded copyright years with a dynamic JavaScript solution, is a foundational approach but lacks attention to technical and compliance nuances. The plan relies on `sed` for text replacement, which is not ideal for HTML due to potential issues with malformed structures and escaping errors. Additionally, the use of `document.write` is outdated and might lead to rendering issues in modern browsers. Furthermore, the plan does not consider recent FTC guidelines regarding affiliate disclosures, which could be a legal risk if the site contains affiliate links.\",\n  \"proposed_update\": {\n    \"steps\": [\n      \"1. Create a backup of all files before modifications to ensure there is an easy rollback option.\",\n      \"2. Utilize a structured HTML parsing tool, such as a Node.js script with `jsdom` or a Python script with BeautifulSoup, to safely manipulate HTML.\",\n      \"3. Replace `document.write` with a modern approach, like using `textContent` or `insertAdjacentHTML`, to avoid potential rendering issues.\",\n      \"4. Implement automated tests to verify that the dynamic script is applied correctly and that no static years remain.\",\n      \"5. Consider adding a top-of-page disclosure if the site contains affiliate links, in compliance with FTC guidelines.\",\n      \"6. Document the changes thoroughly to guide future updates and prevent the reappearance of hardcoded years.\"\n    ]\n  },\n  \"risks\": \"Failure to address these considerations could lead to malformed HTML, browser compatibility issues, legal non-compliance, and increased maintenance difficulties. The use of `sed` on HTML could result in errors due to its text-oriented nature, and ignoring FTC guidelines on disclosures could lead to legal challenges.\",\n  \"confidence\": 0.85\n}\n\n\nYOUR ROLE (Deliberation Round 2):\n1. Synthesize the strongest ideas from ALL fan-out responses\n2. Resolve contradictions \u2014 when models disagree, take a position and justify it\n3. Revise your own Round 1 proposals based on what you've learned\n4. Produce an ATTRIBUTED PLAN \u2014 credit which model each step came from\n5. Flag anything GPT raised that you disagree with (or agree with)\n\nRespond in JSON with:\n- \"verdicts\": your final call on each proposal from all models\n- \"revised_proposals\": your updated proposals\n- \"attributed_plan\": concrete steps with source attribution\n- \"for_gpt\": specific questions or disagreements for GPT to address\n- \"low_hanging_fruit\": easiest wins"
+      },
+      "usage": null
+    },
+    {
+      "model": "gpt",
+      "delib_round": 2,
+      "response": {
+        "analysis": "The plan to address GitHub issue #1316 has a clear structure but lacks consideration of some technical and compliance issues. It relies on using `sed` for HTML manipulation, which can lead to issues due to its limitations with structured data. The use of `document.write` is outdated and could cause rendering problems. Additionally, the plan does not address FTC guidelines for affiliate disclosures which could be relevant if the site uses affiliate links.",
+        "proposed_update": {
+          "steps": [
+            "1. Backup all files before making changes to ensure the ability to revert if needed.",
+            "2. Use a structured HTML parsing tool like a Node.js script with `jsdom` or a Python script with BeautifulSoup to perform replacements safely.",
+            "3. Replace `document.write` with a modern method like `textContent` or `insertAdjacentHTML` to avoid potential rendering issues.",
+            "4. Implement automated tests to verify the dynamic script is correctly applied and all hardcoded years are removed.",
+            "5. Add a top-of-page disclosure if the site includes affiliate links to meet FTC guidelines.",
+            "6. Document the changes thoroughly to aid future updates and prevent reintroduction of hardcoded years."
+          ]
+        },
+        "risks": "Using `sed` can lead to HTML corruption due to its limitations with structured data. Relying on `document.write` risks rendering issues in modern browsers. Ignoring FTC guidelines on disclosures could result in legal compliance issues. The overall maintenance of the site could become more challenging if these issues are not addressed.",
+        "confidence": 0.85
+      },
+      "usage": {
+        "model": "gpt-4o",
+        "input_tokens": 5968,
+        "output_tokens": 333,
+        "estimated_cost_usd": 0.0183
+      }
+    }
+  ],
+  "blind_spot": null,
+  "cost_log": [
+    {
+      "model": "gpt-4o",
+      "input_tokens": 1181,
+      "output_tokens": 393,
+      "estimated_cost_usd": 0.0069
+    },
+    {
+      "model": "gemini",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "estimated_cost_usd": 0
+    },
+    {
+      "model": "google/gemini-3-flash-preview",
+      "input_tokens": 9688,
+      "output_tokens": 1130,
+      "estimated_cost_usd": 0.0132
+    },
+    {
+      "model": "youdotcom",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "estimated_cost_usd": 0
+    },
+    {
+      "model": "grok",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "estimated_cost_usd": 0
+    },
+    {
+      "model": "gpt-4o",
+      "input_tokens": 1304,
+      "output_tokens": 351,
+      "estimated_cost_usd": 0.0068
+    },
+    {
+      "model": "google/gemini-3-flash-preview",
+      "input_tokens": 9499,
+      "output_tokens": 782,
+      "estimated_cost_usd": 0.0121
+    },
+    {
+      "model": "gpt-4o",
+      "input_tokens": 4734,
+      "output_tokens": 366,
+      "estimated_cost_usd": 0.0155
+    },
+    {
+      "model": "gpt-4o",
+      "input_tokens": 5968,
+      "output_tokens": 333,
+      "estimated_cost_usd": 0.0183
+    },
+    {
+      "model": "grok",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "estimated_cost_usd": 0
+    }
+  ],
+  "total_cost_usd": 0.0728,
+  "status": "completed",
+  "trigger_detection": {
+    "should_trigger": true,
+    "triggers_fired": [
+      {
+        "id": "high_stakes",
+        "reason": "3/6 high-stakes keywords found: legal, security, compliance",
+        "score": 0.5
+      },
+      {
+        "id": "partial_gaps",
+        "reason": "Avg per-model unique coverage: 70%",
+        "score": 0.7
+      },
+      {
+        "id": "format_degradation",
+        "reason": "3/5 models returned invalid/degraded responses",
+        "score": 0.6
+      }
+    ],
+    "summary": "3 triggers fired: 3/6 high-stakes keywords found: legal, security, compliance; Avg per-model unique coverage: 70%; 3/5 models returned invalid/degraded responses"
+  },
+  "round_robin": {
+    "triggered": true,
+    "responses": [
+      {
+        "model": "gpt",
+        "phase": "round_robin",
+        "response": {
+          "analysis": "The plan to update the static copyright year on 41 pages to a dynamic script lacks some considerations for potential issues that could arise from using `sed` for HTML manipulation. Although `sed` is powerful for text replacements, it is not the best tool for structured HTML manipulations due to risks of malformed HTML. Furthermore, the use of `document.write` is outdated and can cause rendering issues or warnings in modern browsers. Additionally, there are implications regarding SEO and legal compliance (especially FTC guidelines) that need to be considered.",
+          "proposed_update": {
+            "steps": [
+              "1. Create a backup of the current state of the files to allow for easy rollback if necessary.",
+              "2. Switch from using `sed` to using a structured HTML parser, such as a Node.js script with `jsdom` or a Python script with BeautifulSoup, to perform replacements safely.",
+              "3. Replace `document.write` with a more modern approach, such as setting `textContent` of an HTML element.",
+              "4. Conduct automated tests to ensure that the dynamic script is correctly implemented and that no hardcoded years remain.",
+              "5. Ensure comprehensive documentation is created to guide future updates and prevent reintroduction of hardcoded years.",
+              "6. Consider legal implications, such as FTC guidelines for disclosures, if the footer contains affiliate links. This might require additional modifications beyond the copyright year."
+            ]
+          },
+          "risks": "Failure to address these considerations could result in malformed HTML, browser compatibility issues, legal compliance failures, and increased maintenance challenges. There's also the risk of SEO impact if the footer is not correctly structured.",
+          "confidence": 0.8
+        },
+        "usage": {
+          "model": "gpt-4o",
+          "input_tokens": 1304,
+          "output_tokens": 351,
+          "estimated_cost_usd": 0.0068
+        },
+        "citations": []
+      },
+      {
+        "model": "perplexity",
+        "phase": "round_robin",
+        "response": {
+          "challenges": [
+            {
+              "model": "GPT",
+              "claim": "Ensure that during the sed pass, a backup of the original files is created.",
+              "challenge": "While a backup is good practice, it doesn't solve the core issue that 'sed' is line-oriented and fails on multi-line HTML structures or malformed tags [1][3]. Standard 'sed' across 41 files with different templates risks corrupting the 'Template B' prose or 'Template C' compact variations if the search string '\u00a9 2025' isn't unique or is interrupted by line breaks."
+            },
+            {
+              "model": "GPT",
+              "claim": "Consider using a more robust tool... like a Python script using BeautifulSoup.",
+              "challenge": "BeautifulSoup is an improvement, but for 41 files, a simple regex-based Python script or a Node.js DOM parser is safer for preserving existing whitespace/formatting which BS4 often 're-pretty-prints' by default, potentially causing unnecessary diff churn in a Git repo [3][6]."
+            }
+          ],
+          "verifications": [
+            {
+              "model": "PERPLEXITY (Original)",
+              "claim": "document.write is a legacy method that can trigger browser warnings or block page rendering.",
+              "status": "CONFIRMED"
+            },
+            {
+              "model": "PERPLEXITY (Original)",
+              "claim": "Disclosures must be placed before the consumer engages with links.",
+              "status": "CONFIRMED"
+            },
+            {
+              "model": "GPT",
+              "claim": "Include a step to test the changes in different browsers.",
+              "status": "CONFIRMED"
+            }
+          ],
+          "revised_position": [
+            {
+              "proposal": "Migrate from `document.write` to `insertAdjacentHTML` or `textContent`",
+              "confidence": 1.0,
+              "justification": "Modern 2026 browser standards prioritize non-blocking scripts. Using `document.currentScript.insertAdjacentHTML` allows for dynamic injection without the rendering risks of `document.write` [1][6]."
+            },
+            {
+              "proposal": "Implement a 'Top-of-Page' Disclosure for FTC Compliance",
+              "confidence": 0.95,
+              "justification": "2026 FTC guidelines mandate that affiliate disclosures be 'unavoidable' and placed near the top of the content or the links themselves [2][5]. A footer-only fix for copyright does not satisfy the legal requirement for clear and conspicuous disclosure [7]."
+            },
+            {
+              "proposal": "Use a Template-Aware Replacement Script (Node/Python) instead of sed",
+              "confidence": 0.9,
+              "justification": "A script that validates the existence of the specific footer ID (e.g., Template A vs B) ensures that the replacement only occurs where intended, avoiding the 'grep-and-replace' errors common with `sed` on varied HTML structures [3]."
+            }
+          ],
+          "confidence": 0.95
+        },
+        "usage": {
+          "model": "google/gemini-3-flash-preview",
+          "input_tokens": 9499,
+          "output_tokens": 782,
+          "estimated_cost_usd": 0.0121
+        },
+        "citations": [
+          "https://dev.to/vivekanandpadala/javascript-snippet-for-dynamically-updating-footer-copyright-year-3cdp",
+          "https://termly.io/resources/articles/ftc-affiliate-disclosure/",
+          "https://www.youtube.com/watch?v=D4xCGnwjMZQ",
+          "https://codepen.io/savannahmillion/pen/GgNXKa",
+          "https://www.referralcandy.com/blog/ftc-affiliate-disclosure",
+          "https://www.os-mb.de/it-service/faq/item/footer-aktuelles-jahr-ausgeben/",
+          "https://www.ftc.gov/business-guidance/resources/disclosures-101-social-media-influencers",
+          "https://dev.to/michael/future-proof-your-footers-copyright-date-with-the-current-year-3a35"
+        ]
+      }
+    ]
+  },
+  "completed_at": "2026-05-28T17:11:18Z"
+}

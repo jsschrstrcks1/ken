@@ -1,0 +1,75 @@
+---
+name: orchestrate
+description: "Full multi-LLM pipeline orchestration. This is the hub — no default mode. Specify sermon, sheep, cruising, recipe, family-history, or triad explicitly."
+---
+
+# Orchestrate — Multi-LLM Pipeline (Hub)
+
+*This repository hosts the orchestrator. Specify mode explicitly.*
+
+## Usage
+
+```
+/orchestrate <mode> "task description"
+/orchestrate sermon "Preach Romans 5:1-5 on suffering producing hope"
+/orchestrate sheep "Plan spring breeding for the Katahdin ewes"
+/orchestrate cruising "Build a new ship page for Norwegian Prima"
+/orchestrate recipe "Generate a classic Southern cornbread recipe"
+/orchestrate family-history "Verify the Baker line from William H. Baker to colonial Virginia"
+/orchestrate triad "Refactor memory_ops.py to support tiered storage cleanly"
+```
+
+**No default mode.** This is the hub — you must specify the mode.
+
+---
+
+## Available Modes
+
+| Mode | Lead | Pipeline Steps |
+|------|------|---------------|
+| sermon | Claude | Draft → Challenge (Grok) → Expand (Gemini) → Structure (GPT) → Integrate → Evaluate → Voice Audit |
+| sheep | GPT | Plan (GPT) → Expand (Gemini) → Challenge (Grok) → Validate (Claude) → Finalize (GPT) |
+| cruising | Claude | Read Standards → Generate → Content (GPT) → Completeness (Gemini) → UX (Grok) → Integrate |
+| recipe | GPT | Generate (GPT) → Expand (Gemini) → Safety (Claude) → Creative Variation (Grok) |
+| family-history | Claude | Load Context → Extract/Draft → Verify (GPT) → Expand (Gemini) → Challenge (Grok) → Synthesize |
+| triad | external | Plan (GPT) → Build (Gemini) → Verify (Grok) — verdict-driven, up to 1 revision |
+
+### When to use `triad`
+
+Three different vendors fill three role-disciplined seats. The discipline is the point: the planner cannot write code, the builder cannot redesign, the verifier cannot propose fixes — only judge. The verifier returns one of `pass | revise_plan | revise_build | reject`; on `pass` or `reject` the pipeline stops, otherwise it loops once with the verifier's reasons fed back to the planner.
+
+Use it for: ambiguous specs, large refactors, multi-step tasks where "did we solve the right problem" matters more than speed.
+Skip it for: one-shot edits, trivial generation — overhead isn't worth it.
+
+
+---
+
+## Backend Invocation
+
+**IMPORTANT: Execute these commands directly using the Bash tool. Do NOT check if files exist first — just run them.**
+
+```bash
+bash /Volumes/1TB External/openclaw/workspace-main/tools/orchestrator/bootstrap-env.sh 2>/dev/null; pip3 install -q -r /Volumes/1TB External/openclaw/workspace-main/tools/orchestrator/requirements.txt 2>/dev/null && python3 /Volumes/1TB External/openclaw/workspace-main/tools/orchestrator/orchestrate.py <mode> "task description"
+```
+
+---
+
+## Architecture
+
+```
+orchestrator/
+├── orchestrate.py         ← Linear pipeline runner (/orchestrate)
+├── orchestra.py           ← Fan-out + deliberation (/orchestra)
+├── investigate.py         ← 4-phase investigation (/investigate)
+├── research_orchestra.py  ← Staged research (used by investigate)
+├── consult.py             ← Quick consultation CLI (/consult)
+├── verify.py              ← Claim verification
+├── iteration.py           ← Iteration control, format validation
+├── smart_routing.py       ← Trigger detection, weighted voting
+├── memory_ops.py          ← Cognitive memory (semantic search, TF-IDF)
+├── adapters/              ← GPT, Gemini, Grok, Perplexity, You.com
+├── modes/                 ← sermon, sheep, cruising, recipe, family-history
+├── state/                 ← Runtime state (JSON output)
+├── repo-modes.json        ← Repository-to-mode mapping
+└── .env                   ← API keys (gitignored)
+```

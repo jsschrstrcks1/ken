@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# mem — shorthand wrapper for cognitive memory operations
+# Usage: mem <operation> [args...]
+# Examples:
+#   mem recall "sheep breeding"
+#   mem encode ken insight "we changed X" --tags session
+#   mem tree --domain ken
+#   mem consolidate --domain ken
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$SCRIPT_DIR/memory_ops.py" "$@"

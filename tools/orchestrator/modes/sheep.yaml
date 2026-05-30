@@ -1,0 +1,81 @@
+# Sheep Mode — Flock Decision Engine
+# Breeding planning for hair sheep in Florida
+
+name: sheep
+lead: gpt  # GPT handles planning and scheduling
+
+pipeline:
+  - step: plan
+    model: gpt
+    role: plan
+    description: >
+      Generate breeding plan from flock data and objectives.
+      Consider: parasite resistance, growth rate, maternal traits.
+
+  - step: expand_context
+    model: gemini
+    role: expand
+    description: >
+      Add agricultural and veterinary context.
+      Florida-specific: parasite pressure, humidity, heat tolerance.
+      Livestock best practices for hair sheep breeds.
+
+  - step: challenge
+    model: grok
+    role: challenge
+    description: >
+      Suggest unconventional pairings.
+      Challenge assumptions about which traits to prioritize.
+      Surface edge cases the plan misses.
+
+  - step: validate
+    model: claude
+    role: safety
+    description: >
+      Substantive validation — not a rubber stamp.
+      Traverse pedigree for inbreeding (COI calculation).
+      Correlate breeding history with health logs.
+      Flag unsafe pairings, health risks, genetic bottlenecks.
+
+  - step: finalize
+    model: gpt
+    role: plan
+    description: >
+      Incorporate all feedback into final breeding plan.
+      Produce structured output with timeline.
+
+constraints:
+  - Florida environment (high parasite pressure, humidity, heat)
+  - No inbreeding (enforce COI thresholds)
+  - Health history must be checked before any pairing
+  - Prioritize: parasite resistance > growth rate > maternal traits (configurable)
+
+context_boundary:
+  send_externally:
+    - anonymized flock data (IDs, not names if sensitive)
+    - breeding objectives
+    - trait scores
+    - health summaries (no PII)
+  keep_local:
+    - financial records
+    - location details beyond "Florida"
+
+output_schema:
+  breeding_plan: []
+  pairings:
+    - sire: ""
+      dam: ""
+      rationale: ""
+      risk_flags: []
+  culling_recommendations: []
+  risk_flags: []
+  expected_outcomes: []
+  timeline: []
+
+data_sources:
+  - flock spreadsheet / database (format TBD — see PLAN.md open questions)
+  - breeding records
+  - health logs
+  - trait scoring records
+
+max_loops: 2

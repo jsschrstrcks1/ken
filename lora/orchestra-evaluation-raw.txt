@@ -1,0 +1,40 @@
+/Users/kenbaker/Library/Python/3.9/lib/python/site-packages/google/auth/__init__.py:54: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+  warnings.warn(eol_message.format("3.9"), FutureWarning)
+/Users/kenbaker/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+/Users/kenbaker/Library/Python/3.9/lib/python/site-packages/google/oauth2/__init__.py:40: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+  warnings.warn(eol_message.format("3.9"), FutureWarning)
+[adapters] Loaded: gemini, gpt, grok, perplexity, youdotcom
+Orchestra: round-robin mode
+Task: INTEGRITY LoRA v2 EVALUATION:
+
+Ken is building a LoRA encoding Careful Not Clever + 732 memories + integrity discipline.
+
+CURRENT PLAN (v1): 
+- 1,613 training examples, 8 principles
+- Ready to submit to OpenAI now
+- Est. cost: $0.80-2.00, time: 30-60 min
+
+EXPANDED PROPOSAL (v2):
+- Layer 1: Epistemic Foundation (verified/inference/unverified labels from 732 memories)
+- Layer 2: Behavioral Constraints (scope control, constraint persistence, contradiction detection, memory weighting, refusal calibration)
+- Layer 3: Failure Mode Awareness (meta-layer: recognize guessing/extrapolating/lacking data)
+- 5 data sources: behavioral backbone (9 invariants, 60 SKILL.md), voice corpora (sermons, logbooks, grandmother registers, commit messages), negative examples (flagged phrases, redirects), reasoning traces (orchestrator debates, 65 superseded memories), structural signals (112 graph edges, recall counts, protection flags)
+
+CRITICAL DECISION: 
+Phased approach (v1 now, v2 later)?
+Or consolidate all 5 sources + 3 layers into v2 submission now (skip v1)?
+
+DEBATE FACTORS:
+1. Coverage: Will 5 sources + 3 layers create redundancy or necessary depth?
+2. Risk: Is phased safer than all-in?
+3. Register smearing: Ken's 11 repos have different voices (sermons vs sheep vs cruise). Should we use per-domain adapters?
+4. Runtime enforcement: Invariants live as code. How to balance LoRA learning vs orchestrator runtime checks?
+5. Data quality: Negative examples + reasoning traces are high-signal but sparse. Oversample them?
+6. Training cost: v1 is $0.80-2.00. How much does v2 add?
+7. Timeline: v1 is 30-60min. v2 is 4-6 hours. Real cost of waiting?
+8. Validator priority: Contradiction-detection vs epistemically-correct tests. Which matters more?
+
+For each model: Position (phased or all-in), confidence, top 3 reasons. 
+Final synthesis: Single recommendation with risk flags.
+Error: Unknown mode 'round-robin'. Available: triad, recipe, adversarial-review, sheep, cruising, family-history, sermon, strategy

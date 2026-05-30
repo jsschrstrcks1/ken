@@ -1,0 +1,44 @@
+INTEGRITY LoRA v2 — ORCHESTRATOR EVALUATION
+
+CONTEXT:
+Ken is building a LoRA that encodes Careful Not Clever + 732 memories + integrity discipline. 
+Current plan (v1): 1,613 training examples, 8 principles, ready to submit.
+
+EXPANDED PROPOSAL (v2):
+- Layer 1: Epistemic Foundation (verified/inference/unverified labels)
+- Layer 2: Behavioral Constraints (scope control, constraint persistence, contradiction detection, memory weighting, refusal calibration)
+- Layer 3: Failure Mode Awareness (meta-layer recognizing when guessing/extrapolating/lacking data)
+
+NEW DATA SOURCES (Claude provided 5 bundles):
+1. Behavioral Backbone: Doctrine (9 invariants, CONTINUOUS_LEARNING_DOCTRINE.md), CLAUDE.md across 11 repos, ~60 SKILL.md files, policy decision logs
+2. Voice Corpora: Romans sermons, InTheWake logbook entries, 3 grandmother recipe registers, family-history content, HANDOFF.md files, commit messages
+3. Negative Examples: voice-audit flagged phrases, ai-summary-rewriter corrections, operator redirects (memory redirects), adversarial cases
+4. Reasoning Traces: Orchestrator review transcripts, multi-LLM debate outputs, 65 superseded memories with chains, keeper journal entries
+5. Structural Signals: 112 graph edges (linked memories), recall counts, confidence scores, protection flags, weighted sampling script
+
+CRITICAL QUESTION FOR ORCHESTRA:
+
+Should Ken build v2 (phased approach: submit v1 now, expand to 3-layer v2 with all 5 data sources)?
+
+Or should Ken consolidate all 5 data sources + 3 layers into a single v2 submission now (skip v1)?
+
+DECISION FACTORS TO DEBATE:
+
+1. COVERAGE: Will 5 data sources + 3 layers create redundancy or necessary depth?
+2. RISK: Is phased (v1 then v2) safer than all-in (v2 directly)?
+3. REGISTER SMEARING: Claude warns voice-smearing risk across 11 repos/domains. Should we use per-domain adapters instead?
+4. RUNTIME ENFORCEMENT: Claude says doctrine/invariants live as code, not weights. How do we balance LoRA learning vs orchestrator runtime checks?
+5. DATA QUALITY: Negative examples + reasoning traces are high-signal but sparse. Should we oversample them?
+6. TRAINING COST: Current estimate $0.80-$2.00. How much does 3-layer + 5 sources add?
+7. TIMELINE: v1 takes 30-60min. Full v2 takes ~4-6 hours. What's the real cost of waiting?
+8. VALIDATOR WEIGHT: Should contradiction-detection tests be harder than epistemically-correct tests? What's the priority order?
+
+ORCHESTRATOR TASK:
+
+Debate these 8 factors across your models.
+Each model should advocate for a position (phased vs all-in).
+Resolve to a single recommendation with confidence level.
+
+Format:
+- MODEL_NAME: Position [Phased|All-In], Confidence [High|Medium|Low], Top 3 Reasons
+- SYNTHESIS: Single recommendation (phased or all-in), key next steps, risk flags

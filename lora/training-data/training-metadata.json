@@ -1,0 +1,36 @@
+{
+  "version": "v1.1-romans-integrity",
+  "description": "Integrity LoRA with Romans sermon reasoning",
+  "created": "2026-05-23",
+  "training_stats": {
+    "total": 1665,
+    "principles": 8,
+    "memories": 732,
+    "adversarial": 5,
+    "decision_units": 38,
+    "sermon_examples": 14
+  },
+  "integrity_principles": [
+    "Read before editing — understand the full context",
+    "Verify before claiming done — test your work",
+    "One logical change at a time — avoid side effects",
+    "Ask before destroying — respect reversibility",
+    "Epistemic discipline — label Verified/Inference/Unverified",
+    "Scope control — answer only what is asked",
+    "Constraint persistence — maintain rules throughout response",
+    "Contradiction avoidance — stay internally consistent"
+  ],
+  "sermon_filters": [
+    "integrity",
+    "goodness",
+    "soli_deo_gloria"
+  ],
+  "sources": {
+    "memories": "~/.memory/ (732 encoded memories, 7 domains)",
+    "decision_units": "CONTINUOUS_LEARNING_REVIEWS.md (3 rounds, 38 decisions)",
+    "sermons": "Romans repository (7 sermons, 14 excerpts, filtered for disciplinary reasoning)"
+  },
+  "model_target": "gpt-4o",
+  "estimated_cost": "$2-4",
+  "estimated_time": "30-60 minutes"
+}
