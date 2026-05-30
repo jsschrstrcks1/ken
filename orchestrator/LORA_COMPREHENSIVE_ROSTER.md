@@ -291,3 +291,37 @@ A theological AI network with:
 _This is not just LoRAs. This is a living theological library that learns, debates, and grows._
 
 _Soli Deo Gloria._
+
+---
+
+## Addendum: John Dagg
+
+**John Leadley Dagg** (1794-1884) — Pioneering Baptist systematic theologian
+
+### Significance
+- First American Baptist to write systematic theology (Manual of Theology, 1859)
+- Foundational for Baptist theological tradition
+- Ecclesiology, soteriology, pastoral theology
+- Available in modern reprints (Gano Books, Sprinkle Publications)
+
+### Sources
+- Manual of Theology (primary work)
+- Ecclesiastical History of the Baptists
+- Published sermons and writings
+- Modern scholarly editions
+
+### LoRA Data
+- ~200k-300k words from collected works
+- Ecclesiastical + systematic theology focus
+- Bridges Reformation → American Baptist tradition
+
+### Position in Roster
+- **Phase 3 Alternative** (or Phase 4 expansion)
+- After Reformation-era figures
+- Before 18th-19th century expansion
+- Or: **Standalone LoRA #32** (Baptist Theology Pioneer)
+
+---
+
+_John Dagg added to comprehensive theological roster._
+
