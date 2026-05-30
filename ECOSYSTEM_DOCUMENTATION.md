@@ -329,11 +329,20 @@ python3 integrated-mega-pipeline.py
 
 ### Cluster Configuration
 
-**Hardware:**
-- M4 Max (16-core CPU, GPU)
-- M3 Pro (12-core CPU, GPU)
-- Home Server (16-core CPU, GPU)
-- **Total parallel capacity:** 3 nodes
+**Hardware (3-Node Ollama Cluster):**
+- **m4max** (16-core CPU, GPU) — Primary: qwen3:32b (120s timeout)
+- **m3pro** (12-core CPU, GPU) — Secondary: qwen3:14b (90s timeout)
+- **homeserve** (16-core CPU, GPU) — Tertiary: qwen2.5:7b (60s timeout)
+- **Total parallel capacity:** 3 simultaneous training jobs + continuous sourcing
+
+**Cluster Features:**
+✅ Health checks (continuous node monitoring)  
+✅ Failover logic (automatic fallback to next priority node)  
+✅ Dynamic load balancing (route LoRA to optimal node)  
+✅ Ollama-based (HTTP API on port 11434)  
+✅ Tailnet connected (secure mesh)  
+
+**See:** `CLUSTER_INTEGRATION_PLAN.md` for full orchestration details
 
 **Training Distribution:**
 

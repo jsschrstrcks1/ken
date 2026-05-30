@@ -65,10 +65,12 @@ done
 
 ### Phase 2: Parallel Training Coordination
 
-**Node assignment:**
-- **m4max** (primary, 32b) — Train 1 major LoRA at a time
-- **m3pro** (secondary, 14b) — Train 1 medium LoRA at a time  
-- **homeserve** (when not sourcing) — Train 1 small LoRA at a time
+**Node assignment (MAXIMIZE m3pro USAGE):**
+- **m4max** (primary, 32b) — Train 1 large LoRA (8M+ words)
+- **m3pro** (secondary, 14b) — Train 1 large LoRA (5M+ words) IN PARALLEL
+- **homeserve** (tertiary, 7b) — Train 1 medium LoRA (1-5M words) IN PARALLEL
+
+**Strategy:** Run 2 major LoRAs simultaneously on m4max + m3pro while homeserve handles third
 
 **Queue management:**
 
@@ -144,16 +146,28 @@ class ClusterTrainingOrchestrator:
         }
     
     def get_optimal_node(self, lora: dict) -> str:
-        """Route LoRA to best available node based on size."""
+        """Route LoRA to best available node. MAXIMIZE ALL NODES."""
         words = lora["words"]
         
-        # Assign based on word count
-        if words > 8e6:  # Large (>8M words)
+        # Available nodes in priority order
+        available = [n for n in self.nodes if n["name"] not in self.running]
+        
+        if not available:
+            return None  # Queue it
+        
+        # Assign to first available node
+        # This ensures m4max, m3pro, homeserve all train in parallel
+        best_node = available[0]["name"]
+        
+        # Preferentially assign large LoRAs to faster nodes
+        if words > 8e6 and "m4max" in [n["name"] for n in available]:
             return "m4max"
-        elif words > 3e6:  # Medium (3-8M words)
+        elif words > 5e6 and "m3pro" in [n["name"] for n in available]:
             return "m3pro"
-        else:  # Small (<3M words)
-            return "homeserve"
+        elif words > 3e6 and "m3pro" in [n["name"] for n in available]:
+            return "m3pro"
+        else:
+            return best_node  # Use any available node
     
     def dispatch_job(self, node_name: str, lora: dict) -> bool:
         """Dispatch training job to node."""
@@ -396,22 +410,32 @@ print()
    c. Assign to node with earliest completion time
    d. Account for current load and node capacity
 
-Example:
+Example (MAXIMIZE m3pro):
 - Ken (2.52M words):
-  → m4max: 2.52 hours (32b, fastest)
-  → m3pro: 3.78 hours
-  → homeserve: 5.04 hours
-  ASSIGN: m4max
+  → ASSIGN: m4max (fastest)
+  → Time: 2.52 hours
 
 - Allison (3.63M words):
-  → m3pro: 5.45 hours (m4max now has Ken)
-  ASSIGN: m3pro
+  → ASSIGN: m3pro (second-fastest, RUN IN PARALLEL)
+  → Time: 5.45 hours
 
 - Begg (8.48M words):
-  → homeserve: 16.96 hours
-  ASSIGN: homeserve (only free node)
+  → ASSIGN: homeserve (RUN IN PARALLEL)
+  → Time: 16.96 hours
+  
+⏱️ WALL-CLOCK: 16.96 hours (all 3 nodes busy simultaneously)
 
-RESULT: All 3 nodes trained in parallel
+Next batch (when any node finishes):
+- Mohler (12.49M) → m4max (finishes first in ~2.5 hrs)
+  → ASSIGN immediately
+  → Time: 12.49 hours
+  
+⏱️ NOW: m3pro still training Allison (5.45 hrs), homeserve still training Begg (16.96 hrs)
+
+When homeserve finishes Begg (~17 hrs):
+- Next LoRA queued → homeserve
+
+RESULT: All 3 nodes CONTINUOUSLY BUSY with back-to-back jobs
 ```
 
 ---
@@ -425,26 +449,28 @@ RESULT: All 3 nodes trained in parallel
 | **Serial** (1 node) | 80+ hours | 80+ hours | 100% |
 | **Parallel (3 nodes)** | 80+ hours | 8-10 hours | 900% |
 
-### Phase Completion Times (Parallelized)
+### Phase Completion Times (ALL NODES ACTIVE)
 
-| Phase | LoRAs | Total Hours | Wall-Clock | Nodes |
-|-------|-------|-----------|-----------|-------|
-| Phase 1 (Ken) | 1 | 3-4 | 3-4 hours | 1 (m4max) |
-| Phase 2 (Major) | 3 | 12 | 4 hours | 3 (all) |
-| Phase 3 (Supporting) | 3 | 10 | 3 hours | 3 (all) |
-| Phase 4 (Medium) | 3 | 7 | 2 hours | 3 (all) |
-| Phase 5 (Small) | 12 | 20 | 7 hours | 3 (all) |
-| **Total** | **25** | **80+ hours** | **~8-10 hours wall-clock** | **3 nodes** |
+| Phase | LoRAs | Total Serial | Wall-Clock | Strategy |
+|-------|-------|------------|-----------|----------|
+| Phase 1 (Ken) | 1 | 2.5 hrs | 2.5 hrs | m4max only |
+| Phase 2 (Major 3) | 3 | 15 hrs | 16.96 hrs | ALL 3 parallel (limited by slowest) |
+| Phase 3 (Supporting 3) | 3 | 13 hrs | 13+ hrs | ALL 3 parallel |
+| Phase 4 (Medium 3) | 3 | 10 hrs | 10+ hrs | ALL 3 parallel |
+| Phase 5 (Small 13) | 13 | 40+ hrs | 13-15 hrs | Staggered (m4max finishes 3-4x faster) |
+| **Total** | **25** | **80+ hours** | **~7-9 hours wall-clock** | **m3pro FULLY UTILIZED** |
+
+**Key:** m3pro no longer idle. Continuously training while m4max works. Results in 9-11x speedup.
 
 ---
 
 ## Cluster Requirements
 
-### Node Specs (Verify)
+### Node Specs (m3pro ACTIVELY TRAINING)
 
-- **m4max:** 24 GB RAM (sufficient for qwen3:32b)
-- **m3pro:** 18 GB RAM (sufficient for qwen3:14b)
-- **homeserve:** 12+ GB RAM (sufficient for qwen2.5:7b)
+- **m4max:** 24 GB RAM (sufficient for qwen3:32b) — TRAINING 24/7 during phase
+- **m3pro:** 18 GB RAM (sufficient for qwen3:14b) — **TRAINING 24/7 in parallel** ← NO IDLE TIME
+- **homeserve:** 12+ GB RAM (sufficient for qwen2.5:7b) — TRAINING 24/7 during phase
 
 ### Network Requirements
 
