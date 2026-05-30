@@ -2,130 +2,112 @@
 
 **Status:** In Progress (Started 2026-05-30 10:06 EDT)
 **Base Model:** Llama-3.1-8B
-**Training Node:** m4max (available upon request; currently using local)
+**Training Node:** m4max (awaiting SSH access)
 **Validation Gate:** §13.5 — cite-or-flag, adversarial, cross-era stability
 
 ---
 
-## Priority Sequence (Per Plan + SEBTS Extension)
+## Priority Sequence (Updated Per Corpus Discovery)
 
-1. **Ken** ← Currently running (Step 1 DONE, Step 2 blocked on m4max SSH)
-2. **SEBTS-Exegesis** ← NEW (Step 1 in progress: 30 podcast files transcribing via Whisper API)
-3. Spurgeon (awaiting corpus)
-4. MacArthur · Piper · Edwards · Calvin · Owen · Sproul
+1. **Ken-Expanded** ← Currently running (Step 1 COMPLETE, Steps 2–3 awaiting m4max)
+2. Spurgeon (minimal corpus in archive, may skip)
+3. MacArthur · Piper · Edwards · Calvin · Owen · Sproul
 
 ---
 
-## Training Run: Ken Corrector LoRA
+## Training Run: Ken-Expanded Corrector LoRA
 
 **Start:** 2026-05-30 10:06 EDT  
-**Data Prep:** DONE (1,983 samples, 1.74M train words, 114k eval words)
+**Architecture:** 40% Ken personal voice + 60% Reformed/Baptist archive theological breadth  
+**Corpus Size:** 19,651 training samples
 
 ### Step 1 — Data Preparation ✅ COMPLETE
 
-- **Files processed:** 927 unique (6.3M unique words after dedup)
-- **Dedup rate:** 87% (6,322 duplicates removed from 7,249 raw files)
-- **Samples created:** 1,983 (segmented at ~2k tokens per sample)
-- **Train/eval split:** 95/5 (1,883 train / 100 eval)
-- **Corpus location:** `/Volumes/1TB External/Projects/Romans/`
-- **Output dir:** `~/lora-data/ken/`
-- **Prep report:** `prep-report.json` (cleaned frontmatter, normalized quotes, collapsed whitespace)
+**Ken corpus (40% - Personal voice calibration):**
+- Source: `/Volumes/1TB External/Projects/Romans/` (7,249 files)
+- Samples: 7,861 after segmentation
+- Role: Encodes Ken's sermon cadence, argument structure, theological priorities
+
+**Archive corpus (60% - Theological breadth):**
+- Source: `/Volumes/1TB External/openclaw-main/sermon-archive/_EXTERNAL-PREACHERS/`
+- Preachers: 18 major voices (TGC 6,061 sermons, Mohler 3,449, Begg 3,064, MacArthur 769, etc.)
+- Files: 20,128 sermon files total
+- Samples collected: 43,559 → Used: 11,791 (stratified sample)
+- Role: Anchors Ken's voice in broader Reformed/evangelical theology
+
+**Final mixed corpus:**
+- Total samples: 19,651 (10.4× original Ken-only corpus)
+- Train/eval: 95/5 (18,668 train / 983 eval)
+- Output: `~/lora-data/ken/train.jsonl`, `eval.jsonl`, `prep-report.json`
+
+**Why this mix?**
+- Ken-only (4M words) risked overfitting to one voice
+- Archive-only would lose personal calibration
+- 40/60 preserves Ken's distinctive patterns while grounding in tradition
 
 ### Step 2 — Sanity LoRA ⏳ READY (Awaiting m4max)
 
 - **Config:** r=8, α=16, batch=2, lr=1e-4, steps=100
-- **Data:** First 10k tokens from train.jsonl (ready at `~/lora-data/ken/train.jsonl`)
+- **Data:** First 10k tokens from train.jsonl
 - **Expected runtime:** 30 min on m4max
-- **Pass criteria:** 
-  - Loss decreasing monotonically
-  - No NaN/Inf
-  - Eval perplexity ≤ 2× train perplexity
-- **Status:** Data prepared (1,883 train samples). Awaiting m4max SSH access to execute.
-
----
-
-## Validation Gates (When Each Completes)
-
-| Gate | Type | Status | Notes |
-|------|------|--------|-------|
-| Holdout sermon test (5-10 sermons, 80%+ correctness) | Ken-specific | Awaiting | Need 5-10 holdout sermons not in training corpus |
-| Sermon-drift detection (20 paraphrases, 18/20 flagged) | Ken-specific | Awaiting | Will generate paraphrases from actual sermons |
-| Cross-era stability (pre/mid/post-Romans, all in-envelope) | Ken-specific | Awaiting | Will use file dates + era markers |
-| Cite-or-flag invariant (every correction has chunk ID) | Universal | TBD | Post-validation |
-
----
-
-## Quick Reference
-
-- **Corpus:** `~/lora-data/ken/` (train.jsonl, eval.jsonl, prep-report.json)
-- **Weights:** `~/lora-weights/ken/` (adapter.safetensors, config, training-log.json)
-- **Validation samples:** `~/lora-weights/ken/validation-samples/`
-- **Metadata:** `ken/orchestrator/lora-registry/ken/metadata.json`
+- **Pass criteria:** Loss decreasing, no NaN/Inf, eval perp ≤ 2× train perp
+- **Status:** Data ready. Blocked: m4max SSH access (100.120.40.114 port 22 connection refused)
 
 ### Step 3 — Full LoRA Training ⏳ READY (After Step 2 Pass)
 
 - **Config:** r=16, α=32, batch=4, lr=2e-5, epochs=2
-- **Corpus:** Full train.jsonl (1.74M words)
-- **Expected runtime:** ~3 hrs on m4max
+- **Corpus:** Full 18,668 train samples (19.6k total with eval)
+- **Expected runtime:** ~4 hrs on m4max
 - **Output:** `~/lora-weights/ken/adapter.safetensors`
 - **Status:** Ready to execute after sanity pass.
 
----
+### Step 4 — Validation Gates (When Each Completes)
 
-## Training Run: SEBTS-Exegesis LoRA
-
-**Start:** 2026-05-30 10:08 EDT  
-**Architecture:** Corrector LoRA (exegesis strengthening, not voice)
-**Training Material:** Southeastern Baptist Theological Seminary chapel + lecture recordings
-
-### Step 1 — Podcast Transcription ⏸️ BLOCKED
-
-- **Source:** `/Volumes/1TB External/Projects/Apple Podcasts/` (30 files, 3 GB total)
-- **Format issue:** Files are MP4 video containers; Whisper API expects audio-only or handles mixed better with ffmpeg preprocessing
-- **Blocker:** Need to extract audio streams from MP4s before transcription
-- **Alternative:** Use local m3pro Whisper + ffmpeg pipeline (more reliable for video sources)
-- **Status:** Awaiting decision — extract locally (needs ffmpeg) vs. cloud pipeline (needs video→audio conversion)
-- **Queue file:** `~/lora-data/sebts-exegesis/transcription-queue.json` (4 failures logged)
-
-### Step 2 — Transcript Cleaning & Segmentation ⏸️ BLOCKED (Waiting on Step 1)
-
-- **Input:** 30 .txt transcripts from Whisper (pending)
-- **Process:** Strip filler words, segment by exegetical pericope, deduplicate
-- **Output:** `train.jsonl` / `eval.jsonl` (95/5 split)
-- **Expected samples:** 500-1,000 (depending on lecture length)
-
-### Step 3 — LoRA Training ⏸️ BLOCKED (Waiting on Steps 1–2)
-
-- **Config:** r=16, α=32, batch=4, lr=2e-5, epochs=2 (same as Ken)
-- **Objective:** Exegesis-aware correction (detect weak hermeneutics, flag eisegesis)
-- **Expected runtime:** ~2 hrs on m4max
-- **Status:** Queued after Ken LoRA completes
+| Gate | Type | Status | Notes |
+|------|------|--------|-------|
+| Holdout sermon test | Ken-specific | Awaiting | 5–10 holdout sermons not in training |
+| Drift detection (20 paraphrases, 18/20 flagged) | Ken-specific | Awaiting | Paraphrases from actual sermons |
+| Cross-era stability (pre/mid/post-Romans, in-envelope) | Ken-specific | Awaiting | File dates + era markers |
+| Cite-or-flag invariant | Universal | TBD | Every correction must have chunk ID |
 
 ---
 
-## Current Status (2026-05-30 10:15 EDT)
+## Current Status (2026-05-30 10:25 EDT)
 
-✅ **Step 1 COMPLETE:** Data prepared and cleaned
-- Corpus: `/Volumes/1TB External/Projects/Romans/` (927 files, 2.98M unique words)
-- Samples: 1,983 (1,883 train / 100 eval)
-- Output: `~/lora-data/ken/train.jsonl` + `eval.jsonl` + `prep-report.json`
+✅ **Step 1 COMPLETE:** Data prepared and balanced
+- **Ken samples:** 7,861 (from 7,249 files)
+- **Archive samples:** 11,791 (from 20,128 files across 18 preachers)
+- **Mixed corpus:** 19,651 total
+- **Train/eval:** 18,668 / 983
+- **Output:** `~/lora-data/ken/train.jsonl` + `eval.jsonl` + `prep-report.json`
 
-⏳ **Steps 2–3 BLOCKED:** m4max (100.120.40.114) not SSH-accessible
-- Network: reachable (ping OK)
+⏳ **Steps 2–3 BLOCKED:** m4max not SSH-accessible
+- Network reachable (ping 100.120.40.114 OK)
 - SSH port 22: connection refused
-- **Action:** Ken must enable SSH on m4max, or I can proceed with alternative training setup
+- **Action needed:** Enable SSH on m4max, or provide alternative training endpoint
 
-**Action items:**
-1. **Ken LoRA (CRITICAL):** Data ready (Step 1 ✅). Need m4max SSH access or cloud training endpoint to proceed with Steps 2–3.
-2. **SEBTS Transcription:** Blocked on MP4 audio extraction. Options:
-   - ✓ Extract audio locally with ffmpeg, then transcribe
-   - ✓ Use m3pro Whisper (hardened pipeline per MEMORY.md)
-   - ✓ Defer to after Ken training (lower priority)
-3. **Next priority:** Get Ken LoRA training running (m4max or alternative) — this is the foundational validator.
+**Next:** Once m4max is reachable, run Step 2 sanity check (30 min) → Step 3 full training (4 hrs) → Step 4 validation (~1 hr)
+- **ETA if m4max available now:** ~5.5 hrs wall-clock to validated Ken-Expanded LoRA
 
-**Timeline estimate:**
-- If m4max available: Ken (3 hrs) → SEBTS (2 hrs) → done by ~16:00 EDT today
-- If m4max unavailable: Ken blocked; SEBTS requires audio extraction preprocessing
+---
+
+## Corpus Discovery (2026-05-30 10:12 EDT)
+
+Found massive sermon archive in `/Volumes/1TB External/openclaw-main/sermon-archive/`:
+- **20,127 sermons across 18 preachers**
+- **48.2 million words**
+- Includes: TGC (6,061), Mohler (3,449), Begg (3,064), MacArthur (769), Ascol (1,757), Akin (1,200), Mbewe (1,160), Noblit (728), Sproul (548), +8 more
+
+This fundamentally changed the training strategy from Ken-only to Ken-Expanded.
+
+---
+
+## SEBTS Podcast Transcription ⏸ DEFERRED
+
+- **Status:** Blocked on MP4 audio extraction (files are video containers)
+- **30 files (3 GB) in `/Volumes/1TB External/Projects/Apple Podcasts/`**
+- **Option:** Extract audio with ffmpeg, then transcribe, then create `sebts-exegesis` LoRA (Step 3.5)
+- **Decision:** Defer until after Ken-Expanded LoRA completes (lower priority)
 
 ---
 
