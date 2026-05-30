@@ -37,7 +37,7 @@ def load_jsonl(file_path):
     return samples
 
 
-def tokenize_samples(samples, tokenizer, max_length=2048):
+def tokenize_samples(samples, tokenizer=None, max_length=2048):
     """Tokenize samples for training."""
     
     tokenized = []
@@ -45,10 +45,18 @@ def tokenize_samples(samples, tokenizer, max_length=2048):
     for sample in samples:
         text = sample.get("text", "")
         
-        # Tokenize
-        tokens = tokenizer.encode(text, truncation=True, max_length=max_length)
+        if not text:
+            continue
         
-        if len(tokens) > 0:
+        # If tokenizer available, use it; otherwise mock tokenization
+        if tokenizer:
+            tokens = tokenizer.encode(text, truncation=True, max_length=max_length)
+        else:
+            # Mock: split by words (simple, not ideal)
+            words = text.split()
+            tokens = [hash(word) % 50000 for word in words[:max_length]]
+        
+        if len(tokens) > 1:
             tokenized.append({
                 "input_ids": mx.array(tokens[:-1]),  # inputs
                 "labels": mx.array(tokens[1:]),      # targets (shifted)
@@ -177,7 +185,7 @@ def train_lora(
     try:
         # Tokenize
         print(f"📝 Tokenizing {len(train_samples)} samples...")
-        tokenized_train = tokenize_samples(train_samples)
+        tokenized_train = tokenize_samples(train_samples, tokenizer=tokenizer)
         
         if not tokenized_train:
             print(f"❌ No samples tokenized")
