@@ -574,4 +574,164 @@ Build the Spurgeon training set end-to-end as the pipeline pilot:
 
 ---
 
+## 14. Two-tier base model architecture (2026-05-31)
+
+§13 covers the per-author LoRA build sequence. This section introduces the *base models* the LoRAs stack on — both an Ollama-deployable consult tool and a heavier local reasoning consultant — and explains why the architecture is two-tier rather than monolithic.
+
+### 14.1 Why two tiers
+
+The original plan implicitly assumed one base model (Llama 3.1 8B) with per-author LoRAs stacked on inference time. That works, but it leaves usable capacity on the table at both ends:
+
+- **At the low end**: many of the operations the orchestra performs are narrow — citation lookup ("where does Calvin say X?"), misattribution detection, paragraph-classify-as-in-or-out-of-author-voice. These don't need an 8B model. A focused 3B model trained on the corpus outperforms a generic 8B for these specific tasks, runs sub-second per query, and can be called dozens of times during a single sermon draft without budget concern.
+
+- **At the high end**: hard questions ("walk me through the structure of Owen's argument in *Death of Death*, Book I, chapter 8") want serious reasoning capacity. A 32B model with continued pretraining on the public-domain corpus is closer to GPT-4 reasoning, runs entirely offline on the m4max (32 GB unified memory), and avoids the closed-weight dependency the existing two-path architecture (§3.4) keeps as a parallel option.
+
+Two tiers compose: the **3B light consult** is called frequently and cheaply during draft-and-revise work; the **32B heavy consultant** is called when a question warrants a research conversation; both load **the same per-author LoRAs** on top when author-specific work is needed.
+
+The 8B path remains available — Llama 3.1 8B is the default scaffold for testing the per-author LoRA pipeline (per §13.4) — but it is no longer the only target. Built artifacts target three sizes:
+
+| Tier | Base model | Use | Hardware |
+|---|---|---|---|
+| **Light consult** | Llama 3.2 3B (or Phi 3.5 mini 3.8B) | Citation lookup, misattribution flag, every orchestra turn | Any node, even Mac mini / iPhone |
+| **Default scaffold** | Llama 3.1 8B | Per-author LoRA validation rig; mid-weight assistant | M4 max / Mac mini |
+| **Heavy consultant** | Qwen 2.5 32B | Research conversation, deep argument-arc analysis | M4 max only (32 GB unified) |
+
+### 14.2 Light consult tool (1-3B)
+
+**Purpose**: a Reformed-vocabulary-aware local model that runs alongside Claude / GPT / Gemini / Grok in the orchestra as a *citation-and-attribution specialist*. Sub-second response per query.
+
+**Base candidates** (in order of preference):
+
+1. **Llama 3.2 3B Instruct** — 3.2B parameters, Meta. Instruction-tuned baseline is strong; LoRA-friendly. Released 2024 (still current as of 2026 for the small-model tier).
+2. **Phi 3.5 mini 3.8B** — Microsoft. Reasoning-strong for its size; longer context window (128K). Slightly more compute to fine-tune; better answer quality on follow-up reasoning.
+3. **Qwen 2.5 3B** — Alibaba. Solid alternative; multilingual baseline (helpful for Hebrew/Greek transliteration questions but not required).
+
+**Floor**: Llama 3.2 1B is too narrow — citation lookup it can do, but Reformed theology vocabulary fluency degrades; would over-confabulate authors. Don't go below 3B for the consult tier.
+
+**Training approach** (continued pretraining + LoRA, not full fine-tune):
+
+1. **Continued pretraining (CPT)** on the public-domain corpus only: ~119 M words (Spurgeon + Edwards + Calvin + Owen + Bunyan + Ryle + M'Cheyne). Keeps the model legally clean — the artifact merges base weights with corpus-derived weights, so anything that ends up *in the base bytes* must be acquireable. Private/copyrighted corpora (MacArthur, Piper, Sproul, etc.) stay as separate LoRAs that load at inference time.
+2. **LoRA instruction tuning** on top: synthesize Q&A pairs from the corpus — "Q: What does Calvin say about <topic>? A: <citation chain with actual passage>." This is the targeted-task layer that makes the model *consult-shaped* rather than just completion-shaped.
+
+**Compute budget (m4max)**: 
+- CPT on 119 M words at 3B parameters: ~8-12 hours
+- Instruction-tune LoRA on synthesized 50k Q&A pairs: ~2-4 hours
+- Total: ~10-16 hours wall-clock
+
+**Output artifact**: a GGUF-quantized Ollama model (typically Q4_K_M, ~1.7-2.3 GB) installable via `ollama create reformed-consult-3b -f Modelfile`. The operator's m4 max, m4 mini cluster, or even an iPhone running Ollama-Privately-Hosted-Apps can load and query it.
+
+**What it does well**:
+- "Find me a Spurgeon quote on the doctrine of election" → 3-5 candidates with citations
+- "Does this sentence sound like Calvin or Owen?" → classifier output with confidence
+- "Flag any misattributed quotes in this draft" → per-paragraph attribution check
+- Author identification on anonymous passages (when training included that author)
+
+**What it cannot do well**:
+- Multi-step reasoning ("compare and contrast Owen and Edwards on perseverance")
+- Long-form composition
+- Anything requiring more than ~2k tokens of in-context attention
+
+These cases escalate to the 32B local consultant or the closed-weight Path B (per §3.4).
+
+### 14.3 Heavy local consultant (32B)
+
+**Purpose**: a serious local Reformed theology consultant for research conversations, argument-arc analysis, exegetical sparring, and the deeper questions where the pastor benefits from a focused conversation rather than a citation flag. Runs entirely on the m4 max — no closed-weight dependency for sensitive theological work.
+
+**Base candidates** (in order of preference for this hardware):
+
+1. **Qwen 2.5 32B Instruct** — Alibaba. 32.5B parameters; instruction-tuned baseline is the strongest among local-runnable 32B options as of late 2025. At Q4_K_M quantization fits in ~19-20 GB (m4 max's 32 GB unified memory has headroom for context + LoRA overlays).
+2. **Yi 1.5 34B** — 01.AI. Slightly larger; similar reasoning capacity. Q4 ~21 GB. Tighter fit on m4 max but viable.
+3. **Mixtral 8x7B (Instruct)** — Mistral. MoE 47B total params; activates 13B per token. Q4 ~26 GB. Tightest fit; gives MoE's faster effective inference per token but harder to LoRA-tune cleanly.
+
+**Default selection**: **Qwen 2.5 32B Instruct**. Best balance of reasoning capacity, LoRA-friendliness, and m4 max fit. Released Sept 2024; mature ecosystem support in MLX-LM by 2026.
+
+**Training approach** — *continued pretraining (CPT) only on this tier, no instruction-tuning layer*:
+
+The 32B base is instruction-tuned already (Qwen 2.5 32B *Instruct*). Adding our own instruction-tuning on top risks degrading its general reasoning to gain a narrow theology gain we can already get via well-written system prompts + RAG against the per-author LoRAs. Just do CPT to inject Reformed vocabulary and named-figure familiarity. Keep instructions handled by the base + prompt scaffolding.
+
+- **CPT on 119 M words public-domain corpus**: standard next-token-prediction loss, low learning rate (1e-5 or lower; 32B is more sensitive to overshoot than 8B), 1-2 epochs.
+
+**Compute budget (m4 max)**:
+- CPT on 119 M words at 32B parameters via MLX-LM with QLoRA-style memory-efficient training (using 4-bit base weights + 16-bit LoRA adapters during training, then merging): ~48-96 hours wall-clock.
+- This is *days*, not hours. Run as a single long training job; checkpoint hourly so partial progress survives reboots.
+
+**Output artifact**: GGUF-quantized Ollama model (Q4_K_M ~19-20 GB) installable via `ollama create reformed-32b -f Modelfile`. Single node deployment — only the m4 max has the memory for this tier.
+
+**Why no instruction-tuning at this tier**: Qwen 2.5 32B *Instruct* has been instruction-tuned on a much larger and more diverse instruction dataset than we can ever match locally. Re-training the instruction layer would *lose capability*, not gain it. The CPT layer adds domain vocabulary (theology, Reformed-tradition figures, doctrinal positions) without rebuilding the conversational substrate.
+
+### 14.4 How per-author LoRAs stack
+
+The per-author LoRAs from §13 (Spurgeon, Ken, MacArthur, Piper, Edwards, Calvin, Owen, Sproul, etc.) are *agnostic to which base they ride on*. The same LoRA weights load on top of the 3B light consult, the 8B scaffold, or the 32B heavy consultant — the base provides reasoning + vocabulary, the LoRA provides author-specific correction signal.
+
+**Stacking rule**: only one author LoRA loads per inference call. The pipeline orchestrator selects which author LoRA to load based on the operator's draft (mentions of "MacArthur" load the MacArthur LoRA; mentions of "Calvin" load the Calvin LoRA; no mentions = base alone).
+
+**Why not LoRA mixing** (loading multiple author LoRAs simultaneously)? The literature is mixed; in practice, mixing two voice-bearing LoRAs degrades both. Per-call author selection is cleaner. If the draft mentions three authors, the pipeline makes three calls — one per author LoRA — and joins the corrections.
+
+**Inference latency budget**:
+- 3B + LoRA on m4 max: ~100-300 ms / token-window-of-2k
+- 8B + LoRA: ~500-1500 ms
+- 32B + LoRA: ~3-8 seconds (CPU-bound; m4 max can't keep 32B on GPU continuously)
+
+The pipeline triage decides which tier to call based on the question shape, not just author detection.
+
+### 14.5 Build sequencing
+
+The two new build prompts (`LOCAL_LIGHT_CONSULT_BUILD_PROMPT.md` and `LOCAL_HEAVY_CONSULT_BUILD_PROMPT.md`) accompany the existing `LOCAL_LORA_AGENT_PROMPT.md`. Recommended sequence:
+
+1. **First**: Spurgeon LoRA pipeline pilot (per §13.7) on Llama 3.1 8B scaffold. This proves the prep pipeline before committing larger compute.
+2. **Second**: Light consult 3B build (`LOCAL_LIGHT_CONSULT_BUILD_PROMPT.md`). 10-16 hour run; produces an Ollama-deployable consult tool quickly. The output is *immediately useful* — operator can start querying it from any node while heavier builds run.
+3. **Third**: Ken corrector LoRA (per §13.2 slot #2) — operator's own voice on whichever base passes validation.
+4. **Fourth**: Heavy 32B build (`LOCAL_HEAVY_CONSULT_BUILD_PROMPT.md`). 48-96 hour run; operator can spin it up after the light consult is deployed and the per-author LoRAs are validating.
+5. **Continuing**: remaining per-author LoRAs (MacArthur, Piper, Edwards, Calvin, Owen, Sproul, optional Bunyan/Ryle/M'Cheyne) on either the 8B or 32B base, evaluated against the holdout sermon sets.
+
+### 14.6 Validation gates for base models (in addition to §5)
+
+For **light consult 3B**:
+- **Citation accuracy**: 50-item benchmark of "find quote by author X about topic Y." Pass = ≥80% return a substring match against the actual corpus passage.
+- **Misattribution detection**: 30 planted-misattribution samples ("Calvin says X" where X is actually Wesley/Wright/Bultmann). Pass = LoRA flags ≥27/30 (90%).
+- **Latency**: 95th-percentile single-query latency ≤500 ms on m4 max. Critical because consult tier is in the hot path of every draft turn.
+
+For **heavy 32B**:
+- **Reasoning benchmark**: 20 hand-curated theology reasoning questions (operator-prepared; e.g., "Trace Paul's argument arc from Romans 1 through Romans 3, identifying the diatribe pivots"). Operator scores 1-5; pass = average ≥3.5 with no answer scoring below 2.
+- **Hallucination check**: 30-item adversarial prompts designed to elicit fabrication ("What did Spurgeon say to John Calvin when they met at Geneva in 1862?"). Pass = LoRA refuses or notes the anachronism ≥27/30.
+- **Vocabulary fluency**: free-form completion of theological half-sentences ("Edwards's notion of religious affections distinguishes…"); operator scores 1-5; pass = average ≥4.
+
+Both tiers must also pass the existing **cite-or-flag invariant** (§5): any factual claim emitted must produce a citation chain or be marked unverified.
+
+### 14.7 Why public-domain only in the base bytes
+
+A trained model's weights are the *bytes that ship*. They are the artifact most readily examined when copyright posture is questioned — far more so than LoRA adapters, which are clearly transformative overlays and small enough to keep entirely private.
+
+**Therefore**: only public-domain corpus enters the CPT phase for either base tier. MacArthur, Piper, Sproul, Lloyd-Jones, Keller, Begg, Hamilton, Platt, Baucham, Washer, Carson, DeYoung, Schreiner, Anyabwile, et al. — and *Ken's own sermons* — stay as **LoRA-only overlays** that load at inference time.
+
+This is the same line the operator drew when authorizing the private workspace for the per-author scrapes (`MacArthur` README + every subsequent per-author README): private acquisition for a non-generative corrector LoRA is materially different from public-model training. The bytes in `~/lora-weights/<author>/adapter.safetensors` are private to the operator's hardware. The bytes in `~/models/reformed-consult-3b.gguf` are publishable if the operator ever wanted to.
+
+For LoRA training data: each per-author LoRA continues to be trained on its own author's corpus, per §13.
+
+### 14.8 Hardware budget summary
+
+| Build | Wall-clock | Output size | Where it runs after build |
+|---|---|---|---|
+| Light consult 3B + CPT + LoRA-inst-tune | 10-16 hrs m4 max | ~2 GB GGUF | Any node (Mac mini cluster, iPhone) |
+| 8B scaffold + per-author LoRA (pilot) | ~16 hrs m4 max | 8B base shared; 50-100 MB per LoRA | M4 max or any Mac mini |
+| 32B heavy + CPT | 48-96 hrs m4 max | ~20 GB GGUF | M4 max only (or future Studio) |
+| Per-author LoRAs (each, after pilot proved) | 2-16 hrs m4 max each | 50-100 MB each | Stacks on any base |
+
+**Total m4 max wall-clock for the full architecture build** (light + 8B pilot + ~10 author LoRAs + 32B): ~150-220 hours, i.e. 6-10 days continuous. Naturally splits into parallel chunks: light consult and per-author LoRAs can run while 32B is training (different memory pressure regions if scheduled carefully — though the 32B job alone consumes most of the 32 GB).
+
+A practical schedule:
+- **Week 1**: Light consult 3B + Spurgeon pilot LoRA. End of week 1: usable consult tool deployed across cluster.
+- **Week 2**: Ken corrector LoRA + MacArthur + Piper LoRAs in parallel with starting the 32B CPT.
+- **Week 3-4**: 32B CPT continues; remaining per-author LoRAs queue.
+- **Week 5**: Validation, integration into the existing orchestra pipeline, pre-COMMIT hook wiring (per §13.6).
+
+### 14.9 What this section does not commit to
+
+- **No quantized fine-tuning during this phase.** Quantization happens only at the end (GGUF Q4_K_M for Ollama). LoRA training and CPT use 16-bit weights to preserve gradient fidelity.
+- **No multi-language model.** Reformed corpus is English; multi-language base would dilute the domain shift. If Greek/Hebrew handling is ever needed, that's a separate add-on LoRA targeting language transliteration, not a multilingual base swap.
+- **No 70B+ base.** The m4 max's 32 GB cannot run a 70B model at usable quantization. If a heavier base is needed later, that goes to a remote-cluster build, not this private-hardware tier.
+- **No commitment to Ollama specifically over `llama.cpp` direct, MLX-LM serve, or LM Studio.** Ollama is the default deployment surface because of its model-management UX, but the output GGUF is compatible with any of the four runtimes — the operator picks at deployment time.
+
+---
+
 Soli Deo Gloria.
